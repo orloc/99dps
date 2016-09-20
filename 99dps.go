@@ -9,13 +9,30 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"time"
 )
 
 const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
 
 func main() {
+
+	fname := getLastActiveFile()
+
+	//startSpot := tail.SeekInfo{0, os.SEEK_END}
+	t, err := tail.TailFile(fname, tail.Config{
+		//	Location: &startSpot,
+		Follow: true,
+	})
+
+	checkErr(err)
+
+	for line := range t.Lines {
+		fmt.Println(line.Text)
+	}
+}
+
+func getLastActiveFile() string {
 	var validCharFile = regexp.MustCompile(`^.*eqlog_.*project1999.txt$`)
+
 	dir, err := filepath.Abs(eqLogDir)
 	checkErr(err)
 	fileList := []os.FileInfo{}
@@ -32,39 +49,9 @@ func main() {
 
 	topFile := fileList[0]
 
-	fname := getFilePath(topFile)
-	file, err := os.Open(fname)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	c := time.Tick(1 * time.Second)
-	for _ = range c {
-		readFile(fname, file)
-	}
-
-	/*
-		fileHandle, err := os.Open(getFilePath(topFile))
-		checkErr(err)
-
-		scanner := bufio.NewScanner(fileHandle)
-		for scanner.Scan() {
-			fmt.Println(scanner.Text())
-		}
-	*/
+	return getFilePath(topFile)
 }
 
-func readFile(fname string, file *os.File) {
-	buf := make([]byte, 100)
-	stat, err := os.Stat(fname)
-	start := stat.Size() - 100
-	_, err = file.ReadAt(buf, start)
-	if err == nil {
-		fmt.Printf("%s\n", buf)
-	}
-
-}
 func getFilePath(f os.FileInfo) string {
 	return eqLogDir + "/" + f.Name()
 }
