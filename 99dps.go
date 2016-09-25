@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	_ "time"
 )
 
 const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
@@ -17,16 +18,23 @@ func main() {
 
 	fname := getLastActiveFile()
 
-	//startSpot := tail.SeekInfo{0, os.SEEK_END}
+	fmt.Println("Opening %s", fname)
+
+	startSpot := tail.SeekInfo{0, os.SEEK_END}
 	t, err := tail.TailFile(fname, tail.Config{
-		//	Location: &startSpot,
-		Follow: true,
+		Location: &startSpot,
+		Follow:   true,
 	})
 
 	checkErr(err)
 
+	parser := DmgParser{}
+
 	for line := range t.Lines {
-		fmt.Println(line.Text)
+		if parser.HasDamage(line.Text) {
+			// get target damager and damage with time
+			parser.ParseDamage(line.Text)
+		}
 	}
 }
 
