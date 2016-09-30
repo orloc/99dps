@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/hpcloud/tail"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,7 +12,6 @@ const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
 
 func loadFile() *tail.Tail {
 	fname := getLastActiveFile()
-	log.Printf("Opening %s", fname)
 
 	startSpot := tail.SeekInfo{0, os.SEEK_END}
 	t, err := tail.TailFile(fname, tail.Config{
@@ -23,7 +21,6 @@ func loadFile() *tail.Tail {
 	checkErr(err)
 
 	return t
-
 }
 
 func getLastActiveFile() string {

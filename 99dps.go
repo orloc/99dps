@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"github.com/hpcloud/tail"
 	"log"
-	"os"
 )
 
 func main() {
@@ -18,7 +15,7 @@ func main() {
 
 	for {
 		newInput := <-inputChan
-		fmt.Println(newInput)
+		log.Println(newInput)
 	}
 
 }
@@ -30,7 +27,7 @@ func doParse(t *tail.Tail) {
 	for line := range t.Lines {
 		if parser.HasDamage(line.Text) {
 			if session.isStarted() {
-				fmt.Println("hi")
+				log.Println("hi")
 			} else {
 				dmgSet := parser.ParseDamage(line.Text)
 				_ = dmgSet
@@ -41,34 +38,6 @@ func doParse(t *tail.Tail) {
 			// get target damager and damage with time
 
 		}
-	}
-}
-
-func scanInput(c chan string) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-
-		switch scanner.Text() {
-		case "print":
-			fmt.Println("you got things")
-			break
-		case "quit":
-			fmt.Println("quiting bitches")
-			break
-		case "start":
-			fmt.Println("done started")
-			break
-		case "stop":
-			fmt.Println("get rekt")
-			break
-		default:
-			break
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-		os.Exit(1)
 	}
 }
 
