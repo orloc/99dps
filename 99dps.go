@@ -1,7 +1,6 @@
 package main
 
 import (
-	_ "bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
 	"log"
@@ -20,20 +19,24 @@ func main() {
 
 	fmt.Println("Opening %s", fname)
 
-	startSpot := tail.SeekInfo{0, os.SEEK_END}
+	//startSpot := tail.SeekInfo{0, os.SEEK_END}
 	t, err := tail.TailFile(fname, tail.Config{
-		Location: &startSpot,
-		Follow:   true,
+		//	Location: &startSpot,
+		Follow: true,
 	})
 
 	checkErr(err)
-
 	parser := DmgParser{}
+	session := CombatSession{}
 
 	for line := range t.Lines {
 		if parser.HasDamage(line.Text) {
+			// if the session is within an accepted interval
+			// use the old session - otherwise store and add to the new session
 			// get target damager and damage with time
-			parser.ParseDamage(line.Text)
+			dmgSet := parser.ParseDamage(line.Text)
+			session.Add(dmgSet)
+
 		}
 	}
 }

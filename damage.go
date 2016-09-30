@@ -3,47 +3,52 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
-/*
-
-	//[Wed Sep 21 01:17:52 2016] Higgy slashes an elemental warrior for 8 points of damage.
-type CombatSession struct {
-	DmgParser *DamageList
-	Start      time.Time
-	End        time.Time
-}
-*/
-
 type DmgParser struct {
 	workingString string
-	Index         []int
-	Names         []string
-	TotalDamage   []int
-	SpellsCast    []int
-	Times         []time.Time
 }
+
+type DamageSet struct {
+	actionTime time.Time
+	dealer     string
+	dmg        int
+	target     string
+}
+
+const COMBAT_VERB_STRING = "healed|heal|claw|claws|punches|punch|kicks|kick|bites|bite|slashes|slash|stings|sting|pierces|pierce|bashes|bash|hits|crush|backstabs|backstab|crushes|crush|non-melee"
 
 func (parser *DmgParser) HasDamage(inputString string) bool {
 	pattern := regexp.MustCompile(`^(\[.*\])(.*(?:(points of damage)))`)
-	return pattern.Match([]byte(inputString))
+	taken := regexp.MustCompile(`^(You have taken)([0-9]*(?:(points of damage)))`)
+	fmt.Println(pattern.Match([]byte(inputString)), !taken.Match([]byte(inputString)))
+	return pattern.Match([]byte(inputString)) && !taken.Match([]byte(inputString))
 }
 
-func (parser *DmgParser) ParseDamage(inputString string) {
+func (parser *DmgParser) ParseDamage(inputString string) (set *DamageSet) {
+	parser.workingString = inputString
+	fmt.Printf("%v\n", inputString)
 	c := make(chan string)
 	ct := make(chan time.Time)
-	parser.workingString = inputString
+
+	defer close(c)
+	defer close(ct)
+
 	go parser.getTime(ct)
 	go parser.getDealer(c)
+	time, dealer := <-ct, <-c
 	go parser.getDamage(c)
+	damage := <-c
 	go parser.getTarget(c)
+	target := <-c
 
-	time, dealer, damage, target := <-ct, <-c, <-c, <-c
+	dmg, err := strconv.Atoi(damage)
+	checkErr(err)
 
-	fmt.Println(target)
-
+	return &DamageSet{time, dealer, dmg, target}
 }
 
 func (parser *DmgParser) getTime(c chan time.Time) {
@@ -52,15 +57,10 @@ func (parser *DmgParser) getTime(c chan time.Time) {
 	c <- time
 }
 
-func (parser *DmgParser) getTarget(c chan string) {
-	targetPattern := regexp.MustCompile(`.*(?:for)`)
-	indxPattern := regexp.MustCompile(`(punches|kicks|slashes|bites|pierces|bashes|hits|backstabs|crushes)`)
-	match := targetPattern.FindString(parser.workingString[27:])
-
-	indx := indxPattern.FindIndex([]byte(match))
-	fmt.Printf("%v", indx, match)
-
-	c <- match[indx[1]-1:]
+func (parser *DmgParser) getLineTime(input string) time.Time {
+	time, err := time.Parse(time.ANSIC, input[1:25])
+	checkErr(err)
+	return time
 }
 
 func (parser *DmgParser) getDamage(c chan string) {
@@ -70,11 +70,24 @@ func (parser *DmgParser) getDamage(c chan string) {
 }
 
 func (parser *DmgParser) getDealer(c chan string) {
-	dealerPattern := regexp.MustCompile(`^(.*(?:(punches|kicks|bites|slashes|pierces|bashes|hits|backstabs|crushes)))`)
+	dealerPattern := regexp.MustCompile(fmt.Sprintf("^(.*(?:(%s)))", COMBAT_VERB_STRING))
 	match := dealerPattern.FindString(parser.workingString[27:])
-	replacePattern := regexp.MustCompile(`(punches|kicks|slashes|bites|pierces|bashes|hits|backstabs|crushes)`)
+	replacePattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
 
 	replaced := replacePattern.ReplaceAll([]byte(match), []byte(""))
+
+	c <- strings.Trim(string(replaced), " ")
+}
+
+func (parser *DmgParser) getTarget(c chan string) {
+	targetPattern := regexp.MustCompile(`.*(?:for)`)
+	indxPattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
+	replacePattern := regexp.MustCompile(`for`)
+
+	match := targetPattern.FindString(parser.workingString[27:])
+	indx := indxPattern.FindIndex([]byte(match))
+
+	replaced := replacePattern.ReplaceAll([]byte(match[indx[1]:]), []byte(" "))
 
 	c <- strings.Trim(string(replaced), " ")
 }
