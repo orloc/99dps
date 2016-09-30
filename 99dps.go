@@ -1,70 +1,75 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
 	"log"
 	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	_ "time"
 )
 
-const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
-
 func main() {
+	t := loadFile()
 
-	fname := getLastActiveFile()
+	inputChan := make(chan string)
 
-	fmt.Println("Opening %s", fname)
+	go scanInput(inputChan)
+	go doParse(t)
 
-	//startSpot := tail.SeekInfo{0, os.SEEK_END}
-	t, err := tail.TailFile(fname, tail.Config{
-		//	Location: &startSpot,
-		Follow: true,
-	})
+	for {
+		newInput := <-inputChan
+		fmt.Println(newInput)
+	}
 
-	checkErr(err)
+}
+
+func doParse(t *tail.Tail) {
 	parser := DmgParser{}
 	session := CombatSession{}
 
 	for line := range t.Lines {
 		if parser.HasDamage(line.Text) {
+			if session.isStarted() {
+				fmt.Println("hi")
+			} else {
+				dmgSet := parser.ParseDamage(line.Text)
+				_ = dmgSet
+			}
+
 			// if the session is within an accepted interval
 			// use the old session - otherwise store and add to the new session
 			// get target damager and damage with time
-			dmgSet := parser.ParseDamage(line.Text)
-			session.Add(dmgSet)
 
 		}
 	}
 }
 
-func getLastActiveFile() string {
-	var validCharFile = regexp.MustCompile(`^.*eqlog_.*project1999.txt$`)
+func scanInput(c chan string) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
 
-	dir, err := filepath.Abs(eqLogDir)
-	checkErr(err)
-	fileList := []os.FileInfo{}
-
-	err = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
-		if validCharFile.MatchString(path) {
-			fileList = append(fileList, f)
+		switch scanner.Text() {
+		case "print":
+			fmt.Println("you got things")
+			break
+		case "quit":
+			fmt.Println("quiting bitches")
+			break
+		case "start":
+			fmt.Println("done started")
+			break
+		case "stop":
+			fmt.Println("get rekt")
+			break
+		default:
+			break
 		}
-		return nil
-	})
+	}
 
-	checkErr(err)
-	sort.Sort(ByLastTouched(fileList))
-
-	topFile := fileList[0]
-
-	return getFilePath(topFile)
-}
-
-func getFilePath(f os.FileInfo) string {
-	return eqLogDir + "/" + f.Name()
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
 }
 
 func checkErr(err interface{}) {

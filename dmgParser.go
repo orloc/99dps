@@ -19,12 +19,12 @@ type DamageSet struct {
 	target     string
 }
 
-const COMBAT_VERB_STRING = "healed|heal|claw|claws|punches|punch|kicks|kick|bites|bite|slashes|slash|stings|sting|pierces|pierce|bashes|bash|hits|crush|backstabs|backstab|crushes|crush|non-melee"
+const COMBAT_VERB_STRING = "gore|gores|healed|heal|claw|claws|punches|punch|kicks|kick|bites|bite|maul|mauls|slashes|slash|slice|slices|strike|strikes|slash|stings|sting|pierces|pierce|bashes|bash|hits|crush|backstabs|backstab|crushes|crush|non-melee"
 
 func (parser *DmgParser) HasDamage(inputString string) bool {
 	pattern := regexp.MustCompile(`^(\[.*\])(.*(?:(points of damage)))`)
-	taken := regexp.MustCompile(`^(You have taken)([0-9]*(?:(points of damage)))`)
-	fmt.Println(pattern.Match([]byte(inputString)), !taken.Match([]byte(inputString)))
+	// we should handle this form of damage but atm it will break things
+	taken := regexp.MustCompile(`(You have taken)(.*(?:(points of damage)))`)
 	return pattern.Match([]byte(inputString)) && !taken.Match([]byte(inputString))
 }
 
