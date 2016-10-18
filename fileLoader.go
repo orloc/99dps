@@ -13,10 +13,10 @@ const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
 func loadFile() *tail.Tail {
 	fname := getLastActiveFile()
 
-	startSpot := tail.SeekInfo{0, os.SEEK_END}
+	//	startSpot := tail.SeekInfo{0, os.SEEK_END}
 	t, err := tail.TailFile(fname, tail.Config{
-		Location: &startSpot,
-		Follow:   true,
+		//		Location: &startSpot,
+		Follow: true,
 	})
 	checkErr(err)
 

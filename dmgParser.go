@@ -30,7 +30,7 @@ func (parser *DmgParser) HasDamage(inputString string) bool {
 
 func (parser *DmgParser) ParseDamage(inputString string) (set *DamageSet) {
 	parser.workingString = inputString
-	fmt.Printf("%v\n", inputString)
+	//	fmt.Printf("%v\n", inputString)
 	c := make(chan string)
 	ct := make(chan time.Time)
 
