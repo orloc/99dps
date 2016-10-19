@@ -7,6 +7,8 @@ import (
 	"log"
 )
 
+const EVENT_DISPLAY = "do_print"
+
 func main() {
 
 	/*
@@ -60,28 +62,37 @@ func main() {
 		window.ShowAll()
 		gtk.Main()
 	*/
-	t := loadFile()
+	activeFile := loadFile()
 
 	inputChan := make(chan string)
+	session := CombatSession{}
 
 	go scanInput(inputChan)
-	go doParse(t)
+	go doParse(activeFile, &session)
 
 	for {
 		newInput := <-inputChan
-		log.Println(newInput)
+		switch newInput {
+		case EVENT_DISPLAY:
+			session.Display()
+			break
+		}
 	}
 
 }
 
-func doParse(t *tail.Tail) {
+func doParse(t *tail.Tail, session *CombatSession) {
 	parser := DmgParser{}
-	session := CombatSession{}
+
+	if !session.IsStarted() {
+		session.Init()
+	}
 
 	for line := range t.Lines {
 		if parser.HasDamage(line.Text) {
 			dmgSet := parser.ParseDamage(line.Text)
 			session.AdjustDamage(dmgSet)
+			//session.Display()
 		}
 	}
 }

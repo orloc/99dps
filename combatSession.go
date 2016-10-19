@@ -19,6 +19,10 @@ type CombatSession struct {
 	aggressors map[string]DamageStat
 }
 
+func (cs *CombatSession) Init() {
+	cs.aggressors = make(map[string]DamageStat)
+}
+
 func (cs *CombatSession) IsStarted() bool {
 	return !cs.start.Equal(time.Time{})
 }
@@ -36,15 +40,23 @@ func (cs *CombatSession) AdjustDamage(set *DamageSet) {
 		if val.high < dmg {
 			val.high = dmg
 		}
+
+		cs.aggressors[indxRef] = val
 	} else {
-		cs.aggressors = make(map[string]DamageStat)
 		cs.aggressors[indxRef] = DamageStat{set.dmg, set.dmg, set.dmg}
 	}
 }
 
 func (cs *CombatSession) Display() {
 	fmt.Println("=== Damage ===\n")
-	fmt.Printf("%+v\n", cs)
+	for k, v := range cs.aggressors {
+		fmt.Printf("Dealer Name: %v\n\n", k)
+		fmt.Printf("Total: %v\n", v.total)
+		fmt.Printf("High: %v\n", v.high)
+		fmt.Printf("Low: %v\n", v.low)
+
+		fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>")
+	}
 	fmt.Println("=== End ===\n")
 }
 

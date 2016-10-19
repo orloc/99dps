@@ -12,7 +12,7 @@ func scanInput(c chan string) {
 
 		switch scanner.Text() {
 		case "print":
-			log.Println("you got things")
+			c <- EVENT_DISPLAY
 			break
 		case "quit":
 			log.Println("quiting bitches")
