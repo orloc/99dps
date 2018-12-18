@@ -65,7 +65,6 @@ func (parser *DmgParser) ParseDamage(inputString string) (set *DamageSet) {
 		}
 	}
 
-
 	return &result
 }
 
@@ -114,7 +113,6 @@ func (parser *DmgParser) getTarget(c chan DamageSet, group *sync.WaitGroup) {
 
 	match := targetPattern.FindString(parser.workingString[27:])
 
-
 	indx := indxPattern.FindIndex([]byte(match))
 
 	replaced := replacePattern.ReplaceAll([]byte(match[indx[1]:]), []byte(" "))
@@ -127,8 +125,6 @@ func (parser *DmgParser) getTarget(c chan DamageSet, group *sync.WaitGroup) {
 	if strings.Contains(s, "non-melee") {
 		s = "non-melee"
 	}
-
-	fmt.Println(s)
 
 	c <- DamageSet{target: strings.Trim(string(replaced), " ")}
 }

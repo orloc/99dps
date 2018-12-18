@@ -1,4 +1,4 @@
-package main
+package sorts
 
 import (
 	"os"

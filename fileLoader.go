@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"fmt"
+	"99dps/sorts"
 )
 
 const eqLogDir = "/home/orloc/.wine/drive_c/everquest/Logs"
@@ -39,15 +40,13 @@ func getLastActiveFile() string {
 	})
 
 	checkErr(err)
-	sort.Sort(ByLastTouched(fileList))
+	sort.Sort(sorts.ByLastTouched(fileList))
 
 	if len(fileList) == 0 {
 		panic(fmt.Sprintf("found no files in %s", eqLogDir))
 	}
 
 	topFile := fileList[0]
-
-	fmt.Printf("Found file: %s\n\n", topFile.Name())
 
 	return getFilePath(topFile)
 }
