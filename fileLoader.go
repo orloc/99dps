@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"fmt"
 )
 
-const eqLogDir = "/home/orloc/WineDirs/eq/drive_c/everquest/Logs"
+const eqLogDir = "/home/orloc/.wine/drive_c/everquest/Logs"
 
 func loadFile() *tail.Tail {
 	fname := getLastActiveFile()
@@ -40,7 +41,13 @@ func getLastActiveFile() string {
 	checkErr(err)
 	sort.Sort(ByLastTouched(fileList))
 
+	if len(fileList) == 0 {
+		panic(fmt.Sprintf("found no files in %s", eqLogDir))
+	}
+
 	topFile := fileList[0]
+
+	fmt.Printf("Found file: %s\n\n", topFile.Name())
 
 	return getFilePath(topFile)
 }

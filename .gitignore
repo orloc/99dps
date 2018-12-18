@@ -1,5 +1,5 @@
 *.swp
 *.swo
 *~
-Godeps/_workspace
+vendor/*
 99dps
