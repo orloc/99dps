@@ -1,11 +1,13 @@
 package main
 
 import (
-	"github.com/hpcloud/tail"
-	"log"
 	"99dps/parser"
 	"fmt"
+	"sync"
+	"99dps/loader"
 )
+
+var rwLock = sync.RWMutex{}
 
 const intro = `
 =================================
@@ -25,41 +27,21 @@ const EVENT_DISPLAY = "do_print"
 func main() {
 
 	fmt.Println(intro)
-	activeFile := loadFile()
+	activeFile := loader.LoadFile()
 
 	inputChan := make(chan string)
 	session := parser.CombatSession{}
 
 	defer close(inputChan)
 
+	go parser.DoParse(activeFile, &session, &rwLock)
 	go scanInput(inputChan)
-	go doParse(activeFile, &session)
 
 	for msg := range inputChan {
 		switch msg {
 		case EVENT_DISPLAY:
-			session.Display()
+			session.Display(&rwLock)
 		}
 	}
 }
 
-func doParse(t *tail.Tail, session *parser.CombatSession) {
-	p := parser.DmgParser{}
-
-	if !session.IsStarted() {
-		session.Init()
-	}
-
-	for line := range t.Lines {
-		if p.HasDamage(line.Text) {
-			dmgSet := p.ParseDamage(line.Text)
-			session.AdjustDamage(dmgSet)
-		}
-	}
-}
-
-func checkErr(err interface{}) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}

@@ -1,8 +1,8 @@
-package parser
+package util
 
 import "log"
 
-func checkErr(err interface{}) {
+func CheckErr(err interface{}) {
 	if err != nil {
 		log.Fatal(err)
 	}

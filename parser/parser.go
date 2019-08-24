@@ -7,29 +7,41 @@ import (
 	"strings"
 	"time"
 	"sync"
+	"github.com/imdario/mergo"
+	"99dps/util"
+	"github.com/hpcloud/tail"
 )
 
 type DmgParser struct {
 	workingString string
 }
 
-type DamageSet struct {
-	actionTime int64
-	dealer     string
-	dmg        int
-	target     string
+const COMBAT_VERB_STRING = "gores|gore|healed|heal|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush|non-melee"
+
+func DoParse(t *tail.Tail, session *CombatSession, mutex *sync.RWMutex) {
+	p := DmgParser{}
+
+	if !session.IsStarted() {
+		session.Init()
+	}
+
+	for line := range t.Lines {
+		if p.hasDamage(line.Text) {
+			dmgSet := p.parseDamage(line.Text)
+			session.AdjustDamage(&dmgSet, mutex)
+		}
+	}
 }
 
-const COMBAT_VERB_STRING = "gore|gores|healed|heal|claw|claws|punches|punch|kicks|kick|bites|bite|maul|mauls|slashes|slash|slice|slices|strike|strikes|slash|stings|sting|pierces|pierce|bashes|bash|hit|hits|backstabs|backstab|crushes|crush|non-melee"
-
-func (parser *DmgParser) HasDamage(inputString string) bool {
+func (parser *DmgParser) hasDamage(inputString string) bool {
 	pattern := regexp.MustCompile(`^(\[.*\])(.*(?:(points of damage)))`)
-	// we should handle this form of damage but atm it will break things
+	// we should handle this form of damage but atm it will break things -
+	// spell damage will be hard to attribute as messages are not consistent
 	taken := regexp.MustCompile(`(You have taken)(.*(?:(points of damage)))`)
 	return pattern.Match([]byte(inputString)) && !taken.Match([]byte(inputString))
 }
 
-func (parser *DmgParser) ParseDamage(inputString string) (set *DamageSet) {
+func (parser *DmgParser) parseDamage(inputString string) (set DamageSet) {
 	parser.workingString = inputString
 	var wg sync.WaitGroup
 	c := make(chan DamageSet, 4)
@@ -48,39 +60,22 @@ func (parser *DmgParser) ParseDamage(inputString string) (set *DamageSet) {
 	result := DamageSet{}
 
 	for msg := range c {
-		if msg.target != "" {
-			result.target = msg.target
-		}
-
-		if msg.dealer != "" {
-			result.dealer = msg.dealer
-		}
-
-		if msg.dmg != 0 {
-			result.dmg = msg.dmg
-		}
-
-		if msg.actionTime != 0 {
-			result.actionTime = msg.actionTime
+		if err := mergo.Merge(&result, msg); err != nil {
+			// RIP
+			fmt.Errorf("ERROR: %s", err)
+			continue
 		}
 	}
 
-	return &result
+	return result
 }
 
 func (parser *DmgParser) getTime(c chan DamageSet, group *sync.WaitGroup) {
 	defer group.Done()
 	t, err := time.Parse(time.ANSIC, parser.workingString[1:25])
-	checkErr(err)
+	util.CheckErr(err)
 
-
-	c <- DamageSet{ actionTime: t.Unix()}
-}
-
-func (parser *DmgParser) getLineTime(input string) time.Time {
-	t, err := time.Parse(time.ANSIC, input[1:25])
-	checkErr(err)
-	return t
+	c <- DamageSet{ ActionTime: t.Unix()}
 }
 
 func (parser *DmgParser) getDamage(c chan DamageSet, group *sync.WaitGroup) {
@@ -89,20 +84,21 @@ func (parser *DmgParser) getDamage(c chan DamageSet, group *sync.WaitGroup) {
 	match := damagePattern.FindString(parser.workingString[27:])
 
 	dmg, err := strconv.Atoi(match)
-	checkErr(err)
+	util.CheckErr(err)
 
-	c <- DamageSet{ dmg: dmg}
+	c <- DamageSet{ Dmg: dmg}
 }
 
 func (parser *DmgParser) getDealer(c chan DamageSet, group *sync.WaitGroup) {
 	defer group.Done()
 	dealerPattern := regexp.MustCompile(fmt.Sprintf("^(.*(?:(%s)))", COMBAT_VERB_STRING))
 	match := dealerPattern.FindString(parser.workingString[27:])
+
 	replacePattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
 
 	replaced := replacePattern.ReplaceAll([]byte(match), []byte(""))
 
-	c <- DamageSet{ dealer: strings.Trim(string(replaced), " ")}
+	c <- DamageSet{ Dealer: strings.Trim(string(replaced), " ")}
 }
 
 func (parser *DmgParser) getTarget(c chan DamageSet, group *sync.WaitGroup) {
@@ -126,5 +122,5 @@ func (parser *DmgParser) getTarget(c chan DamageSet, group *sync.WaitGroup) {
 		s = "non-melee"
 	}
 
-	c <- DamageSet{target: strings.Trim(string(replaced), " ")}
+	c <- DamageSet{ Target: strings.Trim(string(replaced), " ")}
 }

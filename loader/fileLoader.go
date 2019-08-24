@@ -1,4 +1,4 @@
-package main
+package loader
 
 import (
 	"github.com/hpcloud/tail"
@@ -8,11 +8,13 @@ import (
 	"sort"
 	"fmt"
 	"99dps/sorts"
+	"99dps/util"
 )
 
+// @TODO make me config
 const eqLogDir = "/home/orloc/.wine/drive_c/everquest/Logs"
 
-func loadFile() *tail.Tail {
+func LoadFile() *tail.Tail {
 	fname := getLastActiveFile()
 
 	//	startSpot := tail.SeekInfo{0, os.SEEK_END}
@@ -20,7 +22,7 @@ func loadFile() *tail.Tail {
 		//		Location: &startSpot,
 		Follow: true,
 	})
-	checkErr(err)
+	util.CheckErr(err)
 
 	return t
 }
@@ -29,8 +31,8 @@ func getLastActiveFile() string {
 	var validCharFile = regexp.MustCompile(`^.*eqlog_.*project1999.txt$`)
 
 	dir, err := filepath.Abs(eqLogDir)
-	checkErr(err)
-	fileList := []os.FileInfo{}
+	util.CheckErr(err)
+	var fileList []os.FileInfo
 
 	err = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
 		if validCharFile.MatchString(path) {
@@ -39,7 +41,7 @@ func getLastActiveFile() string {
 		return nil
 	})
 
-	checkErr(err)
+	util.CheckErr(err)
 	sort.Sort(sorts.ByLastTouched(fileList))
 
 	if len(fileList) == 0 {
