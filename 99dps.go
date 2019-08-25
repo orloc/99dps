@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"99dps/loader"
+	"99dps/session"
 )
 
 var rwLock = sync.RWMutex{}
@@ -30,17 +31,17 @@ func main() {
 	activeFile := loader.LoadFile()
 
 	inputChan := make(chan string)
-	session := parser.CombatSession{}
+	sm := session.SessionManager{}
 
 	defer close(inputChan)
 
-	go parser.DoParse(activeFile, &session, &rwLock)
+	go parser.DoParse(activeFile, &sm, &rwLock)
 	go scanInput(inputChan)
 
 	for msg := range inputChan {
 		switch msg {
 		case EVENT_DISPLAY:
-			session.Display(&rwLock)
+			sm.Display(&rwLock)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package parser
+package session
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"time"
 	"sort"
 	"sync"
+	"99dps/parser"
 )
 
 /*
@@ -20,18 +21,18 @@ type CombatSession struct {
 	start      time.Time
 	end        time.Time
 	targets    []string
-	aggressors map[string]DamageStat
+	aggressors map[string]parser.DamageStat
 }
 
 func (cs *CombatSession) Init() {
-	cs.aggressors = make(map[string]DamageStat)
+	cs.aggressors = make(map[string]parser.DamageStat)
 }
 
 func (cs *CombatSession) IsStarted() bool {
 	return !cs.start.Equal(time.Time{})
 }
 
-func (cs *CombatSession) AdjustDamage(set *DamageSet, mutex *sync.RWMutex) {
+func (cs *CombatSession) AdjustDamage(set *parser.DamageSet, mutex *sync.RWMutex) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	indxRef := strings.Replace(set.Dealer, " ", "_", -1)
@@ -55,9 +56,9 @@ func (cs *CombatSession) AdjustDamage(set *DamageSet, mutex *sync.RWMutex) {
 		return
 	}
 
-	var collection []*DamageSet
+	var collection []*parser.DamageSet
 	collection = append(collection, set)
-	cs.aggressors[indxRef] = DamageStat{set.Dmg, set.Dmg, set.Dmg, collection}
+	cs.aggressors[indxRef] = parser.DamageStat{set.Dmg, set.Dmg, set.Dmg, collection}
 }
 
 func (cs *CombatSession) Display(mutex *sync.RWMutex) {
@@ -90,7 +91,7 @@ func (cs *CombatSession) Display(mutex *sync.RWMutex) {
 	fmt.Println("=== End ===\n")
 }
 
-func (cs *CombatSession) computeDPS(sets []*DamageSet, total int) int {
+func (cs *CombatSession) computeDPS(sets []*parser.DamageSet, total int) int {
 	var times []int64
 	for _, set := range sets {
 		times = append(times, set.ActionTime)
@@ -107,5 +108,5 @@ func (cs *CombatSession) computeDPS(sets []*DamageSet, total int) int {
 	return total / int(tDiff)
 }
 
-func (cs *CombatSession) startSession(set *DamageSet) {
+func (cs *CombatSession) startSession(set *parser.DamageSet) {
 }
