@@ -1,15 +1,16 @@
 package session
 
 import (
-	"strings"
-	"time"
-	"sync"
 	"99dps/common"
+	"strings"
+	"sync"
+	"time"
 )
+
 type CombatSession struct {
 	start      time.Time
 	end        time.Time
-	LastTime 	int64
+	LastTime   int64
 	aggressors map[string]common.DamageStat
 }
 
@@ -47,10 +48,10 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 	var collection []*common.DamageSet
 	collection = append(collection, set)
 	cs.aggressors[indxRef] = common.DamageStat{
-		Low:set.Dmg,
-		High: set.Dmg,
-		Total: set.Dmg,
-		LastTime: set.ActionTime,
+		Low:           set.Dmg,
+		High:          set.Dmg,
+		Total:         set.Dmg,
+		LastTime:      set.ActionTime,
 		CombatRecords: collection,
 	}
 }
@@ -71,4 +72,3 @@ func (cs *CombatSession) computeDPS(sets []*common.DamageSet, total int) int {
 	}
 	return total / int(tDiff)
 }
-

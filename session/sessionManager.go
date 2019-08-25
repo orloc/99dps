@@ -1,16 +1,16 @@
 package session
 
 import (
-	"sync"
 	"99dps/common"
-	"time"
 	"fmt"
+	"sync"
+	"time"
 )
 
 const CS_THRESHOLD = 30
 
 type SessionManager struct {
-	Sessions []CombatSession
+	Sessions      []CombatSession
 	activeSession int
 }
 
@@ -25,21 +25,21 @@ func (sm *SessionManager) GetActiveSession(set *common.DamageSet) *CombatSession
 		sm.activeSession = 0
 	}
 
-	s :=  &sm.Sessions[sm.activeSession]
+	s := &sm.Sessions[sm.activeSession]
 
 	// combat has ended - make a new session
-	if set.ActionTime - s.LastTime >= CS_THRESHOLD {
+	if set.ActionTime-s.LastTime >= CS_THRESHOLD {
 		s.end = time.Unix(s.LastTime, 0)
 		sm.addSession()
 		sm.activeSession = len(sm.Sessions) - 1
-		s =  &sm.Sessions[sm.activeSession]
+		s = &sm.Sessions[sm.activeSession]
 	}
 
 	return s
 }
 
-func (sm *SessionManager) Display(mutex *sync.RWMutex){
-	if len(sm.Sessions) == 0{
+func (sm *SessionManager) Display(mutex *sync.RWMutex) {
+	if len(sm.Sessions) == 0 {
 		fmt.Println("No sessions found")
 		return
 	}
@@ -56,7 +56,7 @@ func (sm *SessionManager) Clear(mutex *sync.RWMutex) {
 }
 
 func (sm *SessionManager) All(mutex *sync.RWMutex) {
-	if len(sm.Sessions) == 0{
+	if len(sm.Sessions) == 0 {
 		fmt.Println("No sessions found")
 		return
 	}
@@ -71,7 +71,7 @@ func (sm *SessionManager) All(mutex *sync.RWMutex) {
 
 func (sm *SessionManager) printDps(s *CombatSession) {
 	fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>")
-	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes() )
+	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes())
 	for k, v := range s.aggressors {
 		dps := s.computeDPS(v.CombatRecords, v.Total)
 		fmt.Printf("Dealer: %s\n", k)
@@ -83,7 +83,6 @@ func (sm *SessionManager) printDps(s *CombatSession) {
 	}
 	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<")
 }
-
 
 func (sm *SessionManager) addSession() {
 	cs := CombatSession{}

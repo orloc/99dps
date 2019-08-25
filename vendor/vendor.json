@@ -39,6 +39,24 @@
 			"revisionTime": "2019-07-22T13:35:02Z"
 		},
 		{
+			"checksumSHA1": "YtkqO9PyythyZEqlbxqcF1Jq+f0=",
+			"path": "github.com/jroimartin/gocui",
+			"revision": "c055c87ae801372cd74a0839b972db4f7697ae5f",
+			"revisionTime": "2018-04-11T15:50:10Z"
+		},
+		{
+			"checksumSHA1": "qR7D38Zmn9TPUvGn64k+r0+Kq1c=",
+			"path": "github.com/mattn/go-runewidth",
+			"revision": "703b5e6b11ae25aeb2af9ebb5d5fdf8fa2575211",
+			"revisionTime": "2018-12-18T00:06:49Z"
+		},
+		{
+			"checksumSHA1": "nyb9fXZwV3McDhMVO78ibz3y+oc=",
+			"path": "github.com/nsf/termbox-go",
+			"revision": "93860e16131719fa9722e7c448dbf8c0e3210a0d",
+			"revisionTime": "2019-08-17T16:20:45Z"
+		},
+		{
 			"checksumSHA1": "lIVptsECd1xirIpTzRfKwGTAXAo=",
 			"path": "golang.org/x/sys/unix",
 			"revision": "dcdaa6325bcb8d3c07805583fe12153f08a41e2b",

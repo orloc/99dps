@@ -1,20 +1,20 @@
 package input
 
 import (
+	"99dps/session"
 	"bufio"
+	"fmt"
 	"log"
 	"os"
-	"99dps/session"
 	"sync"
-	"fmt"
 )
 
 const (
 	EVENT_DISPLAY = "do_print"
-	EVENT_CLEAR = "do_clear"
-	EVENT_HELP = "do_help"
-	EVENT_ALL = "do_all"
-	EVENT_QUIT = "do_quit"
+	EVENT_CLEAR   = "do_clear"
+	EVENT_HELP    = "do_help"
+	EVENT_ALL     = "do_all"
+	EVENT_QUIT    = "do_quit"
 )
 
 const intro = `

@@ -1,14 +1,14 @@
 package loader
 
 import (
+	"99dps/common"
+	"99dps/sorts"
+	"fmt"
 	"github.com/hpcloud/tail"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"fmt"
-	"99dps/sorts"
-	"99dps/common"
 )
 
 // @TODO make me config

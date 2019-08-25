@@ -1,14 +1,14 @@
 package main
 
 import (
-	"99dps/parser"
-	"fmt"
-	"sync"
-	"99dps/loader"
-	"99dps/session"
 	"99dps/input"
+	"99dps/loader"
+	"99dps/parser"
+	"99dps/session"
+	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
 
@@ -20,7 +20,7 @@ func main() {
 
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func(){
+	go func() {
 		<-sigChan
 		fmt.Println("\rShutting down..")
 		os.Exit(0)
@@ -37,4 +37,3 @@ func main() {
 
 	input.HandleInput(inputChan, &sm, &rwLock)
 }
-

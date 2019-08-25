@@ -1,16 +1,16 @@
 package parser
 
 import (
+	"99dps/common"
+	"99dps/session"
 	"fmt"
+	"github.com/hpcloud/tail"
+	"github.com/imdario/mergo"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"sync"
-	"github.com/imdario/mergo"
-	"99dps/common"
-	"github.com/hpcloud/tail"
-	"99dps/session"
+	"time"
 )
 
 type ParseMessage struct {
@@ -35,11 +35,10 @@ func DoParse(t *tail.Tail, manager *session.SessionManager, mutex *sync.RWMutex)
 	for line := range t.Lines {
 		if p.hasDamage(line.Text) {
 			dmgSet, err := p.parseDamage(line.Text)
-			s := manager.GetActiveSession(dmgSet)
 			if err != nil {
 				continue
 			}
-
+			s := manager.GetActiveSession(dmgSet)
 			s.AdjustDamage(dmgSet, mutex)
 		}
 	}
@@ -59,7 +58,7 @@ func (parser *DmgParser) parseDamage(inputString string) (*common.DamageSet, err
 	c := make(chan ParseMessage, 4)
 	wg.Add(4)
 
-	go func(){
+	go func() {
 		wg.Wait()
 		close(c)
 	}()
@@ -84,32 +83,32 @@ func (parser *DmgParser) parseDamage(inputString string) (*common.DamageSet, err
 	return &result, nil
 }
 
-func (parser *DmgParser) getTime(c chan <- ParseMessage, group *sync.WaitGroup) {
+func (parser *DmgParser) getTime(c chan<- ParseMessage, group *sync.WaitGroup) {
 	defer group.Done()
 	t, err := time.Parse(time.ANSIC, parser.workingString[1:LOG_TS_INDEX_END])
 	if err != nil {
-		c <- ParseMessage{ Err: err }
+		c <- ParseMessage{Err: err}
 		return
 	}
 
-	c <- ParseMessage{ Res: common.DamageSet{ ActionTime: t.Unix()} }
+	c <- ParseMessage{Res: common.DamageSet{ActionTime: t.Unix()}}
 }
 
-func (parser *DmgParser) getDamage(c chan <- ParseMessage, group *sync.WaitGroup) {
+func (parser *DmgParser) getDamage(c chan<- ParseMessage, group *sync.WaitGroup) {
 	defer group.Done()
 	damagePattern := regexp.MustCompile(`[0-9]+`)
 	match := damagePattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
 
 	dmg, err := strconv.Atoi(match)
 	if err != nil {
-		c <- ParseMessage{ Err: err }
+		c <- ParseMessage{Err: err}
 		return
 	}
 
-	c <- ParseMessage{ Res: common.DamageSet{ Dmg: dmg} }
+	c <- ParseMessage{Res: common.DamageSet{Dmg: dmg}}
 }
 
-func (parser *DmgParser) getDealer(c chan <- ParseMessage, group *sync.WaitGroup) {
+func (parser *DmgParser) getDealer(c chan<- ParseMessage, group *sync.WaitGroup) {
 	defer group.Done()
 	dealerPattern := regexp.MustCompile(fmt.Sprintf("^(.*(?:(%s)))", COMBAT_VERB_STRING))
 	match := dealerPattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
@@ -118,15 +117,14 @@ func (parser *DmgParser) getDealer(c chan <- ParseMessage, group *sync.WaitGroup
 
 	replaced := replacePattern.ReplaceAll([]byte(match), []byte(""))
 
-	c <- ParseMessage{ Res: common.DamageSet{ Dealer: strings.Trim(string(replaced), " ")} }
+	c <- ParseMessage{Res: common.DamageSet{Dealer: strings.Trim(string(replaced), " ")}}
 }
 
-func (parser *DmgParser) getTarget(c chan <- ParseMessage, group *sync.WaitGroup) {
+func (parser *DmgParser) getTarget(c chan<- ParseMessage, group *sync.WaitGroup) {
 	defer group.Done()
 	targetPattern := regexp.MustCompile(`.*(?:for)`)
 	indxPattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
 	replacePattern := regexp.MustCompile(`for`)
-
 
 	match := targetPattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
 
@@ -134,7 +132,7 @@ func (parser *DmgParser) getTarget(c chan <- ParseMessage, group *sync.WaitGroup
 
 	// not a damage string - branch to other combat strings or determine hirer in call chain
 	if len(indx) == 0 {
-		c <- ParseMessage{ Err: fmt.Errorf("warning - not a damage string") }
+		c <- ParseMessage{Err: fmt.Errorf("warning - not a damage string")}
 		return
 	}
 
@@ -149,5 +147,5 @@ func (parser *DmgParser) getTarget(c chan <- ParseMessage, group *sync.WaitGroup
 		s = "non-melee"
 	}
 
-	c <- ParseMessage{ Res: common.DamageSet{ Target: strings.Trim(string(replaced), " ")} }
+	c <- ParseMessage{Res: common.DamageSet{Target: strings.Trim(string(replaced), " ")}}
 }
