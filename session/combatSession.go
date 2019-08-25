@@ -1,45 +1,34 @@
 package session
 
 import (
-	"fmt"
 	"strings"
 	"time"
 	"sort"
 	"sync"
-	"99dps/parser"
+	"99dps/common"
 )
-
-/*
-A combat session is defined as follows:
-	- the pc has not zoned
-	- the npc has not died
-	- damage is being done to an npc or received by the pc
-	- 3 minutes has not passed since last damage to specific npc
- */
-
 type CombatSession struct {
 	start      time.Time
 	end        time.Time
-	targets    []string
-	aggressors map[string]parser.DamageStat
+	LastTime 	int64
+	aggressors map[string]common.DamageStat
 }
 
-func (cs *CombatSession) Init() {
-	cs.aggressors = make(map[string]parser.DamageStat)
-}
-
-func (cs *CombatSession) IsStarted() bool {
-	return !cs.start.Equal(time.Time{})
-}
-
-func (cs *CombatSession) AdjustDamage(set *parser.DamageSet, mutex *sync.RWMutex) {
+func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	indxRef := strings.Replace(set.Dealer, " ", "_", -1)
 
-	fmt.Println(set.ActionTime)
+	if !cs.isStarted() {
+		cs.init(set)
+	}
+
+	indxRef := strings.Replace(set.Dealer, " ", "_", -1)
+	cs.LastTime = set.ActionTime
+
 	if val, exists := cs.aggressors[indxRef]; exists {
 		val.Total = val.Total + set.Dmg
+		val.LastTime = set.ActionTime
+
 		dmg := set.Dmg
 
 		if val.Low > dmg {
@@ -56,42 +45,27 @@ func (cs *CombatSession) AdjustDamage(set *parser.DamageSet, mutex *sync.RWMutex
 		return
 	}
 
-	var collection []*parser.DamageSet
+	var collection []*common.DamageSet
 	collection = append(collection, set)
-	cs.aggressors[indxRef] = parser.DamageStat{set.Dmg, set.Dmg, set.Dmg, collection}
+	cs.aggressors[indxRef] = common.DamageStat{
+		Low:set.Dmg,
+		High: set.Dmg,
+		Total: set.Dmg,
+		LastTime: set.ActionTime,
+		CombatRecords: collection,
+	}
 }
 
-func (cs *CombatSession) Display(mutex *sync.RWMutex) {
-	mutex.RLock()
-	defer mutex.RUnlock()
-	fmt.Println("=== Damage ===\n")
-
-	fmt.Printf("%+v",cs.start, cs.end, cs.targets)
-	/*
-	for k, v := range cs.aggressors {
-		dps := cs.computeDPS(v.CombatRecords, v.Total)
-		fmt.Printf("Dealer: %s\n", k)
-		fmt.Printf("DPS: %v\n", dps)
-		fmt.Printf("Total: %v\n", v.Total)
-		fmt.Printf("High: %v\n", v.High)
-		fmt.Printf("Low: %v\n", v.Low)
-
-		fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>.")
-	}
-
-	if v, ok := cs.aggressors["You"]; ok {
-		dps := cs.computeDPS(v.sets, v.total)
-		fmt.Printf("DPS: %v\n", dps)
-		fmt.Printf("Total: %v\n", v.total)
-		fmt.Printf("High: %v\n", v.high)
-		fmt.Printf("Low: %v\n", v.low)
-	}
-	*/
-
-	fmt.Println("=== End ===\n")
+func (cs *CombatSession) init(set *common.DamageSet) {
+	cs.aggressors = make(map[string]common.DamageStat)
+	cs.start = time.Unix(set.ActionTime, 0)
 }
 
-func (cs *CombatSession) computeDPS(sets []*parser.DamageSet, total int) int {
+func (cs *CombatSession) isStarted() bool {
+	return !cs.start.Equal(time.Time{})
+}
+
+func (cs *CombatSession) computeDPS(sets []*common.DamageSet, total int) int {
 	var times []int64
 	for _, set := range sets {
 		times = append(times, set.ActionTime)
@@ -108,5 +82,3 @@ func (cs *CombatSession) computeDPS(sets []*parser.DamageSet, total int) int {
 	return total / int(tDiff)
 }
 
-func (cs *CombatSession) startSession(set *parser.DamageSet) {
-}

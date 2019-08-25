@@ -8,7 +8,7 @@ import (
 	"sort"
 	"fmt"
 	"99dps/sorts"
-	"99dps/util"
+	"99dps/common"
 )
 
 // @TODO make me config
@@ -22,7 +22,7 @@ func LoadFile() *tail.Tail {
 		//		Location: &startSpot,
 		Follow: true,
 	})
-	util.CheckErr(err)
+	common.CheckErr(err)
 
 	return t
 }
@@ -31,7 +31,7 @@ func getLastActiveFile() string {
 	var validCharFile = regexp.MustCompile(`^.*eqlog_.*project1999.txt$`)
 
 	dir, err := filepath.Abs(eqLogDir)
-	util.CheckErr(err)
+	common.CheckErr(err)
 	var fileList []os.FileInfo
 
 	err = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
@@ -41,7 +41,7 @@ func getLastActiveFile() string {
 		return nil
 	})
 
-	util.CheckErr(err)
+	common.CheckErr(err)
 	sort.Sort(sorts.ByLastTouched(fileList))
 
 	if len(fileList) == 0 {
