@@ -3,7 +3,6 @@ package session
 import (
 	"strings"
 	"time"
-	"sort"
 	"sync"
 	"99dps/common"
 )
@@ -66,19 +65,10 @@ func (cs *CombatSession) isStarted() bool {
 }
 
 func (cs *CombatSession) computeDPS(sets []*common.DamageSet, total int) int {
-	var times []int64
-	for _, set := range sets {
-		times = append(times, set.ActionTime)
-	}
-
-	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
-
-	tDiff := times[len(times)-1] - times[0]
-
+	tDiff := cs.LastTime - cs.start.Unix()
 	if tDiff == 0 {
 		return total
 	}
-
 	return total / int(tDiff)
 }
 

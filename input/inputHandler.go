@@ -14,6 +14,7 @@ const (
 	EVENT_CLEAR = "do_clear"
 	EVENT_HELP = "do_help"
 	EVENT_ALL = "do_all"
+	EVENT_QUIT = "do_quit"
 )
 
 const intro = `
@@ -29,6 +30,7 @@ Commands:
 - (a)ll : displays all combat sessions
 - (c)lear : deletes combat session records
 - (h)elp : shows this menu
+- (q)uit : exit
 
 `
 
@@ -39,8 +41,12 @@ func HandleInput(inputChan chan string, sm *session.SessionManager, rwLock *sync
 			Help()
 		case EVENT_CLEAR:
 			sm.Clear(rwLock)
+			fmt.Println("All data cleared...")
 		case EVENT_ALL:
 			sm.All(rwLock)
+		case EVENT_QUIT:
+			fmt.Println("Shutting down...")
+			os.Exit(1)
 		case EVENT_DISPLAY:
 			sm.Display(rwLock)
 		}
@@ -55,6 +61,10 @@ func ScanInput(c chan string) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		switch scanner.Text() {
+		case "q":
+			fallthrough
+		case "quit":
+			c <- EVENT_QUIT
 		case "p":
 			fallthrough
 		case "print":

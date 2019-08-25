@@ -35,11 +35,11 @@ func DoParse(t *tail.Tail, manager *session.SessionManager, mutex *sync.RWMutex)
 	for line := range t.Lines {
 		if p.hasDamage(line.Text) {
 			dmgSet, err := p.parseDamage(line.Text)
+			s := manager.GetActiveSession(dmgSet)
 			if err != nil {
 				continue
 			}
 
-			s := manager.GetActiveSession(dmgSet)
 			s.AdjustDamage(dmgSet, mutex)
 		}
 	}
