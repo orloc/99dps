@@ -46,7 +46,7 @@ func (sm *SessionManager) Display(mutex *sync.RWMutex) {
 	mutex.RLock()
 	defer mutex.RUnlock()
 	s := sm.Sessions[sm.activeSession]
-	sm.printDps(&s)
+	s.PrintDps()
 }
 
 func (sm *SessionManager) Clear(mutex *sync.RWMutex) {
@@ -63,26 +63,12 @@ func (sm *SessionManager) All(mutex *sync.RWMutex) {
 
 	mutex.RLock()
 	defer mutex.RUnlock()
-	for _, as := range sm.Sessions {
-		sm.printDps(&as)
+	for _, cs := range sm.Sessions {
+		cs.PrintDps()
 		fmt.Println("\r")
 	}
 }
 
-func (sm *SessionManager) printDps(s *CombatSession) {
-	fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>")
-	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes())
-	for k, v := range s.aggressors {
-		dps := s.computeDPS(v.CombatRecords, v.Total)
-		fmt.Printf("Dealer: %s\n", k)
-		fmt.Printf("DPS: %v\n", dps)
-		fmt.Printf("Total: %v\n", v.Total)
-		fmt.Printf("High: %v\n", v.High)
-		fmt.Printf("Low: %v\n", v.Low)
-		fmt.Println("")
-	}
-	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<")
-}
 
 func (sm *SessionManager) addSession() {
 	cs := CombatSession{}

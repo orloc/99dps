@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"fmt"
 )
 
 type CombatSession struct {
@@ -54,6 +55,21 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 		LastTime:      set.ActionTime,
 		CombatRecords: collection,
 	}
+}
+
+func (s *CombatSession) PrintDps() {
+	fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>")
+	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes())
+	for k, v := range s.aggressors {
+		dps := s.computeDPS(v.CombatRecords, v.Total)
+		fmt.Printf("Dealer: %s\n", k)
+		fmt.Printf("DPS: %v\n", dps)
+		fmt.Printf("Total: %v\n", v.Total)
+		fmt.Printf("High: %v\n", v.High)
+		fmt.Printf("Low: %v\n", v.Low)
+		fmt.Println("")
+	}
+	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<")
 }
 
 func (cs *CombatSession) init(set *common.DamageSet) {
