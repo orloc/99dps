@@ -36,6 +36,10 @@ func (a *App) Close() {
 	a.gui.Close()
 }
 
+func (a *App) quit(gui *gocui.Gui, view *gocui.View) error{
+	return gocui.ErrQuit
+}
+
 func (a *App) initGui() {
 	// default config
 	a.gui.Cursor = true
@@ -47,6 +51,7 @@ func (a *App) initGui() {
 	a.gui.SetManagerFunc(a.Layout)
 
 	// set keybindings
+	a.setKeybindings()
 
 }
 
