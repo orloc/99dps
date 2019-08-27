@@ -1,12 +1,5 @@
 package common
 
-type DamageSet struct {
-	ActionTime int64
-	Dealer     string
-	Dmg        int
-	Target     string
-}
-
 type DamageStat struct {
 	Low           int
 	High          int
@@ -14,3 +7,11 @@ type DamageStat struct {
 	LastTime      int64
 	CombatRecords []*DamageSet
 }
+
+type DamageSet struct {
+	ActionTime int64
+	Dealer     string
+	Dmg        int
+	Target     string
+}
+

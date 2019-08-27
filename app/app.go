@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
+	"github.com/buger/goterm"
 )
 
 type App struct {
@@ -50,6 +51,39 @@ func (a *App) SyncSessions(rw *sync.RWMutex) {
 
 func (a *App) UpdateGraph (rw *sync.RWMutex) {
 
+	/*
+	maxX, maxY := a.gui.Size()
+	v := vp[viewGraph]
+	x := int(v.x2 * float64(maxX)) - 1
+	y := int(v.y2 * float64(maxY)) - 1
+	*/
+
+	x := 100
+	y := 30
+
+	chart := goterm.NewLineChart(x, y)
+
+	data := new(goterm.DataTable)
+	data.AddColumn("Time")
+
+	dat := a.manager.Current(rw)
+
+
+	for _, d := range dat.GetAggressors() {
+		data.AddColumn(d.CombatRecords[0].Dealer)
+	}
+
+	for _, d := range dat.GetAggressors() {
+		for _, cs := range d.CombatRecords {
+			data.AddRow(float64(cs.ActionTime), float64(cs.Dmg))
+		}
+	}
+
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.writeView(viewGraph, chart.Draw(data))
+		goterm.Flush()
+		return nil
+	})
 }
 
 func (a *App) updateDamage(rw *sync.RWMutex) {

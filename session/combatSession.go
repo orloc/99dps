@@ -57,6 +57,14 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 	}
 }
 
+func (cs *CombatSession) GetAggressors() []common.DamageStat {
+	var stats []common.DamageStat
+	for _, v := range cs.aggressors {
+		stats = append(stats, v)
+	}
+	return stats
+}
+
 /**
 Who ever did the most damage - that wasn't you
 lead with the time so its sortable
@@ -65,18 +73,14 @@ func (cs *CombatSession) GetSessionIdentifier() string {
 	var total = 0
 	var mname = ""
 	for name, combat := range cs.aggressors {
-		if name == "YOU" {
-			continue
-		}
-
-		if name == "" {
-			mname = name
-		}
-
-		if combat.Total > total {
+		if combat.Total > total  && strings.ToUpper(name) != "YOU"{
 			total = combat.Total
 			mname = name
 		}
+	}
+
+	if mname == "" {
+		return fmt.Sprintf("%d::Solo", cs.LastTime)
 	}
 
 	return fmt.Sprintf("%d::%s", cs.LastTime, mname)
