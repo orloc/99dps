@@ -3,6 +3,12 @@
 	"ignore": "test",
 	"package": [
 		{
+			"checksumSHA1": "joXKIKt4aSzMOsKdlCWKezM5na8=",
+			"path": "github.com/buger/goterm",
+			"revision": "c206103e1f37c0c6c5c039706305ea2aa6e8ad3b",
+			"revisionTime": "2018-11-15T08:31:27Z"
+		},
+		{
 			"checksumSHA1": "P5KyE9QEbAeHLeXzycSF/jS1FIc=",
 			"path": "github.com/hpcloud/tail",
 			"revision": "a1dbeea552b7c8df4b542c66073e393de198a800",
