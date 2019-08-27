@@ -16,9 +16,10 @@ func main() {
 	activeFile := loader.LoadFile()
 	sm := session.SessionManager{}
 
-	a := app.New()
+	a := app.New(&sm)
 
 	go parser.DoParse(activeFile, &sm, &rwLock)
+	go a.SyncSessions(&rwLock)
 
 	a.Loop()
 

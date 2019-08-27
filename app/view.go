@@ -10,7 +10,10 @@ const (
 	viewSessions = "sessions"
 	viewDamage = "dmg"
 	viewGraph = "graph"
+	viewShortcuts = "shortcuts"
 )
+
+const keyBindingsText = `CTL + C: quit `
 
 type viewProperties struct {
 	title    string
@@ -21,6 +24,7 @@ type viewProperties struct {
 	y2       float64
 	editor   gocui.Editor
 	editable bool
+	autoscroll bool
 	modal    bool
 }
 
@@ -29,19 +33,20 @@ var vp = map[string]viewProperties{
 		title: "Sessions",
 		text: "",
 		x1: 0.0,
-		x2: 1,
+		x2: 0.2,
 		y1: 0.0,
-		y2: 0.2,
+		y2: 0.8,
 		editor: nil,
-		editable: false,
+		editable: true,
+		autoscroll: true,
 		modal: false,
 	},
 	viewDamage: {
 		title: "Damage",
 		text: "",
-		x1: 0.0,
+		x1: 0.2,
 		x2: 1,
-		y1: 0.2,
+		y1: 0.0,
 		y2: 0.4,
 		editor: nil,
 		editable: false,
@@ -50,10 +55,21 @@ var vp = map[string]viewProperties{
 	viewGraph: {
 		title: "Graph",
 		text: "",
-		x1: 0.0,
+		x1: 0.2,
 		x2: 1,
 		y1: 0.4,
-		y2: 0.7,
+		y2: 0.8,
+		editor: nil,
+		editable: false,
+		modal: false,
+	},
+	viewShortcuts: {
+		title: "Key Bindings",
+		text: keyBindingsText,
+		x1: 0.0,
+		x2: 1,
+		y1: 0.8,
+		y2: 1,
 		editor: nil,
 		editable: false,
 		modal: false,
@@ -64,6 +80,7 @@ var views = []string{
 	viewSessions,
 	viewDamage,
 	viewGraph,
+	viewShortcuts,
 }
 
 func (a *App) Layout(g *gocui.Gui) error {
@@ -104,6 +121,7 @@ func (a *App) createView(name string, x1, x2, y1, y2 int) error {
 		v.Title = p.title
 		v.Editor = p.editor
 		v.Editable = p.editable
+		v.Autoscroll = p.autoscroll
 		a.writeView(name, p.text)
 	}
 
