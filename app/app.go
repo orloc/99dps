@@ -68,13 +68,16 @@ func (a *App) UpdateGraph (rw *sync.RWMutex) {
 
 	dat := a.manager.Current(rw)
 
+	agg := dat.GetAggressors()
 
-	for _, d := range dat.GetAggressors() {
-		data.AddColumn(d.CombatRecords[0].Dealer)
-	}
+	var columns [len(agg)]string
+	var rows [len(agg)][]float64
 
-	for _, d := range dat.GetAggressors() {
+	for i, d := range agg {
+		columns[i] = d.CombatRecords[0].Dealer
+		rows[i] = []float64{}
 		for _, cs := range d.CombatRecords {
+			rows[i] = append(rows[i], 
 			data.AddRow(float64(cs.ActionTime), float64(cs.Dmg))
 		}
 	}
