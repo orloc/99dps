@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"fmt"
 )
 
 type CombatSession struct {
@@ -54,6 +55,31 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 		LastTime:      set.ActionTime,
 		CombatRecords: collection,
 	}
+}
+
+/**
+	Who ever did the most damage - that wasn't you
+	lead with the time so its sortable
+ */
+func (cs *CombatSession) GetSessionIdentifier() string {
+	var total = 0
+	var mname = ""
+	for name, combat := range cs.aggressors {
+		if name == "YOU" {
+			continue
+		}
+
+		if name == "" {
+			mname = name
+		}
+
+		if combat.Total > total {
+			total = combat.Total
+			mname = name
+		}
+	}
+
+	return fmt.Sprintf("%d::%s", cs.LastTime, mname)
 }
 
 func (cs *CombatSession) init(set *common.DamageSet) {

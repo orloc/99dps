@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"sort"
 )
 
 const CS_THRESHOLD = 30
@@ -38,15 +39,15 @@ func (sm *SessionManager) GetActiveSession(set *common.DamageSet) *CombatSession
 	return s
 }
 
-func (sm *SessionManager) Display(mutex *sync.RWMutex) {
+func (sm *SessionManager) Current(mutex *sync.RWMutex) *CombatSession {
 	if len(sm.Sessions) == 0 {
 		fmt.Println("No sessions found")
-		return
+		return nil
 	}
 	mutex.RLock()
 	defer mutex.RUnlock()
 	s := sm.Sessions[sm.activeSession]
-	sm.printDps(&s)
+	return &s
 }
 
 func (sm *SessionManager) Clear(mutex *sync.RWMutex) {
@@ -55,33 +56,41 @@ func (sm *SessionManager) Clear(mutex *sync.RWMutex) {
 	sm.Sessions = []CombatSession{}
 }
 
-func (sm *SessionManager) All(mutex *sync.RWMutex) {
+func (sm *SessionManager) All(mutex *sync.RWMutex) []CombatSession {
 	if len(sm.Sessions) == 0 {
-		fmt.Println("No sessions found")
-		return
+		return nil
 	}
 
 	mutex.RLock()
 	defer mutex.RUnlock()
+	var cs []CombatSession
 	for _, as := range sm.Sessions {
-		sm.printDps(&as)
-		fmt.Println("\r")
+		cs = append(cs, as)
 	}
+
+	return cs
 }
 
-func (sm *SessionManager) printDps(s *CombatSession) {
-	fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>")
-	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes())
-	for k, v := range s.aggressors {
-		dps := s.computeDPS(v.CombatRecords, v.Total)
-		fmt.Printf("Dealer: %s\n", k)
-		fmt.Printf("DPS: %v\n", dps)
-		fmt.Printf("Total: %v\n", v.Total)
-		fmt.Printf("High: %v\n", v.High)
-		fmt.Printf("Low: %v\n", v.Low)
-		fmt.Println("")
+func (sm *SessionManager) PrintDps(s *CombatSession) string {
+	summary := fmt.Sprintf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), time.Unix(s.LastTime, 0).Sub(s.start).Minutes())
+
+	summary = fmt.Sprintf("%s|%-4s|%-20s|%-5s|%-10s|%-5s|%-5s|\n", summary, "#", "Dealer", "Dps", "Total", "High", "Low")
+
+	var stats []common.DamageStat
+
+	for _, v := range s.aggressors {
+		stats = append(stats, v)
 	}
-	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<")
+
+	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+
+	for i, v := range stats {
+		dps := s.computeDPS(v.CombatRecords, v.Total)
+		k := v.CombatRecords[0].Dealer
+		summary = fmt.Sprintf("%s\n|%-4d|%-20s|%-5v|%-10v|%-5v|%-5v|", summary, i + 1, k, dps, v.Total, v.High, v.Low)
+	}
+
+	return summary
 }
 
 func (sm *SessionManager) addSession() {
