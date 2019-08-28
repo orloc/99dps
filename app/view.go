@@ -1,16 +1,15 @@
 package app
 
 import (
-	"github.com/jroimartin/gocui"
-	"fmt"
 	"99dps/common"
+	"fmt"
+	"github.com/jroimartin/gocui"
 )
 
-
 const (
-	viewSessions = "sessions"
-	viewDamage = "dmg"
-	viewGraph = "graph"
+	viewSessions  = "sessions"
+	viewDamage    = "dmg"
+	viewGraph     = "graph"
 	viewShortcuts = "shortcuts"
 )
 
@@ -19,52 +18,51 @@ BACKSPACE: clear all data
 
 If you change characters - please restart the program`
 
-
 var vp = map[string]common.ViewProperties{
 	viewSessions: {
-		Title: "Sessions",
-		Text: "",
-		X1: 0.0,
-		X2: 0.2,
-		Y1: 0.0,
-		Y2: 0.8,
-		Editor: nil,
-		Editable: true,
+		Title:      "Sessions",
+		Text:       "",
+		X1:         0.0,
+		X2:         0.2,
+		Y1:         0.0,
+		Y2:         0.8,
+		Editor:     nil,
+		Editable:   true,
 		Autoscroll: true,
-		Modal: false,
+		Modal:      false,
 	},
 	viewDamage: {
-		Title: "DaMage",
-		Text: "",
-		X1: 0.2,
-		X2: 1,
-		Y1: 0.0,
-		Y2: 0.4,
-		Editor: nil,
+		Title:    "DaMage",
+		Text:     "",
+		X1:       0.2,
+		X2:       1,
+		Y1:       0.0,
+		Y2:       0.4,
+		Editor:   nil,
 		Editable: false,
-		Modal: false,
+		Modal:    false,
 	},
 	viewGraph: {
-		Title: "Graph",
-		Text: "",
-		X1: 0.2,
-		X2: 1,
-		Y1: 0.4,
-		Y2: 0.8,
-		Editor: nil,
+		Title:    "Graph",
+		Text:     "",
+		X1:       0.2,
+		X2:       1,
+		Y1:       0.4,
+		Y2:       0.8,
+		Editor:   nil,
 		Editable: false,
-		Modal: false,
+		Modal:    false,
 	},
 	viewShortcuts: {
-		Title: "Key Bindings",
-		Text: keyBindingsText,
-		X1: 0.0,
-		X2: 1,
-		Y1: 0.8,
-		Y2: 1,
-		Editor: nil,
+		Title:    "Key Bindings",
+		Text:     keyBindingsText,
+		X1:       0.0,
+		X2:       1,
+		Y1:       0.8,
+		Y2:       1,
+		Editor:   nil,
 		Editable: false,
-		Modal: false,
+		Modal:    false,
 	},
 }
 

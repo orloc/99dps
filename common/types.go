@@ -18,14 +18,14 @@ type DamageSet struct {
 }
 
 type ViewProperties struct {
-	Title    string
-	Text     string
-	X1       float64
-	Y1       float64
-	X2       float64
-	Y2       float64
-	Editor   gocui.Editor
-	Editable bool
+	Title      string
+	Text       string
+	X1         float64
+	Y1         float64
+	X2         float64
+	Y2         float64
+	Editor     gocui.Editor
+	Editable   bool
 	Autoscroll bool
-	Modal    bool
+	Modal      bool
 }

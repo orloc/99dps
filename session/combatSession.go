@@ -82,7 +82,7 @@ func (cs *CombatSession) GetSessionIdentifier() string {
 	var total = 0
 	var mname = ""
 	for name, combat := range cs.aggressors {
-		if combat.Total > total  && strings.ToUpper(name) != "YOU"{
+		if combat.Total > total && strings.ToUpper(name) != "YOU" {
 			total = combat.Total
 			mname = name
 		}

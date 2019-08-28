@@ -13,7 +13,7 @@ const CS_THRESHOLD = 8
 type SessionManager struct {
 	Sessions      []CombatSession
 	activeSession int
-	Mutex *sync.RWMutex
+	Mutex         *sync.RWMutex
 }
 
 /*
