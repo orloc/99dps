@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/jroimartin/gocui"
 	"fmt"
+	"99dps/common"
 )
 
 
@@ -13,66 +14,57 @@ const (
 	viewShortcuts = "shortcuts"
 )
 
-const keyBindingsText = `CTL + C: quit `
+const keyBindingsText = `CTL + C: quit
+BACKSPACE: clear all data 
 
-type viewProperties struct {
-	title    string
-	text     string
-	x1       float64
-	y1       float64
-	x2       float64
-	y2       float64
-	editor   gocui.Editor
-	editable bool
-	autoscroll bool
-	modal    bool
-}
+If you change characters - please restart the program`
 
-var vp = map[string]viewProperties{
+
+var vp = map[string]common.ViewProperties{
 	viewSessions: {
-		title: "Sessions",
-		text: "",
-		x1: 0.0,
-		x2: 0.2,
-		y1: 0.0,
-		y2: 0.8,
-		editor: nil,
-		editable: true,
-		autoscroll: true,
-		modal: false,
+		Title: "Sessions",
+		Text: "",
+		X1: 0.0,
+		X2: 0.2,
+		Y1: 0.0,
+		Y2: 0.8,
+		Editor: nil,
+		Editable: true,
+		Autoscroll: true,
+		Modal: false,
 	},
 	viewDamage: {
-		title: "Damage",
-		text: "",
-		x1: 0.2,
-		x2: 1,
-		y1: 0.0,
-		y2: 0.4,
-		editor: nil,
-		editable: false,
-		modal: false,
+		Title: "DaMage",
+		Text: "",
+		X1: 0.2,
+		X2: 1,
+		Y1: 0.0,
+		Y2: 0.4,
+		Editor: nil,
+		Editable: false,
+		Modal: false,
 	},
 	viewGraph: {
-		title: "Graph",
-		text: "",
-		x1: 0.2,
-		x2: 1,
-		y1: 0.4,
-		y2: 0.8,
-		editor: nil,
-		editable: false,
-		modal: false,
+		Title: "Graph",
+		Text: "",
+		X1: 0.2,
+		X2: 1,
+		Y1: 0.4,
+		Y2: 0.8,
+		Editor: nil,
+		Editable: false,
+		Modal: false,
 	},
 	viewShortcuts: {
-		title: "Key Bindings",
-		text: keyBindingsText,
-		x1: 0.0,
-		x2: 1,
-		y1: 0.8,
-		y2: 1,
-		editor: nil,
-		editable: false,
-		modal: false,
+		Title: "Key Bindings",
+		Text: keyBindingsText,
+		X1: 0.0,
+		X2: 1,
+		Y1: 0.8,
+		Y2: 1,
+		Editor: nil,
+		Editable: false,
+		Modal: false,
 	},
 }
 
@@ -97,14 +89,9 @@ func (a *App) Layout(g *gocui.Gui) error {
 
 func (a *App) initView(viewName string) error {
 	maxX, maxY := a.gui.Size()
-
 	v := vp[viewName]
 
-	x1 := int(v.x1 * float64(maxX))
-	x2 := int(v.x2 * float64(maxX)) - 1
-	y1 := int(v.y1 * float64(maxY))
-	y2 := int(v.y2 * float64(maxY)) - 1
-
+	x1, y1, x2, y2 := common.GetScreenDims(v, maxX, maxY)
 
 	return a.createView(viewName, x1, x2, y1, y2)
 
@@ -118,11 +105,11 @@ func (a *App) createView(name string, x1, x2, y1, y2 int) error {
 		}
 
 		p := vp[name]
-		v.Title = p.title
-		v.Editor = p.editor
-		v.Editable = p.editable
-		v.Autoscroll = p.autoscroll
-		a.writeView(name, p.text)
+		v.Title = p.Title
+		v.Editor = p.Editor
+		v.Editable = p.Editable
+		v.Autoscroll = p.Autoscroll
+		a.writeView(name, p.Text)
 	}
 
 	return nil

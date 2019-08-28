@@ -11,27 +11,14 @@ import (
 var rwLock = sync.RWMutex{}
 
 func main() {
-
-
 	activeFile := loader.LoadFile()
-	sm := session.SessionManager{}
+	sm := session.SessionManager{Mutex: &rwLock }
 
-	a := app.New(&sm)
+	a := app.New(&sm, &rwLock)
 
 	go parser.DoParse(activeFile, &sm, &rwLock)
-	go a.SyncSessions(&rwLock)
+	go a.Sync()
 
 	a.Loop()
-
-	/*
-	inputChan := make(chan string)
-	defer close(inputChan)
-
-	input.Help()
-
-	go input.ScanInput(inputChan)
-
-	input.HandleInput(inputChan, &sm, &rwLock)
-	*/
 }
 
