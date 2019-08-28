@@ -8,11 +8,12 @@ import (
 	"sort"
 )
 
-const CS_THRESHOLD = 30
+const CS_THRESHOLD = 8
 
 type SessionManager struct {
 	Sessions      []CombatSession
 	activeSession int
+	Mutex *sync.RWMutex
 }
 
 /*
@@ -39,30 +40,30 @@ func (sm *SessionManager) GetActiveSession(set *common.DamageSet) *CombatSession
 	return s
 }
 
-func (sm *SessionManager) Current(mutex *sync.RWMutex) *CombatSession {
+func (sm *SessionManager) Current() *CombatSession {
 	if len(sm.Sessions) == 0 {
-		fmt.Println("No sessions found")
 		return nil
 	}
-	mutex.RLock()
-	defer mutex.RUnlock()
+	sm.Mutex.RLock()
+	defer sm.Mutex.RUnlock()
 	s := sm.Sessions[sm.activeSession]
 	return &s
 }
 
-func (sm *SessionManager) Clear(mutex *sync.RWMutex) {
-	mutex.Lock()
-	defer mutex.Unlock()
+func (sm *SessionManager) Clear() {
+	sm.Mutex.Lock()
+	defer sm.Mutex.Unlock()
 	sm.Sessions = []CombatSession{}
 }
 
-func (sm *SessionManager) All(mutex *sync.RWMutex) []CombatSession {
+func (sm *SessionManager) All() []CombatSession {
 	if len(sm.Sessions) == 0 {
 		return nil
 	}
 
-	mutex.RLock()
-	defer mutex.RUnlock()
+	sm.Mutex.RLock()
+	defer sm.Mutex.RUnlock()
+
 	var cs []CombatSession
 	for _, as := range sm.Sessions {
 		cs = append(cs, as)
@@ -72,6 +73,9 @@ func (sm *SessionManager) All(mutex *sync.RWMutex) []CombatSession {
 }
 
 func (sm *SessionManager) PrintDps(s *CombatSession) string {
+	if s == nil {
+		return "Session disappeared!"
+	}
 	summary := fmt.Sprintf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), time.Unix(s.LastTime, 0).Sub(s.start).Minutes())
 
 	summary = fmt.Sprintf("%s|%-4s|%-20s|%-5s|%-10s|%-5s|%-5s|\n", summary, "#", "Dealer", "Dps", "Total", "High", "Low")

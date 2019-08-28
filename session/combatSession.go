@@ -59,6 +59,11 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 
 func (cs *CombatSession) GetAggressors() []common.DamageStat {
 	var stats []common.DamageStat
+
+	if cs == nil {
+		return stats
+	}
+
 	for _, v := range cs.aggressors {
 		stats = append(stats, v)
 	}
@@ -70,6 +75,10 @@ func (cs *CombatSession) GetAggressors() []common.DamageStat {
 	lead with the time so its sortable
  */
 func (cs *CombatSession) GetSessionIdentifier() string {
+	if cs == nil {
+		return ""
+	}
+
 	var total = 0
 	var mname = ""
 	for name, combat := range cs.aggressors {

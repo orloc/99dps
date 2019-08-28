@@ -19,6 +19,12 @@ func (a *App) setKeybindings() error {
 			gocui.ModNone,
 			a.quit,
 		},
+		{
+			&qView,
+			gocui.KeyBackspace,
+			gocui.ModNone,
+			a.clear,
+		},
 	}
 
 	for _, shortcut := range kc {
