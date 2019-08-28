@@ -32,7 +32,7 @@ var vp = map[string]common.ViewProperties{
 		Modal:      false,
 	},
 	viewDamage: {
-		Title:    "DaMage",
+		Title:    "Damage",
 		Text:     "",
 		X1:       0.2,
 		X2:       1,
