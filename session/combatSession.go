@@ -2,10 +2,10 @@ package session
 
 import (
 	"99dps/common"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
-	"fmt"
 )
 
 type CombatSession struct {
@@ -71,9 +71,9 @@ func (cs *CombatSession) GetAggressors() []common.DamageStat {
 }
 
 /**
-	Who ever did the most damage - that wasn't you
-	lead with the time so its sortable
- */
+Who ever did the most damage - that wasn't you
+lead with the time so its sortable
+*/
 func (cs *CombatSession) GetSessionIdentifier() string {
 	if cs == nil {
 		return ""
@@ -82,7 +82,7 @@ func (cs *CombatSession) GetSessionIdentifier() string {
 	var total = 0
 	var mname = ""
 	for name, combat := range cs.aggressors {
-		if combat.Total > total  && strings.ToUpper(name) != "YOU"{
+		if combat.Total > total && strings.ToUpper(name) != "YOU" {
 			total = combat.Total
 			mname = name
 		}

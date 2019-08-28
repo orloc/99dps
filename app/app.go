@@ -1,20 +1,20 @@
 package app
 
 import (
-	"github.com/jroimartin/gocui"
 	"99dps/common"
 	"99dps/session"
-	"sync"
-	"time"
 	"fmt"
 	"github.com/buger/goterm"
+	"github.com/jroimartin/gocui"
 	"sort"
+	"sync"
+	"time"
 )
 
 type App struct {
-	gui *gocui.Gui
+	gui     *gocui.Gui
 	manager *session.SessionManager
-	lock *sync.RWMutex
+	lock    *sync.RWMutex
 }
 
 func New(m *session.SessionManager, lock *sync.RWMutex) *App {
@@ -44,7 +44,7 @@ func (a *App) Sync() {
 	// every seconds update
 	for {
 		select {
-		case <- time.After(1 * time.Second):
+		case <-time.After(1 * time.Second):
 			a.updateSessions()
 			a.updateDamage()
 			a.updateGraph()
@@ -52,7 +52,7 @@ func (a *App) Sync() {
 	}
 }
 
-func (a *App) quit(gui *gocui.Gui, view *gocui.View) error{
+func (a *App) quit(gui *gocui.Gui, view *gocui.View) error {
 	a.gui.Close()
 	return gocui.ErrQuit
 }
@@ -107,15 +107,14 @@ func (a *App) updateSessions() {
 	})
 }
 
-func (a *App) updateGraph () {
+func (a *App) updateGraph() {
 	v := vp[viewGraph]
 	maxX, maxY := a.gui.Size()
 
 	x1, y1, x2, y2 := common.GetScreenDims(v, maxX, maxY)
 
-	x := x2-x1
-	y := y2-y1
-
+	x := x2 - x1
+	y := y2 - y1
 
 	dat := a.manager.Current()
 	agg := dat.GetAggressors()
@@ -143,7 +142,7 @@ func (a *App) updateGraph () {
 	})
 }
 
-func (a *App) prepareGraph(x, y int, columns []string, damageRows [][]int, tList [][]int64) (*goterm.LineChart, *goterm.DataTable){
+func (a *App) prepareGraph(x, y int, columns []string, damageRows [][]int, tList [][]int64) (*goterm.LineChart, *goterm.DataTable) {
 	chart := goterm.NewLineChart(x, y)
 	data := new(goterm.DataTable)
 
@@ -165,7 +164,7 @@ func (a *App) prepareGraph(x, y int, columns []string, damageRows [][]int, tList
 			input := []float64{float64(t)}
 			// add all the other dmg markers for the rows
 			for _, dmgRow := range damageRows {
-				if j > len(dmgRow) -1 {
+				if j > len(dmgRow)-1 {
 					input = append(input, float64(0))
 				} else {
 					input = append(input, float64(dmgRow[j]))
@@ -182,7 +181,7 @@ func (a *App) prepareGraph(x, y int, columns []string, damageRows [][]int, tList
 func (a *App) preprocess(agg []common.DamageStat) ([]string, [][]int, [][]int64) {
 	var (
 		damageRows [][]int
-		times [][]int64
+		times      [][]int64
 	)
 
 	columns := []string{"time"}
@@ -205,5 +204,3 @@ func (a *App) preprocess(agg []common.DamageStat) ([]string, [][]int, [][]int64)
 
 	return columns, damageRows, times
 }
-
-

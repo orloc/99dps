@@ -3,9 +3,9 @@ package session
 import (
 	"99dps/common"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
-	"sort"
 )
 
 const CS_THRESHOLD = 8
@@ -13,7 +13,7 @@ const CS_THRESHOLD = 8
 type SessionManager struct {
 	Sessions      []CombatSession
 	activeSession int
-	Mutex *sync.RWMutex
+	Mutex         *sync.RWMutex
 }
 
 /*
@@ -91,7 +91,7 @@ func (sm *SessionManager) PrintDps(s *CombatSession) string {
 	for i, v := range stats {
 		dps := s.computeDPS(v.CombatRecords, v.Total)
 		k := v.CombatRecords[0].Dealer
-		summary = fmt.Sprintf("%s\n|%-4d|%-20s|%-5v|%-10v|%-5v|%-5v|", summary, i + 1, k, dps, v.Total, v.High, v.Low)
+		summary = fmt.Sprintf("%s\n|%-4d|%-20s|%-5v|%-10v|%-5v|%-5v|", summary, i+1, k, dps, v.Total, v.High, v.Low)
 	}
 
 	return summary
