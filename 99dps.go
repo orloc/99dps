@@ -1,39 +1,23 @@
 package main
 
 import (
-	"99dps/input"
+	"99dps/app"
 	"99dps/loader"
 	"99dps/parser"
 	"99dps/session"
-	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 )
 
 var rwLock = sync.RWMutex{}
 
 func main() {
-	inputChan := make(chan string)
-	defer close(inputChan)
-
-	sigChan := make(chan os.Signal, 2)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		fmt.Println("\rShutting down..")
-		os.Exit(0)
-	}()
-
-	input.Help()
-
 	activeFile := loader.LoadFile()
+	sm := session.SessionManager{Mutex: &rwLock}
 
-	sm := session.SessionManager{}
+	a := app.New(&sm, &rwLock)
 
 	go parser.DoParse(activeFile, &sm, &rwLock)
-	go input.ScanInput(inputChan)
+	go a.Sync()
 
-	input.HandleInput(inputChan, &sm, &rwLock)
+	a.Loop()
 }

@@ -2,10 +2,10 @@ package session
 
 import (
 	"99dps/common"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
-	"fmt"
 )
 
 type CombatSession struct {
@@ -57,19 +57,42 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 	}
 }
 
-func (s *CombatSession) PrintDps() {
-	fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>")
-	fmt.Printf("Started : %s \nEnded: %s\nDuration: %.2fm\n\n", s.start.String(), s.end.String(), s.end.Sub(s.start).Minutes())
-	for k, v := range s.aggressors {
-		dps := s.computeDPS(v.CombatRecords, v.Total)
-		fmt.Printf("Dealer: %s\n", k)
-		fmt.Printf("DPS: %v\n", dps)
-		fmt.Printf("Total: %v\n", v.Total)
-		fmt.Printf("High: %v\n", v.High)
-		fmt.Printf("Low: %v\n", v.Low)
-		fmt.Println("")
+func (cs *CombatSession) GetAggressors() []common.DamageStat {
+	var stats []common.DamageStat
+
+	if cs == nil {
+		return stats
 	}
-	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<")
+
+	for _, v := range cs.aggressors {
+		stats = append(stats, v)
+	}
+	return stats
+}
+
+/**
+Who ever did the most damage - that wasn't you
+lead with the time so its sortable
+*/
+func (cs *CombatSession) GetSessionIdentifier() string {
+	if cs == nil {
+		return ""
+	}
+
+	var total = 0
+	var mname = ""
+	for name, combat := range cs.aggressors {
+		if combat.Total > total && strings.ToUpper(name) != "YOU" {
+			total = combat.Total
+			mname = name
+		}
+	}
+
+	if mname == "" {
+		return fmt.Sprintf("%d::Solo", cs.LastTime)
+	}
+
+	return fmt.Sprintf("%d::%s", cs.LastTime, mname)
 }
 
 func (cs *CombatSession) init(set *common.DamageSet) {
