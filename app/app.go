@@ -117,7 +117,7 @@ func (a *App) updateGraph() {
 	y := y2 - y1
 
 	dat := a.manager.Current()
-	agg := dat.GetAggressors()
+	agg := dat.GetAggressors(a.lock)
 
 	// filter top 2
 	sort.SliceStable(agg, func(i, j int) bool {

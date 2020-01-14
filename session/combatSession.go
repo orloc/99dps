@@ -57,7 +57,10 @@ func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex
 	}
 }
 
-func (cs *CombatSession) GetAggressors() []common.DamageStat {
+func (cs *CombatSession) GetAggressors(mutex *sync.RWMutex) []common.DamageStat {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	var stats []common.DamageStat
 
 	if cs == nil {

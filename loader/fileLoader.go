@@ -28,7 +28,7 @@ func LoadFile() *tail.Tail {
 }
 
 func getLastActiveFile() string {
-	var validCharFile = regexp.MustCompile(`^.*eqlog_.*project1999.txt$`)
+	var validCharFile = regexp.MustCompile(`^.*eqlog_.*.txt$`)
 
 	dir, err := filepath.Abs(eqLogDir)
 	common.CheckErr(err)

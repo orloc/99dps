@@ -80,11 +80,7 @@ func (sm *SessionManager) PrintDps(s *CombatSession) string {
 
 	summary = fmt.Sprintf("%s|%-4s|%-20s|%-5s|%-10s|%-5s|%-5s|\n", summary, "#", "Dealer", "Dps", "Total", "High", "Low")
 
-	var stats []common.DamageStat
-
-	for _, v := range s.aggressors {
-		stats = append(stats, v)
-	}
+	stats := s.GetAggressors(sm.Mutex)
 
 	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
 
