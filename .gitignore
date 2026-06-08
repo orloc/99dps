@@ -1,5 +1,3 @@
-*.swp
-*.swo
-*~
-vendor/*
-99dps
+/99dps
+*.png
+.idea/
