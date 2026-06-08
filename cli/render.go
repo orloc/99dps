@@ -475,7 +475,6 @@ func renderRespawns(respawns []spell.Respawn, selected string, width int) string
 	}
 
 	var b strings.Builder
-	b.WriteString(headerBar("Repops", dpsHeaderSGR, width))
 	for _, r := range respawns {
 		var content, sgr string
 		if r.Remaining <= 0 {

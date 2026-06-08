@@ -11,6 +11,7 @@ const (
 	viewDamage    = "dmg"
 	viewGraph     = "graph"
 	viewTimers    = "timers"
+	viewRepops    = "repops"
 	viewShortcuts = "shortcuts"
 )
 
@@ -79,6 +80,16 @@ var vp = map[string]ViewProperties{
 		X1:       0.6,
 		X2:       1,
 		Y1:       0.4,
+		Y2:       0.6,
+		Editor:   nil,
+		Editable: false,
+	},
+	viewRepops: {
+		Title:    "Mob Tracker",
+		Text:     "",
+		X1:       0.6,
+		X2:       1,
+		Y1:       0.6,
 		Y2:       0.8,
 		Editor:   nil,
 		Editable: false,
@@ -100,6 +111,7 @@ var views = []string{
 	viewDamage,
 	viewGraph,
 	viewTimers,
+	viewRepops,
 	viewShortcuts,
 }
 
@@ -161,6 +173,12 @@ func (a *App) viewTitle(name, base string) string {
 		}
 	case viewTimers:
 		return a.panelTitle()
+	case viewRepops:
+		if a.tracker != nil {
+			if z := a.tracker.Zone(); z != "" {
+				return base + " — " + z
+			}
+		}
 	}
 	return base
 }

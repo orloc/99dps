@@ -13,6 +13,7 @@ func (a *App) setKeybindings() error {
 	qView := []string{""}
 	sessionsView := []string{viewSessions}
 	timersView := []string{viewTimers}
+	repopsView := []string{viewRepops}
 
 	var kc = []keyConfig{
 		{
@@ -82,10 +83,22 @@ func (a *App) setKeybindings() error {
 			a.timerWheelDown,
 		},
 		{
-			&timersView,
+			&repopsView,
 			gocui.MouseLeft,
 			gocui.ModNone,
 			a.selectRepopClick,
+		},
+		{
+			&repopsView,
+			gocui.MouseWheelUp,
+			gocui.ModNone,
+			a.repopWheelUp,
+		},
+		{
+			&repopsView,
+			gocui.MouseWheelDown,
+			gocui.ModNone,
+			a.repopWheelDown,
 		},
 		{
 			&qView,

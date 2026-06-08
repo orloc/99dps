@@ -61,6 +61,7 @@ type App struct {
 	editing       bool
 	editBuf       string
 	repopLineMobs map[int]string
+	repopScrollY  int
 }
 
 // lowBuffSec is the remaining-time threshold below which a buff triggers an
@@ -143,6 +144,7 @@ func (a *App) refresh() {
 	a.updateDamage(cur, live)
 	a.updateGraph(cur)
 	a.updatePanel(cur)
+	a.updateRepops()
 	a.updateShortcuts()
 }
 
@@ -193,31 +195,8 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 	}
 
-	// the zone-aware repop list is class-agnostic — append it for everyone, and
-	// record which panel line each mob sits on so a click can select it.
-	lineMobs := map[int]string{}
-	if a.tracker != nil {
-		a.mu.Lock()
-		sel := a.repopSel
-		a.mu.Unlock()
-		respawns := a.tracker.Respawns(now)
-		if rs := renderRespawns(respawns, sel, width); rs != "" {
-			if str != "" {
-				str += "\n"
-			}
-			start := strings.Count(str, "\n") // line index of the "Repops" header
-			str += rs
-			for j, r := range respawns {
-				lineMobs[start+1+j] = r.Mob // +1 skips the header row
-			}
-		}
-	}
-	a.mu.Lock()
-	a.repopLineMobs = lineMobs
-	a.mu.Unlock()
-
 	if str == "" {
-		return // nothing to show (no spell data, no class, no repops)
+		return // nothing to show (no spell data, no class)
 	}
 
 	a.mu.Lock()
@@ -228,6 +207,46 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.writeView(viewTimers, str)
 		if v, err := g.View(viewTimers); err == nil {
+			v.SetOrigin(0, sy)
+		}
+		return nil
+	})
+}
+
+// updateRepops repaints the dedicated Mob Tracker panel: the zone-aware repop
+// list with the clicked mob marked. It records which line each mob sits on so a
+// click can select it for editing.
+func (a *App) updateRepops() {
+	if a.tracker == nil {
+		return
+	}
+	now := time.Now().Unix()
+	width := a.viewInnerWidth(viewRepops)
+	respawns := a.tracker.Respawns(now)
+
+	a.mu.Lock()
+	sel := a.repopSel
+	a.mu.Unlock()
+
+	str := renderRespawns(respawns, sel, width)
+	if str == "" {
+		str = "No kills tracked yet."
+	}
+
+	lineMobs := make(map[int]string, len(respawns))
+	for j, r := range respawns {
+		lineMobs[j] = r.Mob // rows start at line 0 (the window title is the header)
+	}
+
+	a.mu.Lock()
+	a.repopLineMobs = lineMobs
+	a.repopScrollY = clampScroll(a.repopScrollY, len(respawns), a.viewInnerHeight(viewRepops))
+	sy := a.repopScrollY
+	a.mu.Unlock()
+
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.writeView(viewRepops, str)
+		if v, err := g.View(viewRepops); err == nil {
 			v.SetOrigin(0, sy)
 		}
 		return nil
@@ -349,6 +368,28 @@ func (a *App) scrollTimers(delta int) {
 	a.timerScrollY += delta
 	if a.timerScrollY < 0 {
 		a.timerScrollY = 0
+	}
+	a.mu.Unlock()
+	a.refresh()
+}
+
+func (a *App) repopWheelUp(gui *gocui.Gui, view *gocui.View) error {
+	a.scrollRepops(-scrollStep)
+	return nil
+}
+
+func (a *App) repopWheelDown(gui *gocui.Gui, view *gocui.View) error {
+	a.scrollRepops(scrollStep)
+	return nil
+}
+
+// scrollRepops nudges the Mob Tracker panel; the clamp to content happens in
+// updateRepops.
+func (a *App) scrollRepops(delta int) {
+	a.mu.Lock()
+	a.repopScrollY += delta
+	if a.repopScrollY < 0 {
+		a.repopScrollY = 0
 	}
 	a.mu.Unlock()
 	a.refresh()
