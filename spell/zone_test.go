@@ -77,3 +77,23 @@ func TestZoneRespawnTracking(t *testing.T) {
 		t.Error("Clear should reset zone + repops")
 	}
 }
+
+func TestRespawnMineFirstAndKiller(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Greater Faydark.", 1000)
+
+	tr.Observe("a young kodiak has been slain by Gnadad!", 1000) // a groupmate's kill
+	tr.Observe("You have slain a large orc!", 1001)              // my kill, later
+
+	rs := tr.Respawns(1001)
+	if len(rs) != 2 {
+		t.Fatalf("want 2 repops, got %d", len(rs))
+	}
+	// my kill sorts first even though it happened later
+	if !rs[0].Mine || rs[0].Mob != "a large orc" || rs[0].Killer != "You" {
+		t.Errorf("first row should be my orc kill, got %+v", rs[0])
+	}
+	if rs[1].Mine || rs[1].Mob != "a young kodiak" || rs[1].Killer != "Gnadad" {
+		t.Errorf("second row should be Gnadad's kodiak, got %+v", rs[1])
+	}
+}

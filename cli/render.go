@@ -464,33 +464,51 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 	return strings.Join(parts, " · ")
 }
 
-// renderRespawns lists pending mob repops for the current zone, soonest first.
-// A mob past its timer shows "UP" (green); the rest show a countdown (blue).
+// renderRespawns lists pending mob repops: the player's own kills first, then a
+// separator and the kills others got (with the killer's name). A mob past its
+// timer shows "UP" (green); the rest count down (blue). Rows stay aligned with
+// updateRepops's line→mob map, which inserts the same one separator line.
 func renderRespawns(respawns []spell.Respawn, selected string, width int) string {
 	if len(respawns) == 0 {
 		return ""
 	}
-	nameW := width - 9
-	if nameW < 8 {
-		nameW = 8
-	}
+	inner := width - 2 // minus the 2-char marker
 
 	var b strings.Builder
-	for _, r := range respawns {
-		var content, sgr string
+	for i, r := range respawns {
+		// one rule between "my kills" and "others'" (entries are sorted mine-first)
+		if i > 0 && respawns[i-1].Mine && !r.Mine {
+			label := []rune("── killed by others ")
+			sep := string(label)
+			if fill := inner - len(label); fill > 0 {
+				sep += strings.Repeat("─", fill)
+			}
+			b.WriteString("  \x1b[1m" + sep + "\x1b[0m\n")
+		}
+
+		timeStr := "UP"
+		if r.Remaining > 0 {
+			timeStr = fmtDuration(time.Duration(r.Remaining) * time.Second)
+		}
+		killer := ""
+		if !r.Mine && r.Killer != "" {
+			killer = " " + truncate(r.Killer, 12)
+		}
+		nameW := inner - 6 - len(killer) // 6 = space + 5-wide time field
+		if nameW < 6 {
+			nameW = 6
+		}
+		content := fmt.Sprintf("%-*s %5s%s", nameW, truncate(r.Mob, nameW), timeStr, killer)
+
+		sgr := "44;37" // blue: counting down
 		if r.Remaining <= 0 {
-			content = fmt.Sprintf("%-*s UP", nameW, truncate(r.Mob, nameW))
 			sgr = "42;30" // green: should be up
-		} else {
-			content = fmt.Sprintf("%-*s %s", nameW, truncate(r.Mob, nameW),
-				fmtDuration(time.Duration(r.Remaining)*time.Second))
-			sgr = "44;37" // blue: counting down
 		}
 		marker := "  "
 		if selected != "" && r.Mob == selected {
 			marker = "▸ " // a clicked mob (its override is being edited)
 		}
-		b.WriteString(marker + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2)) + "\n")
+		b.WriteString(marker + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner)) + "\n")
 	}
 	return b.String()
 }

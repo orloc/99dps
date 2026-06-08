@@ -233,14 +233,32 @@ func (a *App) updateRepops() {
 		str = "No kills tracked yet."
 	}
 
+	// map each rendered line to its mob for click selection. renderRespawns puts
+	// the player's kills first, then (if there are also others' kills) one
+	// separator line, then the rest — so non-mine rows shift down by one.
+	mineCount := 0
+	for _, r := range respawns {
+		if r.Mine {
+			mineCount++
+		}
+	}
+	hasSep := mineCount > 0 && mineCount < len(respawns)
 	lineMobs := make(map[int]string, len(respawns))
 	for j, r := range respawns {
-		lineMobs[j] = r.Mob // rows start at line 0 (the window title is the header)
+		line := j
+		if hasSep && j >= mineCount {
+			line++ // skip the separator row
+		}
+		lineMobs[line] = r.Mob
 	}
 
+	total := len(respawns)
+	if hasSep {
+		total++
+	}
 	a.mu.Lock()
 	a.repopLineMobs = lineMobs
-	a.repopScrollY = clampScroll(a.repopScrollY, len(respawns), a.viewInnerHeight(viewRepops))
+	a.repopScrollY = clampScroll(a.repopScrollY, total, a.viewInnerHeight(viewRepops))
 	sy := a.repopScrollY
 	a.mu.Unlock()
 

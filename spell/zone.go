@@ -18,12 +18,16 @@ type respawnEntry struct {
 	mob    string
 	at     int64 // kill time, kept so an override can recompute expiry
 	expiry int64
+	mine   bool   // the player got the killing blow (vs a group/other kill)
+	killer string // who landed the blow ("You" for the player's own)
 }
 
 // Respawn is one pending repop, for the panel.
 type Respawn struct {
 	Mob       string
-	Remaining int64 // seconds until repop; <= 0 means it should be up now
+	Remaining int64  // seconds until repop; <= 0 means it should be up now
+	Mine      bool   // the player's own kill (sorted above others')
+	Killer    string // who killed it ("You" for the player's own)
 }
 
 // observeZoneLocked tracks zone-in lines and mob deaths to drive the zone-aware
@@ -41,7 +45,7 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 
 	// the player's own killing blow
 	if mob, ok := strings.CutPrefix(body, "You have slain "); ok {
-		t.recordKillLocked(strings.TrimSuffix(mob, "!"), at)
+		t.recordKillLocked(strings.TrimSuffix(mob, "!"), at, true, "You")
 		return
 	}
 
@@ -51,9 +55,9 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 	// the victim is a player who died, so skip those.
 	if i := strings.Index(body, " has been slain by "); i > 0 {
 		victim := body[:i]
-		killer := body[i+len(" has been slain by "):]
+		killer := strings.TrimRight(body[i+len(" has been slain by "):], " !.")
 		if !killerIsMob(killer) {
-			t.recordKillLocked(victim, at)
+			t.recordKillLocked(victim, at, false, killer)
 		}
 	}
 }
@@ -65,7 +69,7 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 // (its timer elapsed), this kill is that same spawn killed again — reuse the
 // slot rather than leaving a stale entry behind. A still-pending same-name entry
 // is a *distinct* live spawn, so we leave it alone and add a new one.
-func (t *Tracker) recordKillLocked(mob string, at int64) {
+func (t *Tracker) recordKillLocked(mob string, at int64, mine bool, killer string) {
 	if mob == "" {
 		return
 	}
@@ -79,11 +83,13 @@ func (t *Tracker) recordKillLocked(mob string, at int64) {
 	exp := at + int64(sec)
 	for i := range t.respawns {
 		if t.respawns[i].mob == mob && t.respawns[i].expiry <= at {
-			t.respawns[i].at, t.respawns[i].expiry = at, exp // same spawn, re-killed
+			// same spawn, re-killed: reset time and attribute to this kill
+			t.respawns[i].at, t.respawns[i].expiry = at, exp
+			t.respawns[i].mine, t.respawns[i].killer = mine, killer
 			return
 		}
 	}
-	t.respawns = append(t.respawns, respawnEntry{mob: mob, at: at, expiry: exp})
+	t.respawns = append(t.respawns, respawnEntry{mob: mob, at: at, expiry: exp, mine: mine, killer: killer})
 }
 
 // UseOverrides attaches the persisted respawn-override store (called at wiring).
@@ -179,10 +185,14 @@ func (t *Tracker) Respawns(now int64) []Respawn {
 			continue // long past up — drop it
 		}
 		kept = append(kept, e)
-		out = append(out, Respawn{Mob: e.mob, Remaining: rem})
+		out = append(out, Respawn{Mob: e.mob, Remaining: rem, Mine: e.mine, Killer: e.killer})
 	}
 	t.respawns = kept
+	// my kills first, then others'; within each, soonest-to-repop first.
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Mine != out[j].Mine {
+			return out[i].Mine
+		}
 		if out[i].Remaining != out[j].Remaining {
 			return out[i].Remaining < out[j].Remaining
 		}
