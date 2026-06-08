@@ -684,7 +684,9 @@ func renderBars(agg []common.DamageStat, width, height int) string {
 
 		value := fmt.Sprintf(" %s  %d/s", formatInt(d.Total), dealerDPS(d))
 
-		barW := width - nameW - len(value)
+		// nameW + 1 (the space after the name) + barW + value must equal width;
+		// the missing -1 for that space was clipping the last char ("/s" → "/").
+		barW := width - nameW - 1 - len(value)
 		if barW < 1 {
 			barW = 1
 		}
