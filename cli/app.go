@@ -465,9 +465,10 @@ func (a *App) updateShortcuts() {
 	}
 
 	stats := fmt.Sprintf("Reading %s  ·  Zone: %s  ·  %s  ·  %s", who, zone, a.spellInfo, audio)
-	text := keyBindingsText + "\n\n" + stats
+	// stats first so it survives if the (thin) bar clips; keybindings below it
+	text := stats + "\n" + keyBindingsText
 	if status != "" {
-		text = "\x1b[1m" + status + "\x1b[0m\n\n" + text
+		text = "\x1b[1m" + status + "\x1b[0m\n" + text
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.writeView(viewShortcuts, text)

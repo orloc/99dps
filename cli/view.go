@@ -42,6 +42,9 @@ func GetScreenDims(v ViewProperties, maxX, maxY int) (int, int, int, int) {
 const keyBindingsText = `CTL + C: quit    BACKSPACE: clear    A: audio cues    (char switches auto-detected)
 ↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live    CLICK a repop: set its timer`
 
+// Layout: a left Sessions sidebar (full height), a 2×2 grid to its right —
+// Damage | Graph on top, Spell Timers | Mob Tracker below — and a thin key-
+// bindings bar across the bottom.
 var vp = map[string]ViewProperties{
 	viewSessions: {
 		Title:      "Sessions",
@@ -49,7 +52,7 @@ var vp = map[string]ViewProperties{
 		X1:         0.0,
 		X2:         0.2,
 		Y1:         0.0,
-		Y2:         0.8,
+		Y2:         0.88,
 		Editor:     nil,
 		Editable:   false,
 		Autoscroll: false, // scroll is driven manually (selection + mouse wheel)
@@ -58,29 +61,29 @@ var vp = map[string]ViewProperties{
 		Title:    "Damage",
 		Text:     "",
 		X1:       0.2,
-		X2:       1,
+		X2:       0.6,
 		Y1:       0.0,
-		Y2:       0.4,
+		Y2:       0.44,
 		Editor:   nil,
 		Editable: false,
 	},
 	viewGraph: {
 		Title:    "Graph",
 		Text:     "",
-		X1:       0.2,
-		X2:       0.6,
-		Y1:       0.4,
-		Y2:       0.8,
+		X1:       0.6,
+		X2:       1,
+		Y1:       0.0,
+		Y2:       0.44,
 		Editor:   nil,
 		Editable: false,
 	},
 	viewTimers: {
 		Title:    "Spell Timers",
 		Text:     "",
-		X1:       0.6,
-		X2:       1,
-		Y1:       0.4,
-		Y2:       0.6,
+		X1:       0.2,
+		X2:       0.6,
+		Y1:       0.44,
+		Y2:       0.88,
 		Editor:   nil,
 		Editable: false,
 	},
@@ -89,8 +92,8 @@ var vp = map[string]ViewProperties{
 		Text:     "",
 		X1:       0.6,
 		X2:       1,
-		Y1:       0.6,
-		Y2:       0.8,
+		Y1:       0.44,
+		Y2:       0.88,
 		Editor:   nil,
 		Editable: false,
 	},
@@ -99,7 +102,7 @@ var vp = map[string]ViewProperties{
 		Text:     keyBindingsText,
 		X1:       0.0,
 		X2:       1,
-		Y1:       0.8,
+		Y1:       0.88,
 		Y2:       1,
 		Editor:   nil,
 		Editable: false,
