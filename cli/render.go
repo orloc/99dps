@@ -22,11 +22,12 @@ var barColors = []int{36, 32, 33, 35, 34, 31, 37}
 // avoidance column widths for the full (wide) layout.
 const (
 	avNameW = 14
-	avNumW  = 6 // each numeric column, e.g. "Faced", "Dodge"
+	avNumW  = 5 // each numeric column, e.g. "Faced", "Dodge" (fits 5-char headers + "100%")
 )
 
 // fullAvoidanceWidth is the column count the labelled layout needs (7 numeric
-// columns: Faced/Avoid/Miss/Dodge/Parry/Block/Ripo).
+// columns: Faced/Avoid/Miss/Dodge/Parry/Block/Ripo). Kept tight so the full
+// table still shows in the half-width Damage panel.
 const fullAvoidanceWidth = avNameW + 7*(avNumW+1)
 
 // renderDamage builds the damage breakdown table. Dealers are ranked by total
