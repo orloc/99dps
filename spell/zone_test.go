@@ -24,30 +24,35 @@ func TestZoneRespawnTracking(t *testing.T) {
 
 	// a kill starts a repop timer at the zone default (425s for Greater Faydark)
 	tr.Observe("You have slain a large orc!", 1000)
-	rs := tr.Respawns(1000)
-	if len(rs) != 1 || rs[0].Mob != "a large orc" || rs[0].Remaining != 425 {
+	if rs := tr.Respawns(1000); len(rs) != 1 || rs[0].Mob != "a large orc" || rs[0].Remaining != 425 {
 		t.Fatalf("respawns = %+v, want a large orc / 425", rs)
 	}
 	if rem := tr.Respawns(1300)[0].Remaining; rem != 125 {
 		t.Errorf("remaining at +300s = %d, want 125", rem)
 	}
 
-	// a SECOND same-named mob dying within the window is a distinct spawn — two
-	// separate timers, not a reset
-	tr.Observe("You have slain a large orc!", 1050)
-	if rs := tr.Respawns(1050); len(rs) != 2 {
-		t.Fatalf("two nearby same-name deaths should be 2 timers, got %d", len(rs))
+	// re-killing the SAME spawn after it has repopped (timer elapsed at 1425)
+	// reuses its slot — still one entry, just reset
+	tr.Observe("You have slain a large orc!", 1500)
+	if rs := tr.Respawns(1500); len(rs) != 1 || rs[0].Remaining != 425 {
+		t.Fatalf("re-kill of a repopped mob should reuse the slot, got %+v", rs)
+	}
+
+	// but a SECOND orc dying while the first is still pending is a distinct spawn
+	tr.Observe("You have slain a large orc!", 1600)
+	if rs := tr.Respawns(1600); len(rs) != 2 {
+		t.Fatalf("a concurrent same-name death is a distinct spawn, got %d", len(rs))
 	}
 
 	// a group kill (someone else's killing blow) is also tracked
-	tr.Observe("a young kodiak has been slain by Gnadad!", 1100)
-	if !hasMob(tr.Respawns(1100), "a young kodiak") {
+	tr.Observe("a young kodiak has been slain by Gnadad!", 1700)
+	if !hasMob(tr.Respawns(1700), "a young kodiak") {
 		t.Error("group kill (slain by a player) should be tracked")
 	}
 
 	// a player death (killed by a mob) must NOT be tracked
-	tr.Observe("Gnadad has been slain by a large orc!", 1100)
-	if hasMob(tr.Respawns(1100), "Gnadad") {
+	tr.Observe("Gnadad has been slain by a large orc!", 1700)
+	if hasMob(tr.Respawns(1700), "Gnadad") {
 		t.Error("a player's death must not be tracked as a repop")
 	}
 

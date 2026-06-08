@@ -58,9 +58,13 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 	}
 }
 
-// recordKillLocked appends a repop timer for a mob death (one entry per death —
-// see respawnEntry). A per-(zone, mob) override wins over the zone default;
-// no-op when neither yields a time.
+// recordKillLocked records a mob death. A per-(zone, mob) override wins over the
+// zone default; no-op when neither yields a time.
+//
+// Same-name handling: if a prior entry for this mob has already repopped by now
+// (its timer elapsed), this kill is that same spawn killed again — reuse the
+// slot rather than leaving a stale entry behind. A still-pending same-name entry
+// is a *distinct* live spawn, so we leave it alone and add a new one.
 func (t *Tracker) recordKillLocked(mob string, at int64) {
 	if mob == "" {
 		return
@@ -72,7 +76,14 @@ func (t *Tracker) recordKillLocked(mob string, at int64) {
 	if sec <= 0 {
 		return
 	}
-	t.respawns = append(t.respawns, respawnEntry{mob: mob, at: at, expiry: at + int64(sec)})
+	exp := at + int64(sec)
+	for i := range t.respawns {
+		if t.respawns[i].mob == mob && t.respawns[i].expiry <= at {
+			t.respawns[i].at, t.respawns[i].expiry = at, exp // same spawn, re-killed
+			return
+		}
+	}
+	t.respawns = append(t.respawns, respawnEntry{mob: mob, at: at, expiry: exp})
 }
 
 // UseOverrides attaches the persisted respawn-override store (called at wiring).
