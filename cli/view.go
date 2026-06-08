@@ -39,7 +39,7 @@ func GetScreenDims(v ViewProperties, maxX, maxY int) (int, int, int, int) {
 }
 
 const keyBindingsText = `CTL + C: quit    BACKSPACE: clear    A: audio cues    (char switches auto-detected)
-↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live`
+↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live    CLICK a repop: set its timer`
 
 var vp = map[string]ViewProperties{
 	viewSessions: {

@@ -45,6 +45,7 @@ type Tracker struct {
 	zone           string         // current zone (from a "You have entered" line)
 	zoneRespawnSec int            // current zone's default respawn, 0 if unknown
 	respawns       []respawnEntry // pending mob repops (one entry per death)
+	overrides      *Overrides     // persisted per-(zone,mob) respawn overrides
 
 	// pending cast awaiting its landing emote
 	pending   *Spell

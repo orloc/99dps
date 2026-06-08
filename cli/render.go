@@ -465,7 +465,7 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 
 // renderRespawns lists pending mob repops for the current zone, soonest first.
 // A mob past its timer shows "UP" (green); the rest show a countdown (blue).
-func renderRespawns(respawns []spell.Respawn, width int) string {
+func renderRespawns(respawns []spell.Respawn, selected string, width int) string {
 	if len(respawns) == 0 {
 		return ""
 	}
@@ -486,7 +486,11 @@ func renderRespawns(respawns []spell.Respawn, width int) string {
 				fmtDuration(time.Duration(r.Remaining)*time.Second))
 			sgr = "44;37" // blue: counting down
 		}
-		b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2)) + "\n")
+		marker := "  "
+		if selected != "" && r.Mob == selected {
+			marker = "▸ " // a clicked mob (its override is being edited)
+		}
+		b.WriteString(marker + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2)) + "\n")
 	}
 	return b.String()
 }

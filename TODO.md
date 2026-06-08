@@ -32,7 +32,7 @@ is client-specific and isn't in the current all-caster logs). Add to
 ## Zone / repop tracking (done — possible refinements)
 - [x] Zone detection + per-kill repop timers (zone defaults from `common/zonetimers.go`); zone/level/class in the bottom bar.
 - [ ] Current zone is unknown until the next zone-in (no log line gives it at startup) — could infer from other signals if any exist.
-- [ ] Repop times are zone *defaults*; named/PH/exception mobs differ (see the multi-timer zones in `docs/zone-spawn-timers.md`). Per-mob overrides would need a mob→timer table.
+- [x] Per-`(zone, mob)` respawn overrides: click a Repops row → type the correct time → saved to `<logdir>/99dps-overrides.json`, fixes live + future kills. (Zone defaults remain the fallback.)
 - [x] Tracks all mob deaths (player's own + "X has been slain by &lt;player&gt;"), each death a distinct spawn. Player deaths are skipped via a killer-is-mob heuristic — mob-killed-by-mob (charm/faction) is the rare miss.
 - [ ] Wiki had no data for: Kelethin, Dagnor's Cauldron, Emerald Jungle, Veeshan's Peak, Western Wastes (not in the map).
 - [ ] Zone-name matching is normalized (lowercase / strip "the" / period); some EQ zone-in long names may not match the wiki keys — report misses.

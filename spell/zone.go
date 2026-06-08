@@ -16,6 +16,7 @@ const respawnKeepUpSec = 120
 // spawns and each get their own timer.
 type respawnEntry struct {
 	mob    string
+	at     int64 // kill time, kept so an override can recompute expiry
 	expiry int64
 }
 
@@ -58,12 +59,58 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 }
 
 // recordKillLocked appends a repop timer for a mob death (one entry per death —
-// see respawnEntry). No-op if the zone's respawn isn't known.
+// see respawnEntry). A per-(zone, mob) override wins over the zone default;
+// no-op when neither yields a time.
 func (t *Tracker) recordKillLocked(mob string, at int64) {
-	if t.zoneRespawnSec <= 0 || mob == "" {
+	if mob == "" {
 		return
 	}
-	t.respawns = append(t.respawns, respawnEntry{mob: mob, expiry: at + int64(t.zoneRespawnSec)})
+	sec := t.zoneRespawnSec
+	if o, ok := t.overrides.Get(t.zone, mob); ok {
+		sec = o
+	}
+	if sec <= 0 {
+		return
+	}
+	t.respawns = append(t.respawns, respawnEntry{mob: mob, at: at, expiry: at + int64(sec)})
+}
+
+// UseOverrides attaches the persisted respawn-override store (called at wiring).
+func (t *Tracker) UseOverrides(o *Overrides) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.overrides = o
+	t.mu.Unlock()
+}
+
+// SetOverride sets a respawn override (seconds) for a mob in the current zone,
+// persists it, and retroactively updates that mob's live timers. sec <= 0 clears
+// the override and reverts live timers to the zone default.
+func (t *Tracker) SetOverride(mob string, sec int) {
+	if t == nil || mob == "" {
+		return
+	}
+	t.mu.Lock()
+	zone := t.zone
+	eff := sec
+	if eff <= 0 {
+		eff = t.zoneRespawnSec
+	}
+	if eff > 0 {
+		for i := range t.respawns {
+			if t.respawns[i].mob == mob {
+				t.respawns[i].expiry = t.respawns[i].at + int64(eff)
+			}
+		}
+	}
+	o := t.overrides
+	t.mu.Unlock()
+
+	if o != nil && zone != "" {
+		_ = o.Set(zone, mob, sec)
+	}
 }
 
 // killerIsMob reports whether the "slain by X" killer is a mob (lowercase / an

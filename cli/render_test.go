@@ -254,6 +254,20 @@ func TestSkillLabellingByClass(t *testing.T) {
 	}
 }
 
+func TestParseTimer(t *testing.T) {
+	ok := map[string]int{"28:00": 1680, "6:40": 400, "1:10:10": 4210, "400": 400}
+	for in, want := range ok {
+		if got, valid := parseTimer(in); !valid || got != want {
+			t.Errorf("parseTimer(%q) = (%d,%v), want (%d,true)", in, got, valid, want)
+		}
+	}
+	for _, bad := range []string{"", "abc", "5:xx", "0", "-3"} {
+		if _, valid := parseTimer(bad); valid {
+			t.Errorf("parseTimer(%q) should be invalid", bad)
+		}
+	}
+}
+
 func TestGetScreenDims(t *testing.T) {
 	// full-screen view on an 80x24 terminal
 	x1, y1, x2, y2 := GetScreenDims(ViewProperties{X1: 0, X2: 1, Y1: 0, Y2: 1}, 80, 24)

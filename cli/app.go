@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/jroimartin/gocui"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,15 @@ type App struct {
 	speaker   *speaker
 	ttsOn     bool
 	announced map[string]bool
+
+	// repop editing: clicking a Repops row selects that mob (repopSel) and opens
+	// an inline editor (editing/editBuf) to type a corrected respawn, which is
+	// saved as a per-(zone,mob) override. repopLineMobs maps a panel line to the
+	// mob on it, for click resolution.
+	repopSel      string
+	editing       bool
+	editBuf       string
+	repopLineMobs map[int]string
 }
 
 // lowBuffSec is the remaining-time threshold below which a buff triggers an
@@ -183,15 +193,29 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 	}
 
-	// the zone-aware repop list is class-agnostic — append it for everyone
+	// the zone-aware repop list is class-agnostic — append it for everyone, and
+	// record which panel line each mob sits on so a click can select it.
+	lineMobs := map[int]string{}
 	if a.tracker != nil {
-		if rs := renderRespawns(a.tracker.Respawns(now), width); rs != "" {
+		a.mu.Lock()
+		sel := a.repopSel
+		a.mu.Unlock()
+		respawns := a.tracker.Respawns(now)
+		if rs := renderRespawns(respawns, sel, width); rs != "" {
 			if str != "" {
 				str += "\n"
 			}
+			start := strings.Count(str, "\n") // line index of the "Repops" header
 			str += rs
+			for j, r := range respawns {
+				lineMobs[start+1+j] = r.Mob // +1 skips the header row
+			}
 		}
 	}
+	a.mu.Lock()
+	a.repopLineMobs = lineMobs
+	a.mu.Unlock()
+
 	if str == "" {
 		return // nothing to show (no spell data, no class, no repops)
 	}
@@ -365,6 +389,10 @@ func (a *App) updateShortcuts() {
 			a.status = ""
 		}
 	}
+	// the repop editor takes over the banner while active
+	if a.editing {
+		status = fmt.Sprintf("set timer for '%s' (m:ss): %s_    [Enter] save  [Esc] cancel", a.repopSel, a.editBuf)
+	}
 	char := a.character
 	audio := "audio off"
 	if a.ttsOn {
@@ -429,6 +457,18 @@ func (a *App) quit(gui *gocui.Gui, view *gocui.View) error {
 }
 
 func (a *App) clear(gui *gocui.Gui, view *gocui.View) error {
+	// while editing a repop timer, Backspace deletes a character instead
+	a.mu.Lock()
+	if a.editing {
+		if len(a.editBuf) > 0 {
+			a.editBuf = a.editBuf[:len(a.editBuf)-1]
+		}
+		a.mu.Unlock()
+		a.refresh()
+		return nil
+	}
+	a.mu.Unlock()
+
 	a.manager.Clear()
 	a.mu.Lock()
 	a.selected = 0
@@ -438,6 +478,90 @@ func (a *App) clear(gui *gocui.Gui, view *gocui.View) error {
 	a.mu.Unlock()
 	a.refresh()
 	return nil
+}
+
+// selectRepopClick selects the Repops row under the click and opens the inline
+// editor for that mob's respawn override.
+func (a *App) selectRepopClick(gui *gocui.Gui, view *gocui.View) error {
+	_, cy := view.Cursor()
+	_, oy := view.Origin()
+	a.mu.Lock()
+	mob := a.repopLineMobs[oy+cy]
+	if mob != "" {
+		a.repopSel = mob
+		a.editing = true
+		a.editBuf = ""
+	}
+	a.mu.Unlock()
+	if mob != "" {
+		a.refresh()
+	}
+	return nil
+}
+
+// editType appends a typed character to the repop-timer editor (digits/colon).
+func (a *App) editType(ch byte) func(*gocui.Gui, *gocui.View) error {
+	return func(*gocui.Gui, *gocui.View) error {
+		a.mu.Lock()
+		ed := a.editing
+		if ed && len(a.editBuf) < 8 {
+			a.editBuf += string(ch)
+		}
+		a.mu.Unlock()
+		if ed {
+			a.refresh()
+		}
+		return nil
+	}
+}
+
+// editCommit parses the typed time and saves it as the mob's respawn override.
+func (a *App) editCommit(gui *gocui.Gui, view *gocui.View) error {
+	a.mu.Lock()
+	if !a.editing {
+		a.mu.Unlock()
+		return nil
+	}
+	buf, mob := a.editBuf, a.repopSel
+	a.editing, a.editBuf = false, ""
+	a.mu.Unlock()
+
+	if sec, ok := parseTimer(buf); ok && a.tracker != nil {
+		a.tracker.SetOverride(mob, sec)
+		a.flashStatus(fmt.Sprintf("%s → %s repop", mob, fmtDuration(time.Duration(sec)*time.Second)))
+	}
+	a.refresh()
+	return nil
+}
+
+// editCancel closes the editor without saving.
+func (a *App) editCancel(gui *gocui.Gui, view *gocui.View) error {
+	a.mu.Lock()
+	editing := a.editing
+	a.editing, a.editBuf, a.repopSel = false, "", ""
+	a.mu.Unlock()
+	if editing {
+		a.refresh()
+	}
+	return nil
+}
+
+// parseTimer reads a respawn time as "h:mm:ss", "m:ss", or plain seconds into
+// total seconds. Returns false on malformed input or a non-positive total.
+func parseTimer(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	total := 0
+	for _, p := range strings.Split(s, ":") {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		total = total*60 + n
+	}
+	return total, total > 0
 }
 
 // selectUp pins the selection one session older (toward the top), leaving

@@ -81,7 +81,12 @@ wiki — see `docs/zone-spawn-timers.md`). Every mob death — the player's own 
 player deaths) — starts a repop timer at the zone default (`Respawns()`). Each
 death is its own entry (a `[]respawnEntry`, not name-keyed), so two same-named
 mobs dying close together are tracked as distinct spawns rather than one reset.
-Zoning clears the list; entries purge ~2 min after they pop. The repop list renders (`renderRespawns`) at the
+Zoning clears the list; entries purge ~2 min after they pop. **Click a repop row**
+to edit that mob's respawn: an inline editor (digits/`:` typed into the bottom
+bar, Enter saves) writes a per-`(zone, mob)` override via `spell.Overrides` (JSON
+at `<logdir>/99dps-overrides.json`), retroactively fixes that mob's live timers,
+and is used for all future kills (override → zone default fallback in
+`recordKillLocked`). The repop list renders (`renderRespawns`) at the
 bottom of the bottom-right panel for every class. The bottom bar
 (`updateShortcuts`) shows `character · L<level> <class> · Zone: <zone>` from the
 tracker. Caveat: zone is only known after the next zone-in (no log line gives the

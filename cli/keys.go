@@ -81,6 +81,24 @@ func (a *App) setKeybindings() error {
 			gocui.ModNone,
 			a.timerWheelDown,
 		},
+		{
+			&timersView,
+			gocui.MouseLeft,
+			gocui.ModNone,
+			a.selectRepopClick,
+		},
+		{
+			&qView,
+			gocui.KeyEnter,
+			gocui.ModNone,
+			a.editCommit,
+		},
+		{
+			&qView,
+			gocui.KeyEsc,
+			gocui.ModNone,
+			a.editCancel,
+		},
 	}
 
 	for _, shortcut := range kc {
@@ -93,6 +111,13 @@ func (a *App) setKeybindings() error {
 			); err != nil {
 				return err
 			}
+		}
+	}
+
+	// digits and ':' feed the repop-timer editor (no-op when not editing)
+	for _, ch := range []byte("0123456789:") {
+		if err := a.gui.SetKeybinding("", rune(ch), gocui.ModNone, a.editType(ch)); err != nil {
+			return err
 		}
 	}
 

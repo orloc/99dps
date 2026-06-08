@@ -26,6 +26,8 @@ func launchCLI(logDir, spellsPath string, tts bool) {
 	spellInfo := "spell timers off (no spells_us.txt)"
 	if book, err := spell.Load(spellsPath); err == nil {
 		tracker = spell.NewTracker(book)
+		// user respawn overrides live next to the logs so they're easy to find
+		tracker.UseOverrides(spell.LoadOverrides(filepath.Join(logDir, "99dps-overrides.json")))
 		spellInfo = fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
 	}
 
