@@ -57,22 +57,33 @@ func (t *Tracker) recordCanniBuzzerLocked() {
 	t.canniCombo = 0 // overshot the edge — broke the rhythm
 }
 
-// canniPctLocked is throughput vs the recast cap over the current dance. Uses
-// log times, so it's robust to the 1-second log resolution over a run of casts.
+// canniPctLocked is the dance efficiency: throughput (cast rate vs the recast
+// cap) × accuracy (good casts vs total attempts). Each "recast not yet met"
+// buzzer is a wasted attempt that drags accuracy — and thus efficiency — down,
+// so the goal is fast *and* clean. Uses log times, robust to 1-second
+// resolution over a run of casts.
 func (t *Tracker) canniPctLocked() int {
-	intervals := t.canniCasts - 1
-	if intervals < 1 || t.canniEdgeMs <= 0 {
+	if t.canniCasts < 1 {
 		return 0
 	}
-	elapsed := t.canniLastCast - t.canniDanceStart
-	if elapsed < 1 {
-		elapsed = 1
+
+	// throughput: how close the cast rate is to the recast cap
+	thru := 100
+	if intervals := t.canniCasts - 1; intervals >= 1 && t.canniEdgeMs > 0 {
+		elapsed := t.canniLastCast - t.canniDanceStart
+		if elapsed < 1 {
+			elapsed = 1
+		}
+		thru = int(int64(intervals) * int64(t.canniEdgeMs) * 100 / (elapsed * 1000))
+		if thru > 100 {
+			thru = 100
+		}
 	}
-	pct := int(int64(intervals) * int64(t.canniEdgeMs) * 100 / (elapsed * 1000))
-	if pct > 100 {
-		pct = 100
-	}
-	return pct
+
+	// accuracy: successful casts out of total presses (buzzers = too-early misses)
+	acc := t.canniCasts * 100 / (t.canniCasts + t.canniBuzzers)
+
+	return thru * acc / 100
 }
 
 // CanniStats returns the live dance readout, or an empty (inactive) value once

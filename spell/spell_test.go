@@ -327,8 +327,10 @@ func TestCanniDance(t *testing.T) {
 	if c.Buzzers != 1 {
 		t.Errorf("buzzers = %d, want 1", c.Buzzers)
 	}
-	if c.Pct != 96 { // 3 intervals × 2.25s over 7s ≈ 96%
-		t.Errorf("efficiency = %d%%, want 96%%", c.Pct)
+	// throughput ~96% (3 intervals × 2.25s over 7s) × accuracy 80% (4 casts of
+	// 5 presses; 1 buzzer) ≈ 76% — the buzzer drags it down
+	if c.Pct != 76 {
+		t.Errorf("efficiency = %d%%, want 76%% (buzzer must hurt it)", c.Pct)
 	}
 
 	// stops dancing → inactive after the timeout
