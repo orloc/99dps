@@ -351,9 +351,11 @@ func renderSessions(dat []*session.CombatSession, selected, width int) string {
 // renderTimers lists the player's active spell timers, soonest-to-expire first:
 // detrimental spells (debuffs/DoTs on mobs) in magenta, beneficial (buffs) in
 // green, and anything with ≤10s left in red. Target and remaining time shown.
-func renderTimers(timers []spell.Timer, now int64, width int) string {
+// The second return maps each output line to its target so a click can dismiss
+// that person's buffs.
+func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]string) {
 	if len(timers) == 0 {
-		return "No active spells."
+		return "No active spells.", nil
 	}
 
 	groups, order := groupByTarget(timers)
@@ -368,9 +370,14 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 	}
 
 	var b strings.Builder
+	lineTargets := map[int]string{}
+	line := 0
 	for _, tgt := range order {
-		// target header (bold, full name)
+		// target header (bold, full name) — clicking it (or any of its rows)
+		// dismisses the target
 		b.WriteString("\x1b[1m" + truncate(displayName(tgt), width) + "\x1b[0m\n")
+		lineTargets[line] = tgt
+		line++
 
 		g := groups[tgt]
 		sort.SliceStable(g, func(i, j int) bool { return g[i].Expiry < g[j].Expiry })
@@ -391,9 +398,11 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 			// 2-space indent (plain), then a colored bar filling the rest
 			bar := fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner))
 			b.WriteString("  " + bar + "\n")
+			lineTargets[line] = tgt
+			line++
 		}
 	}
-	return b.String()
+	return b.String(), lineTargets
 }
 
 // renderSkills is the melee-class panel: the player's activated-skill breakdown

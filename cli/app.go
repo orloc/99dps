@@ -62,6 +62,10 @@ type App struct {
 	editBuf       string
 	repopLineMobs map[int]string
 	repopScrollY  int
+
+	// timerLineTargets maps a Spell Timers panel line to its buff target, so a
+	// click dismisses that person's timers.
+	timerLineTargets map[int]string
 }
 
 // lowBuffSec is the remaining-time threshold below which a buff triggers an
@@ -167,6 +171,7 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	}
 
 	var str string
+	var timerMap map[int]string // panel line -> buff target, for click-to-dismiss
 	switch cat {
 	case common.CatMelee:
 		var cds []spell.CooldownTimer
@@ -186,19 +191,28 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 			}
 		}
 	case common.CatHybrid:
-		str = a.timersStr(width)
+		str, timerMap = a.timersStr(width)
 		if sum := skillsSummary(cur, class, level); sum != "" {
 			str += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
 		}
 	default: // CatCaster
 		if a.tracker != nil {
-			str = a.timersStr(width)
+			str, timerMap = a.timersStr(width)
 		}
 	}
 
-	// the canni-dance meter rides above the panel while you're actively dancing
+	// the canni-dance meter rides above the panel while you're actively dancing —
+	// it shifts the timer lines down, so re-key the click map by the same offset.
 	if a.tracker != nil {
 		if cm := renderCanni(a.tracker.CanniStats(now), width); cm != "" {
+			off := strings.Count(cm, "\n") + 1
+			if timerMap != nil {
+				shifted := make(map[int]string, len(timerMap))
+				for k, v := range timerMap {
+					shifted[k+off] = v
+				}
+				timerMap = shifted
+			}
 			if str != "" {
 				str = cm + "\n" + str
 			} else {
@@ -206,6 +220,10 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 			}
 		}
 	}
+
+	a.mu.Lock()
+	a.timerLineTargets = timerMap
+	a.mu.Unlock()
 
 	if str == "" {
 		return // nothing to show (no spell data, no class, not dancing)
@@ -287,7 +305,7 @@ func (a *App) updateRepops() {
 // is wall-clock — log timestamps track real time during live play, and timers
 // replayed from old log history are already expired and filtered out. Only
 // called when the tracker is non-nil.
-func (a *App) timersStr(width int) string {
+func (a *App) timersStr(width int) (string, map[int]string) {
 	now := time.Now().Unix()
 	active := a.tracker.Active(now)
 	a.announceLowBuffs(active, now)
@@ -529,6 +547,22 @@ func (a *App) clear(gui *gocui.Gui, view *gocui.View) error {
 	a.lastSel = 0
 	a.mu.Unlock()
 	a.refresh()
+	return nil
+}
+
+// dismissTimerClick removes all of a target's spell timers when its row (or
+// header) in the Spell Timers panel is clicked — for pruning a long raid-buff
+// list as people leave.
+func (a *App) dismissTimerClick(gui *gocui.Gui, view *gocui.View) error {
+	_, cy := view.Cursor()
+	_, oy := view.Origin()
+	a.mu.Lock()
+	tgt := a.timerLineTargets[oy+cy]
+	a.mu.Unlock()
+	if tgt != "" && a.tracker != nil {
+		a.tracker.DismissTarget(tgt)
+		a.refresh()
+	}
 	return nil
 }
 

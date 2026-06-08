@@ -41,7 +41,7 @@ func GetScreenDims(v ViewProperties, maxX, maxY int) (int, int, int, int) {
 }
 
 const keyBindingsText = `CTL + C: quit    BACKSPACE: clear    A: audio cues    (char switches auto-detected)
-↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live    CLICK a repop: set its timer`
+↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live    CLICK a repop: set timer    CLICK a buff: dismiss`
 
 // Layout: a left Sessions sidebar (full height), a 2×2 grid to its right —
 // Damage | Graph on top, Spell Timers | Mob Tracker below — and a thin key-

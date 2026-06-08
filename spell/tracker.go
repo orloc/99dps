@@ -170,6 +170,21 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 	}
 }
 
+// DismissTarget removes all of a target's active timers (manual cleanup of a
+// raid-buff list — the timer reappears if the buff is re-cast).
+func (t *Tracker) DismissTarget(target string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	for k, tm := range t.timers {
+		if tm.Target == target {
+			delete(t.timers, k)
+		}
+	}
+	t.mu.Unlock()
+}
+
 // Observe feeds one log line (timestamp body, no leading "[...]"). It matches a
 // pending cast's landing emote, clears the pending cast on a resist, expires
 // timers on a wear-off message, and drops debuffs when their target is slain.

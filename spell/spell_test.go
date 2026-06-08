@@ -336,3 +336,17 @@ func TestCanniDance(t *testing.T) {
 		t.Error("dance should go inactive after the timeout")
 	}
 }
+
+// DismissTarget removes only the clicked person's timers.
+func TestDismissTarget(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.timers[key("Clarity", "Tank")] = Timer{Spell: "Clarity", Target: "Tank", Expiry: 9999}
+	tr.timers[key("Brell", "Tank")] = Timer{Spell: "Brell", Target: "Tank", Expiry: 9999}
+	tr.timers[key("SoW", "You")] = Timer{Spell: "SoW", Target: "You", Expiry: 9999}
+
+	tr.DismissTarget("Tank")
+	act := tr.Active(0)
+	if len(act) != 1 || act[0].Target != "You" {
+		t.Errorf("dismiss should remove only Tank's buffs, left %+v", act)
+	}
+}

@@ -72,6 +72,12 @@ func (a *App) setKeybindings() error {
 		},
 		{
 			&timersView,
+			gocui.MouseLeft,
+			gocui.ModNone,
+			a.dismissTimerClick,
+		},
+		{
+			&timersView,
 			gocui.MouseWheelUp,
 			gocui.ModNone,
 			a.timerWheelUp,
