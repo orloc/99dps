@@ -205,6 +205,19 @@ func TestIsFeignMacro(t *testing.T) {
 	}
 }
 
+func TestIsOwnFeignFail(t *testing.T) {
+	p := &DmgParser{character: "Kelkix"}
+	if !p.isOwnFeignFail("Kelkix has fallen to the ground.") {
+		t.Error("should detect the player's own failed feign")
+	}
+	if !p.isOwnFeignFail("You have fallen to the ground.") {
+		t.Error("should detect the 'You' self form")
+	}
+	if p.isOwnFeignFail("Dancogar has fallen to the ground.") {
+		t.Error("another monk's fail must not trip the alert")
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	p := &DmgParser{character: "Kelkix"}
 

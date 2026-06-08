@@ -74,6 +74,21 @@ func (t *Tracker) FeignAttempt(at int64) {
 	t.mu.Unlock()
 }
 
+// FeignFailed records the player's failed feign (mobs still attacking). The
+// parser gates this to the player's own line so another monk's fail in the zone
+// doesn't trip it.
+func (t *Tracker) FeignFailed(at int64) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.feignFailAt = at
+	if t.class == common.ClassUnknown {
+		t.class = common.ClassMonk
+	}
+	t.mu.Unlock()
+}
+
 // FeignStatus reports the current feign banner state at wall-clock `now`. A
 // recent failure always alerts (even with no macro attempt); otherwise a recent
 // attempt with no following failure reads as success once the grace window has

@@ -68,16 +68,16 @@ func TestFeignStatus(t *testing.T) {
 		t.Errorf("past the show window = %v, want FeignNone", s)
 	}
 
-	// a fail message right after an attempt classifies as failed
+	// a fail right after an attempt classifies as failed
 	tr.FeignAttempt(2000)
-	tr.Observe("You have fallen to the ground.", 2001)
+	tr.FeignFailed(2001)
 	if s := tr.FeignStatus(2002); s != FeignFailed {
 		t.Errorf("fail after attempt = %v, want FeignFailed", s)
 	}
 
 	// a bare fail with no macro still alerts
 	tr2 := NewTracker(&Book{byName: map[string]*Spell{}})
-	tr2.Observe("You have fallen to the ground.", 5000)
+	tr2.FeignFailed(5000)
 	if s := tr2.FeignStatus(5001); s != FeignFailed {
 		t.Errorf("bare fail = %v, want FeignFailed", s)
 	}
@@ -85,5 +85,30 @@ func TestFeignStatus(t *testing.T) {
 	tr.Clear()
 	if tr.FeignStatus(2002) != FeignNone {
 		t.Error("Clear should reset feign state")
+	}
+}
+
+func TestBinding(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+
+	if tr.Binding(1000) {
+		t.Fatal("not binding initially")
+	}
+	tr.Observe("You begin to bandage yourself.", 1000)
+	if !tr.Binding(1002) {
+		t.Error("should be binding after the begin line")
+	}
+	tr.Observe("You are done bandaging.  the bandaging is complete.", 1006)
+	if tr.Binding(1007) {
+		t.Error("complete line should end binding")
+	}
+
+	// an interrupted bind (no completion) clears after the timeout
+	tr.Observe("You begin to bandage yourself.", 2000)
+	if !tr.Binding(2005) {
+		t.Error("should be binding within the window")
+	}
+	if tr.Binding(2025) {
+		t.Error("stuck binding should time out")
 	}
 }

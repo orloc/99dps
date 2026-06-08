@@ -39,6 +39,8 @@ type Tracker struct {
 	cooldowns      map[string]int64 // ability name -> reuse-expiry unix seconds
 	feignAttemptAt int64            // log time of the last feign attempt (macro)
 	feignFailAt    int64            // log time of the last failed feign (0 = none)
+	bindStartAt    int64            // log time bandaging began
+	bindDoneAt     int64            // log time bandaging last completed
 
 	// pending cast awaiting its landing emote
 	pending   *Spell
@@ -159,14 +161,28 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.expireOnSlainLocked(body)
 	t.matchCooldownLocked(body, at)
 
-	// a failed feign ("<you> have/has fallen to the ground") — mobs keep
-	// attacking, so flag it (the absence of this after an attempt = success).
-	if strings.Contains(body, "fallen to the ground") {
-		t.feignFailAt = at
-		if t.class == common.ClassUnknown {
-			t.class = common.ClassMonk
-		}
+	// bind wound: "You begin to bandage <target>" … "the bandaging is complete"
+	// — both are the player's own self-messages, so no name gating is needed.
+	if strings.HasPrefix(body, "You begin to bandage") {
+		t.bindStartAt = at
 	}
+	if strings.Contains(body, "bandaging is complete") {
+		t.bindDoneAt = at
+	}
+}
+
+// bindTimeoutSec clears a stuck "bandaging" indicator if the completion line is
+// never seen (movement/damage interrupts bind wound with no message).
+const bindTimeoutSec = 20
+
+// Binding reports whether the player is mid-bandage at wall-clock `now`.
+func (t *Tracker) Binding(now int64) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.bindStartAt > t.bindDoneAt && now-t.bindStartAt <= bindTimeoutSec
 }
 
 func (t *Tracker) matchLandingLocked(body string, at int64) {
@@ -328,6 +344,8 @@ func (t *Tracker) Clear() {
 	t.cooldowns = make(map[string]int64)
 	t.feignAttemptAt = 0
 	t.feignFailAt = 0
+	t.bindStartAt = 0
+	t.bindDoneAt = 0
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

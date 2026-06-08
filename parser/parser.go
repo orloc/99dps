@@ -82,6 +82,10 @@ func (p *DmgParser) observeSpells(line string) {
 		p.tracker.FeignAttempt(ts) // the FD attempt; a fail line (if any) follows
 		return
 	}
+	if p.isOwnFeignFail(body) {
+		p.tracker.FeignFailed(ts)
+		return
+	}
 	if strings.HasPrefix(body, castPrefix) {
 		p.tracker.BeginCast(strings.TrimSuffix(strings.TrimSpace(body[len(castPrefix):]), "."), ts)
 		return
@@ -101,6 +105,18 @@ func (p *DmgParser) isFeignMacro(body string) bool {
 	return p.character != "" &&
 		strings.HasPrefix(body, p.character) &&
 		strings.Contains(body, feignMacroPhrase)
+}
+
+// isOwnFeignFail reports whether a line is the *player's* failed feign
+// ("<you> have/has fallen to the ground"). EQ logs this with the player's own
+// name, and other monks in the zone log the same line, so it's gated to the
+// player to avoid false alerts.
+func (p *DmgParser) isOwnFeignFail(body string) bool {
+	if !strings.Contains(body, "fallen to the ground") {
+		return false
+	}
+	return strings.HasPrefix(body, "You ") ||
+		(p.character != "" && strings.HasPrefix(body, p.character+" "))
 }
 
 // parseLevel reads the player's level (and class, when available) from a /who
