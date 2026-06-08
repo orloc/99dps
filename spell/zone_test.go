@@ -2,6 +2,15 @@ package spell
 
 import "testing"
 
+func hasMob(rs []Respawn, mob string) bool {
+	for _, r := range rs {
+		if r.Mob == mob {
+			return true
+		}
+	}
+	return false
+}
+
 func TestZoneRespawnTracking(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	if tr.Zone() != "" {
@@ -22,14 +31,24 @@ func TestZoneRespawnTracking(t *testing.T) {
 	if rem := tr.Respawns(1300)[0].Remaining; rem != 125 {
 		t.Errorf("remaining at +300s = %d, want 125", rem)
 	}
-	if rem := tr.Respawns(1500)[0].Remaining; rem > 0 {
-		t.Errorf("past timer should read up (<=0), got %d", rem)
+
+	// a SECOND same-named mob dying within the window is a distinct spawn — two
+	// separate timers, not a reset
+	tr.Observe("You have slain a large orc!", 1050)
+	if rs := tr.Respawns(1050); len(rs) != 2 {
+		t.Fatalf("two nearby same-name deaths should be 2 timers, got %d", len(rs))
 	}
 
-	// re-killing the same name resets its timer
-	tr.Observe("You have slain a large orc!", 1400)
-	if rem := tr.Respawns(1400)[0].Remaining; rem != 425 {
-		t.Errorf("re-kill should reset, got %d", rem)
+	// a group kill (someone else's killing blow) is also tracked
+	tr.Observe("a young kodiak has been slain by Gnadad!", 1100)
+	if !hasMob(tr.Respawns(1100), "a young kodiak") {
+		t.Error("group kill (slain by a player) should be tracked")
+	}
+
+	// a player death (killed by a mob) must NOT be tracked
+	tr.Observe("Gnadad has been slain by a large orc!", 1100)
+	if hasMob(tr.Respawns(1100), "Gnadad") {
+		t.Error("a player's death must not be tracked as a repop")
 	}
 
 	// zoning clears the list (different zone, different mobs)

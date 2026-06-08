@@ -11,34 +11,79 @@ import (
 // its timer elapses, then drops it so the list doesn't grow without bound.
 const respawnKeepUpSec = 120
 
-// Respawn is one killed mob's pending repop, for the panel.
+// respawnEntry is one killed mob's pending repop. Kills are stored as a list,
+// not keyed by name: two same-named mobs dying close together are distinct
+// spawns and each get their own timer.
+type respawnEntry struct {
+	mob    string
+	expiry int64
+}
+
+// Respawn is one pending repop, for the panel.
 type Respawn struct {
 	Mob       string
 	Remaining int64 // seconds until repop; <= 0 means it should be up now
 }
 
-// observeZoneLocked tracks zone-in lines and the player's kills to drive the
-// zone-aware respawn list. Caller holds the lock.
+// observeZoneLocked tracks zone-in lines and mob deaths to drive the zone-aware
+// respawn list. Caller holds the lock.
 func (t *Tracker) observeZoneLocked(body string, at int64) {
 	if z, ok := strings.CutPrefix(body, "You have entered "); ok {
 		z = strings.TrimSuffix(z, ".")
 		if z != t.zone {
 			t.zone = z
 			t.zoneRespawnSec, _ = common.ZoneRespawn(z)
-			t.respawns = make(map[string]int64) // left the zone — old repops are moot
+			t.respawns = nil // left the zone — old repops are moot
 		}
 		return
 	}
-	// "You have slain <mob>!" — the player's own kill. Start a repop timer at the
-	// zone's default respawn (re-killing the same name resets it).
-	if mob, ok := strings.CutPrefix(body, "You have slain "); ok && t.zoneRespawnSec > 0 {
-		mob = strings.TrimSuffix(mob, "!")
-		t.respawns[mob] = at + int64(t.zoneRespawnSec)
+
+	// the player's own killing blow
+	if mob, ok := strings.CutPrefix(body, "You have slain "); ok {
+		t.recordKillLocked(strings.TrimSuffix(mob, "!"), at)
+		return
+	}
+
+	// anyone's kill: "<victim> has been slain by <killer>!" — covers group kills
+	// where a groupmate lands the blow. Player deaths read as "<you> HAVE been
+	// slain" (not "has"), so they don't match here; and when the killer is a mob
+	// the victim is a player who died, so skip those.
+	if i := strings.Index(body, " has been slain by "); i > 0 {
+		victim := body[:i]
+		killer := body[i+len(" has been slain by "):]
+		if !killerIsMob(killer) {
+			t.recordKillLocked(victim, at)
+		}
 	}
 }
 
+// recordKillLocked appends a repop timer for a mob death (one entry per death —
+// see respawnEntry). No-op if the zone's respawn isn't known.
+func (t *Tracker) recordKillLocked(mob string, at int64) {
+	if t.zoneRespawnSec <= 0 || mob == "" {
+		return
+	}
+	t.respawns = append(t.respawns, respawnEntry{mob: mob, expiry: at + int64(t.zoneRespawnSec)})
+}
+
+// killerIsMob reports whether the "slain by X" killer is a mob (lowercase / an
+// "a"/"an"/"the" article) rather than a player. Used to skip player deaths,
+// whose lines read "<player> has been slain by <a mob>".
+func killerIsMob(killer string) bool {
+	killer = strings.TrimRight(killer, " !.")
+	if killer == "" {
+		return false
+	}
+	lower := strings.ToLower(killer)
+	if strings.HasPrefix(lower, "a ") || strings.HasPrefix(lower, "an ") || strings.HasPrefix(lower, "the ") {
+		return true
+	}
+	c := killer[0]
+	return c >= 'a' && c <= 'z' // a leading lowercase letter ⇒ a mob (players are capitalized)
+}
+
 // Zone returns the player's current zone as logged, or "" until a zone-in is
-// seen. ZoneKnown reports whether that zone has a respawn timer in the table.
+// seen.
 func (t *Tracker) Zone() string {
 	if t == nil {
 		return ""
@@ -68,15 +113,17 @@ func (t *Tracker) Respawns(now int64) []Respawn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	kept := t.respawns[:0]
 	out := make([]Respawn, 0, len(t.respawns))
-	for mob, exp := range t.respawns {
-		rem := exp - now
+	for _, e := range t.respawns {
+		rem := e.expiry - now
 		if rem < -respawnKeepUpSec {
-			delete(t.respawns, mob)
-			continue
+			continue // long past up — drop it
 		}
-		out = append(out, Respawn{Mob: mob, Remaining: rem})
+		kept = append(kept, e)
+		out = append(out, Respawn{Mob: e.mob, Remaining: rem})
 	}
+	t.respawns = kept
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Remaining != out[j].Remaining {
 			return out[i].Remaining < out[j].Remaining

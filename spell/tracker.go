@@ -42,9 +42,9 @@ type Tracker struct {
 	bindStartAt    int64            // log time bandaging began
 	bindDoneAt     int64            // log time bandaging last completed
 
-	zone           string           // current zone (from a "You have entered" line)
-	zoneRespawnSec int              // current zone's default respawn, 0 if unknown
-	respawns       map[string]int64 // killed mob -> repop-expiry unix seconds
+	zone           string         // current zone (from a "You have entered" line)
+	zoneRespawnSec int            // current zone's default respawn, 0 if unknown
+	respawns       []respawnEntry // pending mob repops (one entry per death)
 
 	// pending cast awaiting its landing emote
 	pending   *Spell
@@ -57,7 +57,6 @@ func NewTracker(book *Book) *Tracker {
 		book:      book,
 		timers:    make(map[string]Timer),
 		cooldowns: make(map[string]int64),
-		respawns:  make(map[string]int64),
 	}
 }
 
@@ -358,7 +357,7 @@ func (t *Tracker) Clear() {
 	t.bindDoneAt = 0
 	t.zone = ""
 	t.zoneRespawnSec = 0
-	t.respawns = make(map[string]int64)
+	t.respawns = nil
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

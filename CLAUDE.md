@@ -76,9 +76,12 @@ The panel title (`App.panelTitle`) and content both switch on the category.
 The `Tracker` also derives zone state from the log (`spell/zone.go`): a "You have
 entered X" line sets the current zone and looks up its default respawn in
 `common.ZoneRespawn` (data in `common/zonetimers.go`, transcribed from the P99
-wiki — see `docs/zone-spawn-timers.md`). Each "You have slain X!" then starts a
-repop timer at that zone's default (`Respawns()`), re-killing a name resets it,
-and zoning clears the list. The repop list renders (`renderRespawns`) at the
+wiki — see `docs/zone-spawn-timers.md`). Every mob death — the player's own ("You have slain X!") *and* group/others'
+("X has been slain by &lt;player&gt;!", with a killer-is-mob heuristic to skip
+player deaths) — starts a repop timer at the zone default (`Respawns()`). Each
+death is its own entry (a `[]respawnEntry`, not name-keyed), so two same-named
+mobs dying close together are tracked as distinct spawns rather than one reset.
+Zoning clears the list; entries purge ~2 min after they pop. The repop list renders (`renderRespawns`) at the
 bottom of the bottom-right panel for every class. The bottom bar
 (`updateShortcuts`) shows `character · L<level> <class> · Zone: <zone>` from the
 tracker. Caveat: zone is only known after the next zone-in (no log line gives the
