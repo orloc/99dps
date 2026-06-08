@@ -2,150 +2,398 @@ package parser
 
 import (
 	"99dps/common"
-	"99dps/session"
+	"99dps/spell"
 	"fmt"
 	"github.com/hpcloud/tail"
-	"github.com/imdario/mergo"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
-type ParseMessage struct {
-	Res common.DamageSet
-	Err error
+// Sink receives the events parsed from the log. *session.SessionManager
+// satisfies it; depending on this interface rather than the concrete manager
+// keeps the parser free of the storage layer and unit-testable with a fake.
+type Sink interface {
+	Apply(*common.DamageSet)
+	ApplySwing(*common.Swing)
+	ApplyCrit(*common.Crit)
+	ApplyEvent(*common.Event)
+	ApplyMagic(*common.Magic)
 }
 
 type DmgParser struct {
-	workingString string
+	// character is the log owner's name. Their own crits are logged under that
+	// name rather than "You", so we remap it for attribution.
+	character string
+	// tracker, when non-nil, receives cast/level/landing signals for the spell
+	// timer overlay.
+	tracker *spell.Tracker
 }
 
 const COMBAT_VERB_STRING = "gores|gore|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush"
-const HEAL_VERB_STRING = "healed|heal"
-const MAGIC_VERB_STRING = "non-melee"
 
 const LOG_TS_INDEX_END = 25
 const LOG_SUBJECT_INDEX_START = 27
 
-func DoParse(t *tail.Tail, manager *session.SessionManager, mutex *sync.RWMutex) {
-	p := DmgParser{}
-
+// DoParse tails the log, classifying each line and forwarding the parsed event
+// to sink. tracker (optional) receives spell-timer signals. It blocks until the
+// tail's line channel closes.
+func DoParse(t *tail.Tail, sink Sink, character string, tracker *spell.Tracker) {
+	p := DmgParser{character: character, tracker: tracker}
 	for line := range t.Lines {
-		if p.hasDamage(line.Text) {
-			dmgSet, err := p.parseDamage(line.Text)
-			if err != nil {
-				continue
-			}
-			s := manager.GetActiveSession(dmgSet)
-			s.AdjustDamage(dmgSet, mutex)
+		// EQ writes CRLF; strip the trailing \r so exact/suffix matches (spell
+		// landing emotes, wear-offs) aren't thrown off by it.
+		text := strings.TrimRight(line.Text, "\r\n")
+		p.dispatch(text, sink)
+		if p.tracker != nil {
+			p.observeSpells(text)
 		}
 	}
 }
 
-func (parser *DmgParser) hasDamage(inputString string) bool {
-	pattern := regexp.MustCompile(`^(\[.*\])(.*(?:(points of damage)))`)
-	// we should handle this form of damage but atm it will break things -
-	// spell damage will be hard to attribute as messages are not consistent
-	taken := regexp.MustCompile(`(You have taken)(.*(?:(points of damage)))`)
-	return pattern.Match([]byte(inputString)) && !taken.Match([]byte(inputString))
-}
+var (
+	// whoSelfRe captures level (1), level-title (2), and name (3) from a /who
+	// self line: "[60 Warlord] Stelzar (Troll)". The title maps to a class.
+	whoSelfRe  = regexp.MustCompile(`^\[(\d+) ([^\]]+)\] (\S+)`)
+	welcomeRe  = regexp.MustCompile(`Welcome to level (\d+)`)
+	castPrefix = "You begin casting "
+)
 
-func (parser *DmgParser) parseDamage(inputString string) (*common.DamageSet, error) {
-	parser.workingString = inputString
-	var wg sync.WaitGroup
-	c := make(chan ParseMessage, 4)
-	wg.Add(4)
-
-	go func() {
-		wg.Wait()
-		close(c)
-	}()
-
-	go parser.getTime(c, &wg)
-	go parser.getDealer(c, &wg)
-	go parser.getDamage(c, &wg)
-	go parser.getTarget(c, &wg)
-
-	result := common.DamageSet{}
-
-	for msg := range c {
-		if msg.Err != nil {
-			return nil, msg.Err
-		}
-
-		if err := mergo.Merge(&result, msg.Res); err != nil {
-			return nil, err
-		}
+// observeSpells feeds one log line to the spell-timer tracker: caster level
+// (from /who self or a level-up), cast starts, and everything else (for landing
+// emotes, wear-offs, resists, and target deaths).
+func (p *DmgParser) observeSpells(line string) {
+	if len(line) < LOG_SUBJECT_INDEX_START {
+		return
 	}
-
-	return &result, nil
-}
-
-func (parser *DmgParser) getTime(c chan<- ParseMessage, group *sync.WaitGroup) {
-	defer group.Done()
-	t, err := time.Parse(time.ANSIC, parser.workingString[1:LOG_TS_INDEX_END])
+	ts, err := parseTimestamp(line)
 	if err != nil {
-		c <- ParseMessage{Err: err}
 		return
 	}
+	body := strings.TrimRight(line[LOG_SUBJECT_INDEX_START:], "\r\n")
 
-	c <- ParseMessage{Res: common.DamageSet{ActionTime: t.Unix()}}
+	if lvl, cls, ok := p.parseLevel(body); ok {
+		p.tracker.SetLevel(lvl)
+		p.tracker.SetClass(cls) // no-op for ClassUnknown (e.g. a level-up line)
+		return
+	}
+	if strings.HasPrefix(body, castPrefix) {
+		p.tracker.BeginCast(strings.TrimSuffix(strings.TrimSpace(body[len(castPrefix):]), "."), ts)
+		return
+	}
+	p.tracker.Observe(body, ts)
 }
 
-func (parser *DmgParser) getDamage(c chan<- ParseMessage, group *sync.WaitGroup) {
-	defer group.Done()
-	damagePattern := regexp.MustCompile(`[0-9]+`)
-	match := damagePattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
+// parseLevel reads the player's level (and class, when available) from a /who
+// line naming the log owner (e.g. "[34 Wizard] Kelkix (Gnome)" → 34, Wizard) or
+// a level-up ("Welcome to level 43!" → 43, ClassUnknown — a level-up names no
+// class). The class is derived from the /who level-title.
+func (p *DmgParser) parseLevel(body string) (int, common.Class, bool) {
+	if strings.HasPrefix(body, "[") && p.character != "" {
+		if m := whoSelfRe.FindStringSubmatch(body); m != nil && m[3] == p.character {
+			n, _ := strconv.Atoi(m[1])
+			return n, common.ClassFromTitle(m[2]), true
+		}
+	}
+	if strings.Contains(body, "Welcome to level") {
+		if m := welcomeRe.FindStringSubmatch(body); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			return n, common.ClassUnknown, true
+		}
+	}
+	return 0, common.ClassUnknown, false
+}
 
-	dmg, err := strconv.Atoi(match)
+// dispatch routes a single log line to the matching parser and sink method.
+// Unparseable lines for a matched category are silently dropped.
+func (p *DmgParser) dispatch(line string, sink Sink) {
+	switch {
+	case p.hasDamage(line):
+		if set, err := p.parseDamage(line); err == nil {
+			sink.Apply(set)
+		}
+	case p.hasSwing(line):
+		if sw, err := p.parseSwing(line); err == nil {
+			sink.ApplySwing(sw)
+		}
+	case p.hasCrit(line):
+		if cr, err := p.parseCrit(line); err == nil {
+			sink.ApplyCrit(cr)
+		}
+	case p.hasMagic(line):
+		if m, err := p.parseMagic(line); err == nil {
+			sink.ApplyMagic(m)
+		}
+	case p.hasEvent(line):
+		if ev, err := p.parseEvent(line); err == nil {
+			sink.ApplyEvent(ev)
+		}
+	}
+}
+
+// swingPattern captures an attempted melee swing that did not land:
+//
+//	<attacker> tries to <verb> <defender>, but <outcome>
+//
+// "You" uses "try to" instead of "tries to", hence the optional branch. The
+// verb itself is irrelevant here — the defender is whatever sits between the
+// verb and the comma, and the outcome is the tail.
+var swingPattern = regexp.MustCompile(`^(.+?) tr(?:y|ies) to \S+ (.+?), but (.+)$`)
+
+// hasSwing is a cheap screen for swing-attempt lines before the regex runs.
+func (p *DmgParser) hasSwing(input string) bool {
+	return strings.Contains(input, ", but ") &&
+		(strings.Contains(input, " tries to ") || strings.Contains(input, " try to "))
+}
+
+func (p *DmgParser) parseSwing(input string) (*common.Swing, error) {
+	if len(input) < LOG_SUBJECT_INDEX_START {
+		return nil, fmt.Errorf("line too short for a swing")
+	}
+
+	ts, err := parseTimestamp(input)
 	if err != nil {
-		c <- ParseMessage{Err: err}
-		return
+		return nil, err
 	}
 
-	c <- ParseMessage{Res: common.DamageSet{Dmg: dmg}}
-}
-
-func (parser *DmgParser) getDealer(c chan<- ParseMessage, group *sync.WaitGroup) {
-	defer group.Done()
-	dealerPattern := regexp.MustCompile(fmt.Sprintf("^(.*(?:(%s)))", COMBAT_VERB_STRING))
-	match := dealerPattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
-
-	replacePattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
-
-	replaced := replacePattern.ReplaceAll([]byte(match), []byte(""))
-
-	c <- ParseMessage{Res: common.DamageSet{Dealer: strings.Trim(string(replaced), " ")}}
-}
-
-func (parser *DmgParser) getTarget(c chan<- ParseMessage, group *sync.WaitGroup) {
-	defer group.Done()
-	targetPattern := regexp.MustCompile(`.*(?:for)`)
-	indxPattern := regexp.MustCompile(fmt.Sprintf("(%s)", COMBAT_VERB_STRING))
-	replacePattern := regexp.MustCompile(`for`)
-
-	match := targetPattern.FindString(parser.workingString[LOG_SUBJECT_INDEX_START:])
-
-	indx := indxPattern.FindIndex([]byte(match))
-
-	// not a damage string - branch to other combat strings or determine hirer in call chain
-	if len(indx) == 0 {
-		c <- ParseMessage{Err: fmt.Errorf("warning - not a damage string")}
-		return
+	m := swingPattern.FindStringSubmatch(input[LOG_SUBJECT_INDEX_START:])
+	if m == nil {
+		return nil, fmt.Errorf("not a swing line: %q", input)
 	}
 
-	replaced := replacePattern.ReplaceAll([]byte(match[indx[1]:]), []byte(" "))
-	s := strings.Trim(string(replaced), " ")
+	outcome, ok := classifyOutcome(m[3])
+	if !ok {
+		return nil, fmt.Errorf("unrecognised swing outcome: %q", m[3])
+	}
 
+	return &common.Swing{
+		ActionTime: ts,
+		Attacker:   strings.TrimSpace(m[1]),
+		Defender:   normalizeName(strings.TrimSpace(m[2])),
+		Outcome:    outcome,
+	}, nil
+}
+
+// classifyOutcome maps the "but …" tail to a SwingOutcome. The second return is
+// false when the tail isn't a known avoidance phrase (so non-combat "tries to"
+// lines are ignored).
+func classifyOutcome(tail string) (common.SwingOutcome, bool) {
+	switch {
+	case strings.Contains(tail, "miss"):
+		return common.OutcomeMiss, true
+	case strings.Contains(tail, "dodge"):
+		return common.OutcomeDodge, true
+	case strings.Contains(tail, "parr"): // parry / parries
+		return common.OutcomeParry, true
+	case strings.Contains(tail, "block"):
+		return common.OutcomeBlock, true
+	case strings.Contains(tail, "ripost"): // riposte / ripostes
+		return common.OutcomeRiposte, true
+	case strings.Contains(tail, "magical skin absorbs"):
+		return common.OutcomeAbsorb, true
+	}
+	return 0, false
+}
+
+// normalizeName collapses the player's defender token to "YOU", matching the
+// normalization normalizeTarget applies to damage lines so a combatant keys the
+// same whether they were hit or they avoided.
+func normalizeName(s string) string {
 	if strings.Contains(s, "YOU") {
-		s = "YOU"
+		return "YOU"
+	}
+	return s
+}
+
+func (p *DmgParser) hasDamage(inputString string) bool {
+	// A melee line carries "points of damage". We must exclude two look-alikes:
+	// incoming spell damage on the player ("You have taken N points of damage")
+	// and non-melee/spell damage on a target ("X was hit by non-melee for N
+	// points of damage") — the latter would otherwise be mis-parsed by the melee
+	// regex into a bogus "<X> was" dealer. Non-melee is routed to hasMagic.
+	return strings.Contains(inputString, "points of damage") &&
+		!strings.Contains(inputString, "You have taken") &&
+		!strings.Contains(inputString, "non-melee")
+}
+
+// damageLineRe captures a melee damage line in one shot:
+//
+//	<dealer> <verb> <target> for <N> points of damage
+//
+// dealer is non-greedy so it stops at the first space-delimited combat verb;
+// because the verb must be flanked by spaces, a dealer name containing a verb
+// substring (e.g. "a slashing terror") isn't mistaken for the verb.
+var damageLineRe = regexp.MustCompile(`^(.+?) (` + COMBAT_VERB_STRING + `) (.+?) for (\d+) points of damage`)
+
+func (p *DmgParser) parseDamage(input string) (*common.DamageSet, error) {
+	if len(input) < LOG_SUBJECT_INDEX_START {
+		return nil, fmt.Errorf("line too short for a damage event")
 	}
 
-	if strings.Contains(s, "non-melee") {
-		s = "non-melee"
+	ts, err := parseTimestamp(input)
+	if err != nil {
+		return nil, err
 	}
 
-	c <- ParseMessage{Res: common.DamageSet{Target: strings.Trim(string(replaced), " ")}}
+	m := damageLineRe.FindStringSubmatch(input[LOG_SUBJECT_INDEX_START:])
+	if m == nil {
+		return nil, fmt.Errorf("not a damage line: %q", input)
+	}
+
+	dmg, err := strconv.Atoi(m[4])
+	if err != nil {
+		return nil, err
+	}
+
+	return &common.DamageSet{
+		ActionTime: ts,
+		Dealer:     strings.TrimSpace(m[1]),
+		Verb:       m[2],
+		Target:     normalizeTarget(m[3]),
+		Dmg:        dmg,
+	}, nil
+}
+
+// normalizeTarget collapses the player and spell-damage tokens so a combatant
+// keys consistently regardless of phrasing.
+func normalizeTarget(s string) string {
+	s = strings.TrimSpace(s)
+	switch {
+	case strings.Contains(s, "YOU"):
+		return "YOU"
+	case strings.Contains(s, "non-melee"):
+		return "non-melee"
+	}
+	return s
+}
+
+// parseTimestamp reads the bracketed time.ANSIC stamp at the head of a log
+// line. EQ writes these in the player's LOCAL time with no zone, so we parse in
+// time.Local — otherwise the resulting unix time is off by the UTC offset, which
+// makes wall-clock comparisons (spell timers) and displayed session times wrong.
+func parseTimestamp(input string) (int64, error) {
+	t, err := time.ParseInLocation(time.ANSIC, input[1:LOG_TS_INDEX_END], time.Local)
+	if err != nil {
+		return 0, err
+	}
+	return t.Unix(), nil
+}
+
+// critPattern captures "<attacker> Scores a critical hit!(<dmg>)". "score"
+// (singular) covers the player's own crit phrasing.
+var critPattern = regexp.MustCompile(`^(.+?) [Ss]cores? a critical hit!\((\d+)\)`)
+
+func (p *DmgParser) hasCrit(input string) bool {
+	return strings.Contains(input, "critical hit!(")
+}
+
+func (p *DmgParser) parseCrit(input string) (*common.Crit, error) {
+	if len(input) < LOG_SUBJECT_INDEX_START {
+		return nil, fmt.Errorf("line too short for a crit")
+	}
+
+	ts, err := parseTimestamp(input)
+	if err != nil {
+		return nil, err
+	}
+
+	m := critPattern.FindStringSubmatch(input[LOG_SUBJECT_INDEX_START:])
+	if m == nil {
+		return nil, fmt.Errorf("not a crit line: %q", input)
+	}
+
+	dmg, err := strconv.Atoi(m[2])
+	if err != nil {
+		return nil, err
+	}
+
+	return &common.Crit{
+		ActionTime: ts,
+		Attacker:   p.normalizeAttacker(strings.TrimSpace(m[1])),
+		Damage:     dmg,
+	}, nil
+}
+
+// normalizeAttacker maps the log owner's own name (and a literal "You") to the
+// "You" key used for the player's damage, so their crits attribute correctly.
+func (p *DmgParser) normalizeAttacker(name string) string {
+	if name == "You" || (p.character != "" && name == p.character) {
+		return "You"
+	}
+	return name
+}
+
+func (p *DmgParser) hasEvent(input string) bool {
+	return strings.Contains(input, "have slain ") ||
+		strings.Contains(input, "have been slain by ") ||
+		strings.Contains(input, "gain experience") ||
+		strings.Contains(input, "gain party experience") ||
+		strings.Contains(input, "You have entered ") ||
+		strings.Contains(input, "to prepare your camp")
+}
+
+var slainPattern = regexp.MustCompile(`^You have slain (.+)!`)
+
+func (p *DmgParser) parseEvent(input string) (*common.Event, error) {
+	if len(input) < LOG_SUBJECT_INDEX_START {
+		return nil, fmt.Errorf("line too short for an event")
+	}
+
+	ts, err := parseTimestamp(input)
+	if err != nil {
+		return nil, err
+	}
+	body := input[LOG_SUBJECT_INDEX_START:]
+
+	switch {
+	case strings.HasPrefix(body, "You have been slain by"):
+		return &common.Event{ActionTime: ts, Kind: common.EventDeath}, nil
+	case strings.HasPrefix(body, "You have entered ") || strings.Contains(body, "to prepare your camp"):
+		return &common.Event{ActionTime: ts, Kind: common.EventZone}, nil
+	case strings.HasPrefix(body, "You have slain "):
+		name := ""
+		if m := slainPattern.FindStringSubmatch(body); m != nil {
+			name = m[1]
+		}
+		return &common.Event{ActionTime: ts, Kind: common.EventKill, Name: name}, nil
+	case strings.HasPrefix(body, "You gain party experience"):
+		return &common.Event{ActionTime: ts, Kind: common.EventPartyXP}, nil
+	case strings.HasPrefix(body, "You gain experience"):
+		return &common.Event{ActionTime: ts, Kind: common.EventXP}, nil
+	}
+
+	return nil, fmt.Errorf("not a bookkeeping event: %q", input)
+}
+
+// magicPattern captures non-melee (spell/proc/DoT) damage on a target. EQ logs
+// these in passive voice, so there is no caster to capture.
+var magicPattern = regexp.MustCompile(`^(.+?) was hit by non-melee for (\d+) points of damage`)
+
+func (p *DmgParser) hasMagic(input string) bool {
+	return strings.Contains(input, "was hit by non-melee for ") &&
+		strings.Contains(input, "points of damage")
+}
+
+func (p *DmgParser) parseMagic(input string) (*common.Magic, error) {
+	if len(input) < LOG_SUBJECT_INDEX_START {
+		return nil, fmt.Errorf("line too short for a magic event")
+	}
+	ts, err := parseTimestamp(input)
+	if err != nil {
+		return nil, err
+	}
+	m := magicPattern.FindStringSubmatch(input[LOG_SUBJECT_INDEX_START:])
+	if m == nil {
+		return nil, fmt.Errorf("not a magic line: %q", input)
+	}
+	dmg, err := strconv.Atoi(m[2])
+	if err != nil {
+		return nil, err
+	}
+	return &common.Magic{
+		ActionTime: ts,
+		Target:     normalizeName(strings.TrimSpace(m[1])),
+		Dmg:        dmg,
+	}, nil
 }

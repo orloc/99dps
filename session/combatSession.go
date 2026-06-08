@@ -2,9 +2,9 @@ package session
 
 import (
 	"99dps/common"
-	"fmt"
+	"maps"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -13,104 +13,383 @@ type CombatSession struct {
 	end        time.Time
 	LastTime   int64
 	aggressors map[string]common.DamageStat
+	// offense is keyed by attacker (raw name, matching DamageSet.Dealer) and
+	// only counts hits and misses — an attacker's accuracy. Defensive outcomes
+	// (dodge/parry/block/absorb) are the defender's doing and must not affect
+	// the attacker's hit ratio. defense is keyed by defender (normalized,
+	// matching DamageSet.Target) and faces every outcome.
+	offense map[string]common.SwingStats
+	defense map[string]common.SwingStats
+	// crits is keyed by attacker (raw name); counts/sums critical hits.
+	crits map[string]common.CritStat
+
+	// targets sums melee damage dealt *to* each target (raw target name), so
+	// Name() can pick the heaviest enemy without retaining every hit.
+	targets map[string]int
+
+	// skills tallies the *player's* activated melee skills (Backstab/Bash/Kick),
+	// keyed by canonical skill name, for the class-aware skills panel. Only the
+	// player's skills are tracked (it's their own breakdown).
+	skills map[string]common.SkillStat
+
+	// session bookkeeping from kill / xp / death lines.
+	kills   int // your killing blows
+	xpGains int // mobs you were credited xp for
+	deaths  int // times you were slain
+
+	// magicTotal sums unattributed non-melee (spell/proc/DoT) damage on enemies.
+	// EQ logs carry no caster, so spell damage stays a lump rather than a
+	// per-spell split (the spell timer panel handles per-spell tracking).
+	magicTotal int
 }
 
-func (cs *CombatSession) AdjustDamage(set *common.DamageSet, mutex *sync.RWMutex) {
-	mutex.Lock()
-	defer mutex.Unlock()
+// Defender pairs a combatant with its defensive swing tally, for display.
+type Defender struct {
+	Name  string
+	Stats common.SwingStats
+}
 
-	if !cs.isStarted() {
-		cs.init(set)
-	}
-
-	indxRef := strings.Replace(set.Dealer, " ", "_", -1)
+// adjustDamageLocked applies one event. Caller must hold the SessionManager
+// write lock.
+func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
 	cs.LastTime = set.ActionTime
 
-	if val, exists := cs.aggressors[indxRef]; exists {
-		val.Total = val.Total + set.Dmg
-		val.LastTime = set.ActionTime
+	// a landed damage line is also a connecting swing
+	cs.recordOutcome(set.Dealer, set.Target, common.OutcomeHit)
 
-		dmg := set.Dmg
-
-		if val.Low > dmg {
-			val.Low = dmg
+	// sum damage per target for Name()
+	if set.Target != "" {
+		if cs.targets == nil {
+			cs.targets = make(map[string]int)
 		}
-
-		if val.High < dmg {
-			val.High = dmg
-		}
-
-		val.CombatRecords = append(val.CombatRecords, set)
-
-		cs.aggressors[indxRef] = val
-		return
+		cs.targets[set.Target] += set.Dmg
 	}
 
-	var collection []*common.DamageSet
-	collection = append(collection, set)
-	cs.aggressors[indxRef] = common.DamageStat{
-		Low:           set.Dmg,
-		High:          set.Dmg,
-		Total:         set.Dmg,
-		LastTime:      set.ActionTime,
-		CombatRecords: collection,
+	indxRef := strings.ReplaceAll(set.Dealer, " ", "_")
+	val, exists := cs.aggressors[indxRef]
+	if !exists {
+		val.Dealer = set.Dealer
+		val.FirstTime = set.ActionTime
+	}
+	val.Total += set.Dmg
+	val.LastTime = set.ActionTime
+	val.Hits++
+	if sk := skillName(set.Verb); sk != "" {
+		val.SpecialTotal += set.Dmg
+		val.SpecialHits++
+		// the player's own skill breakdown feeds the skills panel
+		if strings.EqualFold(set.Dealer, "You") {
+			if cs.skills == nil {
+				cs.skills = make(map[string]common.SkillStat)
+			}
+			s := cs.skills[sk]
+			s.Total += set.Dmg
+			s.Hits++
+			cs.skills[sk] = s
+		}
+	}
+	cs.aggressors[indxRef] = val
+}
+
+// skillName returns the canonical name of an activated melee skill (Backstab,
+// Bash, Kick) for a combat verb, or "" if the verb is an ordinary auto-attack.
+// EQ logs special attacks with their generic base verb, so the specific skill
+// (e.g. Flying vs Round Kick) is not recoverable here — only the verb category.
+// Both base and third-person forms ("kick"/"kicks") share a prefix.
+func skillName(verb string) string {
+	switch v := strings.ToLower(verb); {
+	case strings.HasPrefix(v, "backstab"):
+		return "Backstab"
+	case strings.HasPrefix(v, "bash"):
+		return "Bash"
+	case strings.HasPrefix(v, "kick"):
+		return "Kick"
+	}
+	return ""
+}
+
+// applyCritLocked records a critical hit against its attacker. Caller holds the
+// write lock; crits only annotate an in-progress fight.
+func (cs *CombatSession) applyCritLocked(cr *common.Crit) {
+	if cs.crits == nil {
+		cs.crits = make(map[string]common.CritStat)
+	}
+	s := cs.crits[cr.Attacker]
+	s.Count++
+	s.Damage += cr.Damage
+	cs.crits[cr.Attacker] = s
+}
+
+// applyEventLocked folds a kill / xp / death line into the session counters.
+func (cs *CombatSession) applyEventLocked(e *common.Event) {
+	switch e.Kind {
+	case common.EventKill:
+		cs.kills++
+	case common.EventXP:
+		cs.xpGains++
+	case common.EventPartyXP:
+		cs.xpGains++
+	case common.EventDeath:
+		cs.deaths++
 	}
 }
 
-func (cs *CombatSession) GetAggressors(mutex *sync.RWMutex) []common.DamageStat {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	var stats []common.DamageStat
-
-	if cs == nil {
-		return stats
+// applyMagicLocked adds a non-melee (spell/proc/DoT) damage line to the
+// unattributed magic total. EQ logs name no caster, so it can't be split per
+// spell. Caller holds the write lock; magic only annotates an in-progress fight.
+func (cs *CombatSession) applyMagicLocked(m *common.Magic) {
+	if strings.ToUpper(m.Target) == "YOU" {
+		return // incoming spell damage on the player isn't enemy magic
 	}
+	cs.magicTotal += m.Dmg
+	cs.LastTime = m.ActionTime // spell damage counts toward the DPS span
+}
 
+// MagicTotal is the unattributed non-melee damage dealt to enemies this fight.
+func (cs *CombatSession) MagicTotal() int {
+	if cs == nil {
+		return 0
+	}
+	return cs.magicTotal
+}
+
+// Skills returns the player's per-skill activated-attack tallies (keyed by
+// canonical name: Backstab/Bash/Kick). Safe to call on a snapshot.
+func (cs *CombatSession) Skills() map[string]common.SkillStat {
+	if cs == nil {
+		return nil
+	}
+	return cs.skills
+}
+
+// CritFor returns the critical-hit tally for an attacker, keyed by raw name.
+func (cs *CombatSession) CritFor(name string) common.CritStat {
+	if cs == nil {
+		return common.CritStat{}
+	}
+	return cs.crits[name]
+}
+
+// Kills, XpGains, and Deaths report the session's bookkeeping counters.
+func (cs *CombatSession) Kills() int {
+	if cs == nil {
+		return 0
+	}
+	return cs.kills
+}
+
+func (cs *CombatSession) XpGains() int {
+	if cs == nil {
+		return 0
+	}
+	return cs.xpGains
+}
+
+func (cs *CombatSession) Deaths() int {
+	if cs == nil {
+		return 0
+	}
+	return cs.deaths
+}
+
+// applySwingLocked folds a swing attempt into the session. Swings are combat
+// activity: the SessionManager routes them through activeForLocked, so a swing
+// can open or sustain a fight (a stretch of pure misses no longer splits it).
+// Caller holds the write lock.
+func (cs *CombatSession) applySwingLocked(sw *common.Swing) {
+	cs.recordOutcome(sw.Attacker, sw.Defender, sw.Outcome)
+}
+
+// recordOutcome tallies one swing. The defender faces every outcome; the
+// attacker only owns whether it connected or missed — dodge/parry/block/absorb
+// are defensive acts and stay out of the attacker's accuracy.
+func (cs *CombatSession) recordOutcome(attacker, defender string, o common.SwingOutcome) {
+	if cs.offense == nil {
+		cs.offense = make(map[string]common.SwingStats)
+	}
+	if cs.defense == nil {
+		cs.defense = make(map[string]common.SwingStats)
+	}
+	cs.defense[defender] = cs.defense[defender].Add(o)
+	if o == common.OutcomeHit || o == common.OutcomeMiss {
+		cs.offense[attacker] = cs.offense[attacker].Add(o)
+	}
+}
+
+// OffenseFor returns the accuracy tally for an attacker, keyed by raw name
+// (i.e. DamageStat dealer names). Zero value if unseen.
+func (cs *CombatSession) OffenseFor(name string) common.SwingStats {
+	if cs == nil {
+		return common.SwingStats{}
+	}
+	return cs.offense[name]
+}
+
+// Defense returns each combatant's defensive tally, sorted by attempts faced
+// (descending).
+func (cs *CombatSession) Defense() []Defender {
+	if cs == nil {
+		return nil
+	}
+	out := make([]Defender, 0, len(cs.defense))
+	for n, s := range cs.defense {
+		out = append(out, Defender{Name: n, Stats: s})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Stats.Swings() > out[j].Stats.Swings()
+	})
+	return out
+}
+
+// GetAggressors is safe to call on a snapshot returned by SessionManager.
+// Calling it on a live session is unsafe — go through SessionManager.Current().
+func (cs *CombatSession) GetAggressors() []common.DamageStat {
+	if cs == nil {
+		return nil
+	}
+	stats := make([]common.DamageStat, 0, len(cs.aggressors))
 	for _, v := range cs.aggressors {
 		stats = append(stats, v)
 	}
 	return stats
 }
 
-/**
-Who ever did the most damage - that wasn't you
-lead with the time so its sortable
-*/
-func (cs *CombatSession) GetSessionIdentifier() string {
+// Name returns a display label for the session: the enemy taking the most
+// damage. EQ melee lines read "<dealer> <verb> <target> for N", so the thing
+// being fought lives in the Target field — we sum damage dealt *to* each
+// target and name the session after the heaviest one that isn't the player.
+//
+// If nothing was hit (e.g. the player only took damage and never swung back),
+// we fall back to the heaviest non-player dealer, then to "Solo".
+func (cs *CombatSession) Name() string {
 	if cs == nil {
 		return ""
 	}
 
-	var total = 0
-	var mname = ""
-	for name, combat := range cs.aggressors {
-		if combat.Total > total && strings.ToUpper(name) != "YOU" {
-			total = combat.Total
-			mname = name
+	enemies := make(map[string]int, len(cs.targets))
+	for t, dmg := range cs.targets {
+		if t == "" || strings.ToUpper(t) == "YOU" || t == "non-melee" {
+			continue
+		}
+		enemies[t] += dmg
+	}
+
+	if name := topByDamage(enemies); name != "" {
+		return name
+	}
+
+	// no identifiable enemy was struck — fall back to whoever hit us hardest
+	dealers := make(map[string]int)
+	for _, combat := range cs.aggressors {
+		if strings.ToUpper(combat.Dealer) == "YOU" {
+			continue
+		}
+		dealers[combat.Dealer] = combat.Total
+	}
+
+	if name := topByDamage(dealers); name != "" {
+		return name
+	}
+
+	return "Solo"
+}
+
+// topByDamage returns the key with the greatest value, or "" if the map is empty.
+func topByDamage(m map[string]int) string {
+	var name string
+	var max int
+	for k, v := range m {
+		if v > max {
+			max = v
+			name = k
+		}
+	}
+	return name
+}
+
+// StartTime is the timestamp of the session's first recorded hit.
+func (cs *CombatSession) StartTime() time.Time {
+	if cs == nil {
+		return time.Time{}
+	}
+	return cs.start
+}
+
+// EndTime is when the session was closed by a combat lull. It is the zero
+// value while the session is still live (the most recent fight).
+func (cs *CombatSession) EndTime() time.Time {
+	if cs == nil {
+		return time.Time{}
+	}
+	return cs.end
+}
+
+// Duration is the elapsed time from the session's first to last recorded hit.
+func (cs *CombatSession) Duration() time.Duration {
+	if cs == nil || cs.LastTime == 0 {
+		return 0
+	}
+	d := time.Unix(cs.LastTime, 0).Sub(cs.start)
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
+// TopDealer returns the dealer responsible for the most damage in the session
+// (the player included) and that dealer's share of the session total, as a
+// whole percentage. Returns ("", 0) for an empty session.
+func (cs *CombatSession) TopDealer() (string, int) {
+	if cs == nil {
+		return "", 0
+	}
+
+	var name string
+	var best, total int
+	for n, combat := range cs.aggressors {
+		total += combat.Total
+		if combat.Total > best {
+			best = combat.Total
+			name = n
 		}
 	}
 
-	if mname == "" {
-		return fmt.Sprintf("%d::Solo", cs.LastTime)
+	if name == "" || total == 0 {
+		return "", 0
 	}
 
-	return fmt.Sprintf("%d::%s", cs.LastTime, mname)
+	return strings.ReplaceAll(name, "_", " "), best * 100 / total
 }
 
-func (cs *CombatSession) init(set *common.DamageSet) {
-	cs.aggressors = make(map[string]common.DamageStat)
-	cs.start = time.Unix(set.ActionTime, 0)
-}
-
-func (cs *CombatSession) isStarted() bool {
-	return !cs.start.Equal(time.Time{})
-}
-
-func (cs *CombatSession) computeDPS(sets []*common.DamageSet, total int) int {
-	tDiff := cs.LastTime - cs.start.Unix()
-	if tDiff == 0 {
-		return total
+// Total is the combined damage of every aggressor in the session.
+func (cs *CombatSession) Total() int {
+	if cs == nil {
+		return 0
 	}
-	return total / int(tDiff)
+	var total int
+	for _, combat := range cs.aggressors {
+		total += combat.Total
+	}
+	return total
+}
+
+// snapshot returns a deep copy of the session. Every map value (DamageStat,
+// SwingStats, CritStat, int) is now a pure value type, so a shallow clone of
+// each map is a full, independent copy — readers can iterate it lock-free.
+func (cs *CombatSession) snapshot() *CombatSession {
+	return &CombatSession{
+		start:      cs.start,
+		end:        cs.end,
+		LastTime:   cs.LastTime,
+		kills:      cs.kills,
+		xpGains:    cs.xpGains,
+		deaths:     cs.deaths,
+		magicTotal: cs.magicTotal,
+		aggressors: maps.Clone(cs.aggressors),
+		targets:    maps.Clone(cs.targets),
+		skills:     maps.Clone(cs.skills),
+		offense:    maps.Clone(cs.offense),
+		defense:    maps.Clone(cs.defense),
+		crits:      maps.Clone(cs.crits),
+	}
 }
