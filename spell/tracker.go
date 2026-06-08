@@ -25,6 +25,7 @@ type Timer struct {
 	Expiry      int64
 	Detrimental bool
 	Charm       bool // a charm — display elapsed (counts up), not remaining
+	Mez         bool // a mez/enthrall — crowd control, breaks on damage
 }
 
 // Tracker holds the player's active spell timers. It's fed parsed log signals
@@ -170,6 +171,37 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 	}
 }
 
+// BreakMezOnTarget clears a target's mez timers — a mezzed mob that takes
+// damage breaks early with no wear-off message, so the parser calls this on any
+// damage to that target to keep the CC list honest.
+func (t *Tracker) BreakMezOnTarget(target string) {
+	if t == nil || target == "" {
+		return
+	}
+	n := normalizeMobName(target)
+	t.mu.Lock()
+	for k, tm := range t.timers {
+		// the mez emote capitalizes/strips the article ("Greater kobold") while a
+		// damage line keeps it ("a greater kobold"), so compare normalized.
+		if tm.Mez && normalizeMobName(tm.Target) == n {
+			delete(t.timers, k)
+		}
+	}
+	t.mu.Unlock()
+}
+
+// normalizeMobName lowercases and strips a leading article so a mez-landing name
+// and a damage-line name for the same mob compare equal.
+func normalizeMobName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	for _, a := range []string{"a ", "an ", "the "} {
+		if rest, ok := strings.CutPrefix(s, a); ok {
+			return rest
+		}
+	}
+	return s
+}
+
 // DismissTarget removes all of a target's active timers (manual cleanup of a
 // raid-buff list — the timer reappears if the buff is re-cast).
 func (t *Tracker) DismissTarget(target string) {
@@ -307,6 +339,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		Start:       at,
 		Expiry:      at + int64(dur),
 		Detrimental: t.pending.Detrimental,
+		Mez:         t.pending.Mez,
 	}
 	t.pending = nil
 }

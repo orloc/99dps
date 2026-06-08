@@ -309,3 +309,27 @@ func TestDealerDPS(t *testing.T) {
 		t.Errorf("empty dealerDPS = %d, want 0", got)
 	}
 }
+
+// Mez/charm are pinned in a CROWD CONTROL section above buffs/debuffs; the
+// line→target map (for click-to-dismiss) accounts for the header + separator.
+func TestRenderTimersCrowdControl(t *testing.T) {
+	timers := []spell.Timer{
+		{Spell: "Mesmerize", Target: "a kobold", Expiry: 30, Mez: true},
+		{Spell: "Clarity II", Target: "You", Expiry: 600},
+	}
+	out, lm := renderTimers(timers, 0, 40)
+
+	if !strings.Contains(out, "CROWD CONTROL") {
+		t.Errorf("missing CROWD CONTROL header:\n%s", out)
+	}
+	// header is line 0; the mez row is line 1 → its target is "a kobold"
+	if lm[1] != "a kobold" {
+		t.Errorf("line 1 target = %q, want a kobold", lm[1])
+	}
+	// the buff still shows below, under its own target group
+	for _, want := range []string{"Clarity II", "You"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("buff section missing %q:\n%s", want, out)
+		}
+	}
+}

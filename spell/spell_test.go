@@ -352,3 +352,26 @@ func TestDismissTarget(t *testing.T) {
 		t.Errorf("dismiss should remove only Tank's buffs, left %+v", act)
 	}
 }
+
+// Mez lands as a debuff timer flagged Mez, and damage to the mob breaks it even
+// though the mez emote name ("Greater kobold") differs from the damage-line name
+// ("a greater kobold").
+func TestMezTrackingAndBreak(t *testing.T) {
+	tr := NewTracker(loadBook(t, row(map[int]string{
+		fName: "Mesmerize", fCastOnOther: " has been mesmerized.",
+		fCastTime: "1000", fDurFormula: "7", fDurCap: "4",
+	})))
+	tr.SetLevel(60)
+
+	tr.BeginCast("Mesmerize", 1000)
+	tr.Observe("Greater kobold has been mesmerized.", 1001) // emote: no article, capitalized
+	act := tr.Active(1001)
+	if len(act) != 1 || !act[0].Mez || act[0].Target != "Greater kobold" {
+		t.Fatalf("mez timer not created: %+v", act)
+	}
+
+	tr.BreakMezOnTarget("a greater kobold") // damage line: article + lowercase
+	if len(tr.Active(1001)) != 0 {
+		t.Error("damage should break the mez despite the name-form mismatch")
+	}
+}

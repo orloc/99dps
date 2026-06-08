@@ -172,6 +172,7 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 	case p.hasDamage(line):
 		if set, err := p.parseDamage(line); err == nil {
 			sink.Apply(set)
+			p.tracker.BreakMezOnTarget(set.Target) // damage breaks a mob's mez
 		}
 	case p.hasSwing(line):
 		if sw, err := p.parseSwing(line); err == nil {
@@ -184,6 +185,7 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 	case p.hasMagic(line):
 		if m, err := p.parseMagic(line); err == nil {
 			sink.ApplyMagic(m)
+			p.tracker.BreakMezOnTarget(m.Target) // non-melee damage breaks mez too
 		}
 	case p.hasEvent(line):
 		if ev, err := p.parseEvent(line); err == nil {

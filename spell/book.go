@@ -38,6 +38,7 @@ type Spell struct {
 	Fades       string
 	Detrimental bool
 	Charm       bool // a charm spell — no landing emote, breaks unpredictably
+	Mez         bool // a mez (mesmerize/enthrall) — crowd control, breaks on damage
 }
 
 // DurationSeconds returns the spell's duration at the given caster level, using
@@ -177,7 +178,15 @@ func decode(line string) *Spell {
 		Detrimental: atoi(f[fGoodEffect]) == 0,
 		// every charm spell carries this wear-off marker and has no landing emote
 		Charm: fades == "You are no longer charmed.",
+		// mez/enthrall — the landing emote on the mob carries "mesmeriz"/"enthrall"
+		Mez: mezEmote(f[fCastOnOther]),
 	}
+}
+
+// mezEmote reports whether a cast-on-other emote marks a mez/enthrall.
+func mezEmote(castOnOther string) bool {
+	s := strings.ToLower(castOnOther)
+	return strings.Contains(s, "mesmeriz") || strings.Contains(s, "enthrall")
 }
 
 // NormEmote collapses a run of trailing periods to a single one. spells_us.txt

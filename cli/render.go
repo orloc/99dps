@@ -358,23 +358,62 @@ func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]s
 		return "No active spells.", nil
 	}
 
-	groups, order := groupByTarget(timers)
-
-	// spell name gets all the room left after the 2-char indent, the count-down
-	// (5), and a 1-char marker — so long names ("Speed of the Shissar") fit and
-	// the column flexes with the panel width, like the Mob Tracker.
 	inner := width - 2
+	// spell name gets the room left after the 2-char indent, count-down (5), and
+	// 1-char marker — long names ("Speed of the Shissar") fit and the column
+	// flexes with the panel, like the Mob Tracker.
 	nameW := inner - 6
 	if nameW < 8 {
 		nameW = 8
 	}
 
+	// crowd control (mez + charm) is pinned in its own section at the top — for
+	// enchanters that's the life-or-death info, kept apart from buffs/debuffs.
+	var cc, rest []spell.Timer
+	for _, tm := range timers {
+		if tm.Mez || tm.Charm {
+			cc = append(cc, tm)
+		} else {
+			rest = append(rest, tm)
+		}
+	}
+
 	var b strings.Builder
 	lineTargets := map[int]string{}
 	line := 0
+
+	if len(cc) > 0 {
+		sort.SliceStable(cc, func(i, j int) bool { return cc[i].Expiry < cc[j].Expiry })
+		b.WriteString("\x1b[1mCROWD CONTROL\x1b[0m\n")
+		line++ // header → no dismiss target
+		ccNameW := inner - 7
+		if ccNameW < 8 {
+			ccNameW = 8
+		}
+		for _, tm := range cc {
+			rem := tm.Expiry - now
+			if rem < 0 {
+				rem = 0
+			}
+			label, sgr := "M", timerStyle(true, rem, now) // mez → debuff urgency (re-mez warning)
+			if tm.Charm {
+				label, sgr = "⊗", charmStyle(rem, now)
+			}
+			content := fmt.Sprintf("%-*s %s%5s", ccNameW, truncate(displayName(tm.Target), ccNameW),
+				label, fmtDuration(time.Duration(rem)*time.Second))
+			b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner)) + "\n")
+			lineTargets[line] = tm.Target
+			line++
+		}
+		if len(rest) > 0 {
+			b.WriteString("\n") // gap before buffs/debuffs
+			line++
+		}
+	}
+
+	// the rest: buffs/debuffs grouped by target (clicking any row dismisses it)
+	groups, order := groupByTarget(rest)
 	for _, tgt := range order {
-		// target header (bold, full name) — clicking it (or any of its rows)
-		// dismisses the target
 		b.WriteString("\x1b[1m" + truncate(displayName(tgt), width) + "\x1b[0m\n")
 		lineTargets[line] = tgt
 		line++
@@ -386,18 +425,10 @@ func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]s
 			if rem < 0 {
 				rem = 0
 			}
-			marker, sgr := " ", timerStyle(tm.Detrimental, rem, now)
-			if tm.Charm {
-				// charm counts down from its formula-max duration (a ceiling it
-				// breaks before, unpredictably) — ⊗ marks it, magenta until the
-				// cap nears, then the normal urgency escalation kicks in.
-				marker, sgr = "⊗", charmStyle(rem, now)
-			}
-			content := fmt.Sprintf("%-*s%s%5s", nameW, truncate(tm.Spell, nameW), marker,
+			sgr := timerStyle(tm.Detrimental, rem, now)
+			content := fmt.Sprintf("%-*s %5s", nameW, truncate(tm.Spell, nameW),
 				fmtDuration(time.Duration(rem)*time.Second))
-			// 2-space indent (plain), then a colored bar filling the rest
-			bar := fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner))
-			b.WriteString("  " + bar + "\n")
+			b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner)) + "\n")
 			lineTargets[line] = tgt
 			line++
 		}
