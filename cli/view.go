@@ -61,7 +61,7 @@ var vp = map[string]ViewProperties{
 		Title:    "Damage",
 		Text:     "",
 		X1:       0.2,
-		X2:       0.6,
+		X2:       0.68, // 20% wider than the even 0.4 split; Graph shrinks to match
 		Y1:       0.0,
 		Y2:       0.44,
 		Editor:   nil,
@@ -70,7 +70,7 @@ var vp = map[string]ViewProperties{
 	viewGraph: {
 		Title:    "Graph",
 		Text:     "",
-		X1:       0.6,
+		X1:       0.68,
 		X2:       1,
 		Y1:       0.0,
 		Y2:       0.44,
