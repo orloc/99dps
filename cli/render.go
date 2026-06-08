@@ -463,6 +463,34 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 	return strings.Join(parts, " · ")
 }
 
+// renderRespawns lists pending mob repops for the current zone, soonest first.
+// A mob past its timer shows "UP" (green); the rest show a countdown (blue).
+func renderRespawns(respawns []spell.Respawn, width int) string {
+	if len(respawns) == 0 {
+		return ""
+	}
+	nameW := width - 9
+	if nameW < 8 {
+		nameW = 8
+	}
+
+	var b strings.Builder
+	b.WriteString(headerBar("Repops", dpsHeaderSGR, width))
+	for _, r := range respawns {
+		var content, sgr string
+		if r.Remaining <= 0 {
+			content = fmt.Sprintf("%-*s UP", nameW, truncate(r.Mob, nameW))
+			sgr = "42;30" // green: should be up
+		} else {
+			content = fmt.Sprintf("%-*s %s", nameW, truncate(r.Mob, nameW),
+				fmtDuration(time.Duration(r.Remaining)*time.Second))
+			sgr = "44;37" // blue: counting down
+		}
+		b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2)) + "\n")
+	}
+	return b.String()
+}
+
 // renderCooldownRow renders one ability reuse timer as a tinted bar: green when
 // the ability is ready, blue with the remaining time while on cooldown.
 func renderCooldownRow(cd spell.CooldownTimer, width int) string {

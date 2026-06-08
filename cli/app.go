@@ -142,6 +142,7 @@ func (a *App) refresh() {
 // /who reveals the class it defaults to spell timers (CatCaster).
 func (a *App) updatePanel(cur *session.CombatSession) {
 	width := a.viewInnerWidth(viewTimers)
+	now := time.Now().Unix()
 
 	cat := common.CatCaster
 	var class common.Class
@@ -155,7 +156,6 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	var str string
 	switch cat {
 	case common.CatMelee:
-		now := time.Now().Unix()
 		var cds []spell.CooldownTimer
 		if a.tracker != nil {
 			cds = a.tracker.Cooldowns(now)
@@ -178,10 +178,22 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 			str += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
 		}
 	default: // CatCaster
-		if a.tracker == nil {
-			return // no spell data and no class — leave the panel as-is
+		if a.tracker != nil {
+			str = a.timersStr(width)
 		}
-		str = a.timersStr(width)
+	}
+
+	// the zone-aware repop list is class-agnostic — append it for everyone
+	if a.tracker != nil {
+		if rs := renderRespawns(a.tracker.Respawns(now), width); rs != "" {
+			if str != "" {
+				str += "\n"
+			}
+			str += rs
+		}
+	}
+	if str == "" {
+		return // nothing to show (no spell data, no class, no repops)
 	}
 
 	a.mu.Lock()
@@ -362,7 +374,28 @@ func (a *App) updateShortcuts() {
 	}
 	a.mu.Unlock()
 
-	stats := fmt.Sprintf("Reading %s  ·  %s  ·  %s  ·  %s", char, a.spellInfo, audio, a.logDir)
+	// who: character + class/level once a /who has been seen
+	who := char
+	zone := "?"
+	if a.tracker != nil {
+		cls, lvl := a.tracker.Class(), a.tracker.Level()
+		switch {
+		case cls != common.ClassUnknown && lvl > 0:
+			who = fmt.Sprintf("%s · L%d %s", char, lvl, cls)
+		case cls != common.ClassUnknown:
+			who = fmt.Sprintf("%s · %s", char, cls)
+		case lvl > 0:
+			who = fmt.Sprintf("%s · L%d", char, lvl)
+		}
+		if z := a.tracker.Zone(); z != "" {
+			zone = z
+			if !a.tracker.ZoneKnown() {
+				zone += " (timer n/a)"
+			}
+		}
+	}
+
+	stats := fmt.Sprintf("Reading %s  ·  Zone: %s  ·  %s  ·  %s", who, zone, a.spellInfo, audio)
 	text := keyBindingsText + "\n\n" + stats
 	if status != "" {
 		text = "\x1b[1m" + status + "\x1b[0m\n\n" + text

@@ -42,6 +42,10 @@ type Tracker struct {
 	bindStartAt    int64            // log time bandaging began
 	bindDoneAt     int64            // log time bandaging last completed
 
+	zone           string           // current zone (from a "You have entered" line)
+	zoneRespawnSec int              // current zone's default respawn, 0 if unknown
+	respawns       map[string]int64 // killed mob -> repop-expiry unix seconds
+
 	// pending cast awaiting its landing emote
 	pending   *Spell
 	pendingAt int64
@@ -49,7 +53,12 @@ type Tracker struct {
 
 // NewTracker builds a tracker over a loaded spell book.
 func NewTracker(book *Book) *Tracker {
-	return &Tracker{book: book, timers: make(map[string]Timer), cooldowns: make(map[string]int64)}
+	return &Tracker{
+		book:      book,
+		timers:    make(map[string]Timer),
+		cooldowns: make(map[string]int64),
+		respawns:  make(map[string]int64),
+	}
 }
 
 // SpellCount is the number of spells in the loaded book.
@@ -160,6 +169,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
 	t.matchCooldownLocked(body, at)
+	t.observeZoneLocked(body, at)
 
 	// bind wound: "You begin to bandage <target>" … "the bandaging is complete"
 	// — both are the player's own self-messages, so no name gating is needed.
@@ -346,6 +356,9 @@ func (t *Tracker) Clear() {
 	t.feignFailAt = 0
 	t.bindStartAt = 0
 	t.bindDoneAt = 0
+	t.zone = ""
+	t.zoneRespawnSec = 0
+	t.respawns = make(map[string]int64)
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

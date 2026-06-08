@@ -71,6 +71,20 @@ The `timers` panel is **class-driven** (`App.updatePanel`), keyed on `tracker.Ca
 
 The panel title (`App.panelTitle`) and content both switch on the category.
 
+## Zone awareness and repop tracking
+
+The `Tracker` also derives zone state from the log (`spell/zone.go`): a "You have
+entered X" line sets the current zone and looks up its default respawn in
+`common.ZoneRespawn` (data in `common/zonetimers.go`, transcribed from the P99
+wiki — see `docs/zone-spawn-timers.md`). Each "You have slain X!" then starts a
+repop timer at that zone's default (`Respawns()`), re-killing a name resets it,
+and zoning clears the list. The repop list renders (`renderRespawns`) at the
+bottom of the bottom-right panel for every class. The bottom bar
+(`updateShortcuts`) shows `character · L<level> <class> · Zone: <zone>` from the
+tracker. Caveat: zone is only known after the next zone-in (no log line gives the
+current zone at startup), and repop times are zone *defaults* — named/PH mobs
+differ.
+
 ## Views and input
 
 `cli/view.go` defines five views (`sessions`, `dmg`, `graph`, `timers`, `shortcuts`) in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `cli/view.go`, keeping the shared `common` package free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `cli/keys.go`.

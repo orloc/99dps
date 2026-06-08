@@ -29,6 +29,14 @@ is client-specific and isn't in the current all-caster logs). Add to
 ## Class detection
 - [ ] `common.titleToClass` is a conservative subset (base names + well-known + log-validated titles). Mid-level titles for some classes are missing → those default to CatCaster (spell-timer panel) until a known title/base name appears. Extend one line at a time as misdetections show up.
 
+## Zone / repop tracking (done — possible refinements)
+- [x] Zone detection + per-kill repop timers (zone defaults from `common/zonetimers.go`); zone/level/class in the bottom bar.
+- [ ] Current zone is unknown until the next zone-in (no log line gives it at startup) — could infer from other signals if any exist.
+- [ ] Repop times are zone *defaults*; named/PH/exception mobs differ (see the multi-timer zones in `docs/zone-spawn-timers.md`). Per-mob overrides would need a mob→timer table.
+- [ ] Only the player's own killing blow ("You have slain X!") starts a timer; group kills where someone else lands the blow aren't tracked.
+- [ ] Wiki had no data for: Kelethin, Dagnor's Cauldron, Emerald Jungle, Veeshan's Peak, Western Wastes (not in the map).
+- [ ] Zone-name matching is normalized (lowercase / strip "the" / period); some EQ zone-in long names may not match the wiki keys — report misses.
+
 ## Not yet built (earlier ideas / offers)
 - [ ] **Audio cue on failed feign** (TTS "feign failed" via the `a`-toggle speaker) — offered, not wired.
 - [ ] Optional TTS "Mend ready" / cooldown-ready cues.
