@@ -33,7 +33,7 @@ const fullAvoidanceWidth = avNameW + 7*(avNumW+1)
 // renderDamage builds the damage breakdown table. Dealers are ranked by total
 // and colored with the same palette (by rank) as the graph bars, so a dealer's
 // table row and its bar share a color. The player's row is bolded.
-func renderDamage(cur *session.CombatSession, live bool, width int) string {
+func renderDamage(cur *session.CombatSession, live bool, width int, zk zoneKillStats) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
@@ -70,7 +70,7 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 		humanizeInt(encounterTotal),
 		humanizeInt(int(int64(encounterTotal)/span)),
 	))
-	if line := killsLine(cur, span); line != "" {
+	if line := killsLine(zk); line != "" {
 		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n")
@@ -166,22 +166,18 @@ func headerBar(label, sgr string, width int) string {
 	return fmt.Sprintf("\x1b[%sm%s\x1b[0m\n", sgr, padTo(label, width))
 }
 
-// killsLine summarises a fight's kills and deaths, or "" when there's nothing
-// to report. Kill count prefers xp-credited kills (mobs you got credit for);
-// the rate is extrapolated to an hour from the session span.
-func killsLine(cur *session.CombatSession, span int64) string {
-	kills := cur.XpGains()
-	if kills == 0 {
-		kills = cur.Kills()
-	}
-	deaths := cur.Deaths()
-	if kills == 0 && deaths == 0 {
+// zoneKillStats carries the zone-wide kill tallies into renderDamage.
+type zoneKillStats struct{ kills, perHour, deaths int }
+
+// killsLine summarises the *zone-wide* xp-credited kills and the per-hour rate,
+// or "" when there's nothing to report.
+func killsLine(zk zoneKillStats) string {
+	if zk.kills == 0 && zk.deaths == 0 {
 		return ""
 	}
-
-	line := fmt.Sprintf("%d kills · %d/hr", kills, kills*3600/int(span))
-	if deaths > 0 {
-		line += fmt.Sprintf(" · %d deaths", deaths)
+	line := fmt.Sprintf("%d kills · %d/hr", zk.kills, zk.perHour)
+	if zk.deaths > 0 {
+		line += fmt.Sprintf(" · %d deaths", zk.deaths)
 	}
 	return line
 }

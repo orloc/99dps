@@ -150,7 +150,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 70, Target: "a rat", Verb: "slash"})
 
-	out := renderDamage(sm.Current(), true, 60)
+	out := renderDamage(sm.Current(), true, 60, zoneKillStats{})
 
 	for _, want := range []string{"You", "Hit%", "Crit%", "live"} {
 		if !strings.Contains(out, want) {
@@ -159,7 +159,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 	}
 
 	// at a narrow width the optional columns must drop, not clip
-	narrow := renderDamage(sm.Current(), true, 40)
+	narrow := renderDamage(sm.Current(), true, 40, zoneKillStats{})
 	if strings.Contains(narrow, "Hit%") {
 		t.Errorf("narrow render should omit Hit%% column:\n%s", narrow)
 	}

@@ -39,7 +39,22 @@ func (t *Tracker) observeZoneLocked(body string, at int64) {
 			t.zone = z
 			t.zoneRespawnSec, _ = common.ZoneRespawn(z)
 			t.respawns = nil // left the zone — old repops are moot
+			t.zoneXpKills, t.zoneDeaths, t.zoneFirstKillAt = 0, 0, 0
 		}
+		return
+	}
+
+	// xp-credited kills drive the zone kills/hr (solo "You gain experience" and
+	// grouped "You gain party experience" both count one credited kill).
+	if strings.HasPrefix(body, "You gain experience") || strings.HasPrefix(body, "You gain party experience") {
+		t.zoneXpKills++
+		if t.zoneFirstKillAt == 0 {
+			t.zoneFirstKillAt = at
+		}
+		return
+	}
+	if strings.HasPrefix(body, "You have been slain by") {
+		t.zoneDeaths++
 		return
 	}
 
@@ -144,6 +159,25 @@ func killerIsMob(killer string) bool {
 	}
 	c := killer[0]
 	return c >= 'a' && c <= 'z' // a leading lowercase letter ⇒ a mob (players are capitalized)
+}
+
+// ZoneKillStats returns the zone-wide tallies at wall-clock `now`: xp-credited
+// kills, the per-hour rate (over the time since the first kill), and deaths.
+func (t *Tracker) ZoneKillStats(now int64) (kills, perHour, deaths int) {
+	if t == nil {
+		return 0, 0, 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	kills, deaths = t.zoneXpKills, t.zoneDeaths
+	if kills > 0 && t.zoneFirstKillAt > 0 {
+		span := now - t.zoneFirstKillAt
+		if span < 1 {
+			span = 1
+		}
+		perHour = kills * 3600 / int(span)
+	}
+	return kills, perHour, deaths
 }
 
 // Zone returns the player's current zone as logged, or "" until a zone-in is

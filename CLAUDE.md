@@ -81,7 +81,10 @@ wiki — see `docs/zone-spawn-timers.md`). Every mob death — the player's own 
 player deaths) — starts a repop timer at the zone default (`Respawns()`). Each
 death is its own entry (a `[]respawnEntry`, not name-keyed), so two same-named
 mobs dying close together are tracked as distinct spawns rather than one reset.
-Zoning clears the list; entries purge ~2 min after they pop. **Click a repop row**
+Zoning clears the list; entries purge ~2 min after they pop. The Damage panel's
+**kills/hr** line is also zone-wide and xp-credited only: `ZoneKillStats` counts
+"You gain (party) experience" lines since the zone-in (not per-encounter killing
+blows) and rates them over time since the first kill. **Click a repop row**
 to edit that mob's respawn: an inline editor (digits/`:` typed into the bottom
 bar, Enter saves) writes a per-`(zone, mob)` override via `spell.Overrides` (JSON
 at `<logdir>/99dps-overrides.json`), retroactively fixes that mob's live timers,

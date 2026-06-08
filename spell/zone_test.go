@@ -78,6 +78,35 @@ func TestZoneRespawnTracking(t *testing.T) {
 	}
 }
 
+func TestZoneKillStats(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Greater Faydark.", 1000)
+
+	tr.Observe("You gain experience!!", 1000)       // credited kill 1
+	tr.Observe("You gain party experience!!", 1600) // credited kill 2 (grouped)
+	if k, ph, d := tr.ZoneKillStats(1600); k != 2 || ph != 12 || d != 0 {
+		t.Errorf("stats = %d kills / %d hr / %d deaths, want 2/12/0", k, ph, d)
+	}
+
+	// a non-xp killing-blow line must NOT bump the count (xp-credited only)
+	tr.Observe("You have slain a rat!", 1600)
+	if k, _, _ := tr.ZoneKillStats(1600); k != 2 {
+		t.Errorf("a non-xp 'slain' line must not count, got %d", k)
+	}
+
+	// deaths count
+	tr.Observe("You have been slain by a giant!", 1700)
+	if _, _, d := tr.ZoneKillStats(1700); d != 1 {
+		t.Errorf("deaths = %d, want 1", d)
+	}
+
+	// zoning resets the zone tallies
+	tr.Observe("You have entered Lesser Faydark.", 2000)
+	if k, _, d := tr.ZoneKillStats(2000); k != 0 || d != 0 {
+		t.Errorf("zone change should reset, got %d kills / %d deaths", k, d)
+	}
+}
+
 func TestRespawnMineFirstAndKiller(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	tr.Observe("You have entered Greater Faydark.", 1000)

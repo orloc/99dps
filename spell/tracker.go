@@ -47,6 +47,12 @@ type Tracker struct {
 	respawns       []respawnEntry // pending mob repops (one entry per death)
 	overrides      *Overrides     // persisted per-(zone,mob) respawn overrides
 
+	// zone-wide tallies (reset on a zone change): xp-credited kills, player
+	// deaths, and the log time of the first xp kill (the kills/hr denominator).
+	zoneXpKills     int
+	zoneDeaths      int
+	zoneFirstKillAt int64
+
 	// pending cast awaiting its landing emote
 	pending   *Spell
 	pendingAt int64
@@ -359,6 +365,7 @@ func (t *Tracker) Clear() {
 	t.zone = ""
 	t.zoneRespawnSec = 0
 	t.respawns = nil
+	t.zoneXpKills, t.zoneDeaths, t.zoneFirstKillAt = 0, 0, 0
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

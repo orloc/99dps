@@ -718,7 +718,11 @@ func (a *App) initGui() {
 // the result onto the gocui event loop.
 
 func (a *App) updateDamage(cur *session.CombatSession, live bool) {
-	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage))
+	var zk zoneKillStats
+	if a.tracker != nil {
+		zk.kills, zk.perHour, zk.deaths = a.tracker.ZoneKillStats(time.Now().Unix())
+	}
+	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage), zk)
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.writeView(viewDamage, str)
 		return nil
