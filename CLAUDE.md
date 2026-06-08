@@ -65,7 +65,7 @@ A separate subsystem from DPS: tracks durations of spells the player casts (debu
 
 The `timers` panel is **class-driven** (`App.updatePanel`), keyed on `tracker.Category()` (`common.Category`, derived from the detected class):
 - **Caster** → spell timers (the default; also used until a `/who` reveals the class).
-- **Pure melee** (War/Monk/Rogue) → `renderSkills`: the player's activated-skill breakdown (Backstab/Bash/Kick, tracked per-skill in `CombatSession.skills` for the player only) plus hit/crit/avoid. Discipline cooldowns are a planned addition here (blocked on log samples of discipline use).
+- **Pure melee** (War/Monk/Rogue) → `renderSkills`: the player's activated-skill breakdown plus hit/crit/avoid. EQ logs special attacks with a *generic* verb, so the bucket is the most we can recover (`CombatSession.skills`, player-only via `playerSkill`): every kick variant logs "kick", every monk special strike (Eagle Strike / Tiger Claw / Dragon Punch) logs "strike", hand-to-hand auto-attack is "punch", weapon is "crush". `displaySkillName`/`skillRelevant` apply class+level best-guesses at render time (a 30+ monk's "kick" → "Flying Kick"; "strike" shown only for monks). Discipline/cooldown timers (Mend, Feign Death, disciplines) are a planned addition here — they emit distinct activation messages, blocked on log samples to capture the exact text + reuse.
 - **Hybrid** (Pal/SK/Ranger/Bard/Beastlord) → spell timers plus a one-line `skillsSummary` digest.
 
 The panel title (`App.panelTitle`) and content both switch on the category.

@@ -74,11 +74,13 @@ func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
 	val.Total += set.Dmg
 	val.LastTime = set.ActionTime
 	val.Hits++
-	if sk := skillName(set.Verb); sk != "" {
+	if isSpecialVerb(set.Verb) {
 		val.SpecialTotal += set.Dmg
 		val.SpecialHits++
-		// the player's own skill breakdown feeds the skills panel
-		if strings.EqualFold(set.Dealer, "You") {
+	}
+	// the player's own skill breakdown feeds the skills panel
+	if strings.EqualFold(set.Dealer, "You") {
+		if sk := playerSkill(set.Verb); sk != "" {
 			if cs.skills == nil {
 				cs.skills = make(map[string]common.SkillStat)
 			}
@@ -91,12 +93,24 @@ func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
 	cs.aggressors[indxRef] = val
 }
 
-// skillName returns the canonical name of an activated melee skill (Backstab,
-// Bash, Kick) for a combat verb, or "" if the verb is an ordinary auto-attack.
-// EQ logs special attacks with their generic base verb, so the specific skill
-// (e.g. Flying vs Round Kick) is not recoverable here — only the verb category.
-// Both base and third-person forms ("kick"/"kicks") share a prefix.
-func skillName(verb string) string {
+// isSpecialVerb reports whether a verb is a universally-activated melee skill
+// (backstab/bash/kick) rather than an auto-attack — these feed the per-dealer
+// Specials tally for every combatant.
+func isSpecialVerb(verb string) bool {
+	v := strings.ToLower(verb)
+	return strings.HasPrefix(v, "backstab") ||
+		strings.HasPrefix(v, "bash") ||
+		strings.HasPrefix(v, "kick")
+}
+
+// playerSkill returns the skill bucket for one of the *player's* damage lines,
+// or "" for an auto-attack. EQ logs special attacks with a generic verb, so the
+// specific skill isn't recoverable here — only the bucket. Notably every monk
+// special strike (Eagle Strike / Tiger Claw / Dragon Punch / Tail Rake) logs as
+// "strike", and every kick variant as "kick"; hand-to-hand ("punch") and weapon
+// ("crush"/"slash"/…) auto-attacks are not skills. "strike" is monk-only for a
+// player, so bucketing it here is safe (the panel filters by class anyway).
+func playerSkill(verb string) string {
 	switch v := strings.ToLower(verb); {
 	case strings.HasPrefix(v, "backstab"):
 		return "Backstab"
@@ -104,6 +118,8 @@ func skillName(verb string) string {
 		return "Bash"
 	case strings.HasPrefix(v, "kick"):
 		return "Kick"
+	case strings.HasPrefix(v, "strike"):
+		return "Strike"
 	}
 	return ""
 }

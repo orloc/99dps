@@ -144,17 +144,21 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	width := a.viewInnerWidth(viewTimers)
 
 	cat := common.CatCaster
+	var class common.Class
+	var level int
 	if a.tracker != nil {
 		cat = a.tracker.Category()
+		class = a.tracker.Class()
+		level = a.tracker.Level()
 	}
 
 	var str string
 	switch cat {
 	case common.CatMelee:
-		str = renderSkills(cur, width)
+		str = renderSkills(cur, class, level, width)
 	case common.CatHybrid:
 		str = a.timersStr(width)
-		if sum := skillsSummary(cur); sum != "" {
+		if sum := skillsSummary(cur, class, level); sum != "" {
 			str += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
 		}
 	default: // CatCaster

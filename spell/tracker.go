@@ -103,6 +103,16 @@ func (t *Tracker) Class() common.Class {
 	return t.class
 }
 
+// Level returns the player's known level, or 0 until a /who or level-up is seen.
+func (t *Tracker) Level() int {
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.level
+}
+
 // Category returns the player's panel category, defaulting to CatCaster (spell
 // timers) until the class is known.
 func (t *Tracker) Category() common.Category {

@@ -380,9 +380,11 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 }
 
 // renderSkills is the melee-class panel: the player's activated-skill breakdown
-// (Backstab/Bash/Kick) this fight, plus accuracy, crit rate, and avoidance. The
-// discipline-cooldown section will sit above this once that data lands.
-func renderSkills(cur *session.CombatSession, width int) string {
+// (Backstab/Bash/Kick) this fight, plus accuracy, crit rate, and avoidance.
+// class/level drive a best-guess specific name for the generic verb (see
+// displaySkillName). The discipline-cooldown section will sit above this once
+// that data lands.
+func renderSkills(cur *session.CombatSession, class common.Class, level, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
@@ -400,11 +402,17 @@ func renderSkills(cur *session.CombatSession, width int) string {
 		}
 		rows := make([]row, 0, len(skills))
 		for n, s := range skills {
-			rows = append(rows, row{n, s})
+			if !skillRelevant(n, class) {
+				continue
+			}
+			rows = append(rows, row{displaySkillName(n, class, level), s})
 		}
 		sort.SliceStable(rows, func(i, j int) bool { return rows[i].s.Total > rows[j].s.Total })
+		if len(rows) == 0 {
+			b.WriteString("  no skill attacks yet\n")
+		}
 		for _, r := range rows {
-			b.WriteString(fmt.Sprintf("  %-9s %6s  %d hits\n", r.name, humanizeInt(r.s.Total), r.s.Hits))
+			b.WriteString(fmt.Sprintf("  %-12s %6s  %d hits\n", r.name, humanizeInt(r.s.Total), r.s.Hits))
 		}
 	}
 
@@ -426,13 +434,13 @@ func renderSkills(cur *session.CombatSession, width int) string {
 
 // skillsSummary is the one-line skill digest appended to the hybrid panel under
 // the spell timers, e.g. "Bash 220 · Crit 8% · Hit 71%". "" when there's nothing.
-func skillsSummary(cur *session.CombatSession) string {
+func skillsSummary(cur *session.CombatSession, class common.Class, level int) string {
 	if cur == nil {
 		return ""
 	}
 	var parts []string
-	if name, s := topSkill(cur.Skills()); name != "" {
-		parts = append(parts, fmt.Sprintf("%s %s", name, humanizeInt(s.Total)))
+	if name, s := topSkill(cur.Skills(), class); name != "" {
+		parts = append(parts, fmt.Sprintf("%s %s", displaySkillName(name, class, level), humanizeInt(s.Total)))
 	}
 	you := playerStat(cur)
 	if you.Hits > 0 {
@@ -444,6 +452,28 @@ func skillsSummary(cur *session.CombatSession) string {
 		parts = append(parts, fmt.Sprintf("Hit %d%%", hr))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// displaySkillName turns a generic skill bucket into the best class/level label.
+// EQ collapses every kick variant to "kick" and every monk special strike
+// (Eagle Strike / Tiger Claw / Dragon Punch) to "strike", so this is a
+// display-only best guess: a 30+ monk's kick is almost always Flying Kick;
+// "Strike" can't be disambiguated further.
+func displaySkillName(generic string, class common.Class, level int) string {
+	if class == common.ClassMonk && generic == "Kick" && level >= 30 {
+		return "Flying Kick" // learned at level 30; a 30+ monk kicks with it
+	}
+	return generic
+}
+
+// skillRelevant reports whether a skill bucket should appear for the class. A
+// player's "strike" is a monk special; for any other class it shouldn't surface
+// as a skill (those classes don't produce it from auto-attacks either).
+func skillRelevant(generic string, class common.Class) bool {
+	if generic == "Strike" {
+		return class == common.ClassMonk
+	}
+	return true
 }
 
 // critPct is crit count as a percentage of melee hits, capped at 100 (distant
@@ -458,11 +488,14 @@ func critPct(crits, hits int) int {
 	return 100
 }
 
-// topSkill returns the highest-damage skill in the tally, or ("", zero).
-func topSkill(skills map[string]common.SkillStat) (string, common.SkillStat) {
+// topSkill returns the highest-damage class-relevant skill, or ("", zero).
+func topSkill(skills map[string]common.SkillStat, class common.Class) (string, common.SkillStat) {
 	var name string
 	var best common.SkillStat
 	for n, s := range skills {
+		if !skillRelevant(n, class) {
+			continue
+		}
 		if s.Total > best.Total {
 			name, best = n, s
 		}
