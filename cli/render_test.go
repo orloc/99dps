@@ -317,7 +317,7 @@ func TestRenderTimersCrowdControl(t *testing.T) {
 		{Spell: "Mesmerize", Target: "a kobold", Expiry: 30, Mez: true},
 		{Spell: "Clarity II", Target: "You", Expiry: 600},
 	}
-	out, lm := renderTimers(timers, 0, 40)
+	out, lm := renderTimers(timers, 0, 40, true) // ccInline: CC pinned at top
 
 	if !strings.Contains(out, "CROWD CONTROL") {
 		t.Errorf("missing CROWD CONTROL header:\n%s", out)
@@ -331,5 +331,26 @@ func TestRenderTimersCrowdControl(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("buff section missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// renderCC is the enchanter Crowd Control column: mez+charm, soonest-first, no
+// header (the panel title supplies it).
+func TestRenderCC(t *testing.T) {
+	cc := []spell.Timer{
+		{Spell: "Charm", Target: "Charm", Expiry: 300, Charm: true},
+		{Spell: "Mesmerize", Target: "a kobold", Expiry: 30, Mez: true},
+	}
+	out, lm := renderCC(cc, 0, 30)
+	for _, want := range []string{"a kobold", "Charm"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderCC missing %q:\n%s", want, out)
+		}
+	}
+	if lm[0] != "a kobold" { // soonest-first: mez(30) before charm(300)
+		t.Errorf("line 0 target = %q, want a kobold", lm[0])
+	}
+	if s, _ := renderCC(nil, 0, 30); s != "" {
+		t.Error("empty CC should render empty")
 	}
 }

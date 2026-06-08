@@ -348,28 +348,8 @@ func renderSessions(dat []*session.CombatSession, selected, width int) string {
 	return b.String()
 }
 
-// renderTimers lists the player's active spell timers, soonest-to-expire first:
-// detrimental spells (debuffs/DoTs on mobs) in magenta, beneficial (buffs) in
-// green, and anything with ≤10s left in red. Target and remaining time shown.
-// The second return maps each output line to its target so a click can dismiss
-// that person's buffs.
-func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]string) {
-	if len(timers) == 0 {
-		return "No active spells.", nil
-	}
-
-	inner := width - 2
-	// spell name gets the room left after the 2-char indent, count-down (5), and
-	// 1-char marker — long names ("Speed of the Shissar") fit and the column
-	// flexes with the panel, like the Mob Tracker.
-	nameW := inner - 6
-	if nameW < 8 {
-		nameW = 8
-	}
-
-	// crowd control (mez + charm) is pinned in its own section at the top — for
-	// enchanters that's the life-or-death info, kept apart from buffs/debuffs.
-	var cc, rest []spell.Timer
+// splitCC partitions timers into crowd control (mez/charm) and everything else.
+func splitCC(timers []spell.Timer) (cc, rest []spell.Timer) {
 	for _, tm := range timers {
 		if tm.Mez || tm.Charm {
 			cc = append(cc, tm)
@@ -377,41 +357,91 @@ func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]s
 			rest = append(rest, tm)
 		}
 	}
+	return cc, rest
+}
+
+// ccRow renders one crowd-control timer: mez ("M", debuff-urgency tint that
+// escalates red as it nears a break) or charm ("⊗", magenta), target + remaining.
+func ccRow(tm spell.Timer, now int64, width int) string {
+	inner := width - 2
+	nameW := inner - 7
+	if nameW < 8 {
+		nameW = 8
+	}
+	rem := tm.Expiry - now
+	if rem < 0 {
+		rem = 0
+	}
+	label, sgr := "M", timerStyle(true, rem, now)
+	if tm.Charm {
+		label, sgr = "⊗", charmStyle(rem, now)
+	}
+	content := fmt.Sprintf("%-*s %s%5s", nameW, truncate(displayName(tm.Target), nameW),
+		label, fmtDuration(time.Duration(rem)*time.Second))
+	return "  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner))
+}
+
+// renderCC renders the crowd-control list (mez + charm) for the enchanter's
+// dedicated column, soonest-to-break first. No header (the panel title supplies
+// it). Returns the line→target map (line 0 = first row) for click-to-dismiss.
+func renderCC(cc []spell.Timer, now int64, width int) (string, map[int]string) {
+	if len(cc) == 0 {
+		return "", nil
+	}
+	sort.SliceStable(cc, func(i, j int) bool { return cc[i].Expiry < cc[j].Expiry })
+	var b strings.Builder
+	lt := map[int]string{}
+	for i, tm := range cc {
+		b.WriteString(ccRow(tm, now, width) + "\n")
+		lt[i] = tm.Target
+	}
+	return b.String(), lt
+}
+
+// renderTimers lists the player's active spell timers, soonest-to-expire first:
+// detrimental spells in blue, buffs in green, escalating to red near expiry. The
+// second return maps each output line to its target so a click can dismiss that
+// person's buffs. When ccInline is true, mez/charm are pinned in a CROWD CONTROL
+// section at the top; when false (enchanter, CC has its own column) they're
+// omitted here.
+func renderTimers(timers []spell.Timer, now int64, width int, ccInline bool) (string, map[int]string) {
+	if len(timers) == 0 {
+		return "No active spells.", nil
+	}
+
+	inner := width - 2
+	// spell name gets the room left after the 2-char indent and count-down (5) —
+	// long names ("Speed of the Shissar") fit; the column flexes with the panel.
+	nameW := inner - 6
+	if nameW < 8 {
+		nameW = 8
+	}
+
+	cc, rest := splitCC(timers)
+	if !ccInline {
+		cc = nil // CC lives in its own column; keep only buffs/debuffs here
+	}
 
 	var b strings.Builder
 	lineTargets := map[int]string{}
 	line := 0
 
 	if len(cc) > 0 {
-		sort.SliceStable(cc, func(i, j int) bool { return cc[i].Expiry < cc[j].Expiry })
+		ccStr, ccMap := renderCC(cc, now, width)
 		b.WriteString("\x1b[1mCROWD CONTROL\x1b[0m\n")
 		line++ // header → no dismiss target
-		ccNameW := inner - 7
-		if ccNameW < 8 {
-			ccNameW = 8
+		b.WriteString(ccStr)
+		for k, v := range ccMap {
+			lineTargets[line+k] = v
 		}
-		for _, tm := range cc {
-			rem := tm.Expiry - now
-			if rem < 0 {
-				rem = 0
-			}
-			label, sgr := "M", timerStyle(true, rem, now) // mez → debuff urgency (re-mez warning)
-			if tm.Charm {
-				label, sgr = "⊗", charmStyle(rem, now)
-			}
-			content := fmt.Sprintf("%-*s %s%5s", ccNameW, truncate(displayName(tm.Target), ccNameW),
-				label, fmtDuration(time.Duration(rem)*time.Second))
-			b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner)) + "\n")
-			lineTargets[line] = tm.Target
-			line++
-		}
+		line += len(ccMap)
 		if len(rest) > 0 {
 			b.WriteString("\n") // gap before buffs/debuffs
 			line++
 		}
 	}
 
-	// the rest: buffs/debuffs grouped by target (clicking any row dismisses it)
+	// buffs/debuffs grouped by target (clicking any row dismisses that target)
 	groups, order := groupByTarget(rest)
 	for _, tgt := range order {
 		b.WriteString("\x1b[1m" + truncate(displayName(tgt), width) + "\x1b[0m\n")
@@ -432,6 +462,9 @@ func renderTimers(timers []spell.Timer, now int64, width int) (string, map[int]s
 			lineTargets[line] = tgt
 			line++
 		}
+	}
+	if b.Len() == 0 {
+		return "No active spells.", nil
 	}
 	return b.String(), lineTargets
 }

@@ -99,7 +99,7 @@ differ.
 
 ## Views and input
 
-`cli/view.go` defines seven views (`status`, `sessions`, `dmg`, `graph`, `timers`, `repops`, `shortcuts`) in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `cli/view.go`, keeping the shared `common` package free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `cli/keys.go`.
+`cli/view.go` defines the views (`status`, `sessions`, `dmg`, `graph`, `timers`, `cc`, `repops`, `shortcuts`) — the bottom-row split (Spell Timers | [Crowd Control] | Mob Tracker) is placed dynamically in `Layout`: enchanters get the dedicated `cc` column, everyone else gets two tiles and no `cc` view in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `cli/view.go`, keeping the shared `common` package free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `cli/keys.go`.
 
 ## Gotchas
 

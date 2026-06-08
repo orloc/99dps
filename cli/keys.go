@@ -14,6 +14,7 @@ func (a *App) setKeybindings() error {
 	sessionsView := []string{viewSessions}
 	timersView := []string{viewTimers}
 	repopsView := []string{viewRepops}
+	ccView := []string{viewCC}
 
 	var kc = []keyConfig{
 		{
@@ -87,6 +88,12 @@ func (a *App) setKeybindings() error {
 			gocui.MouseWheelDown,
 			gocui.ModNone,
 			a.timerWheelDown,
+		},
+		{
+			&ccView,
+			gocui.MouseLeft,
+			gocui.ModNone,
+			a.dismissTimerClick,
 		},
 		{
 			&repopsView,

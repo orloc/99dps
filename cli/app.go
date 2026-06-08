@@ -63,9 +63,11 @@ type App struct {
 	repopLineMobs map[int]string
 	repopScrollY  int
 
-	// timerLineTargets maps a Spell Timers panel line to its buff target, so a
-	// click dismisses that person's timers.
+	// timerLineTargets / ccLineTargets map a panel line to its target, so a click
+	// dismisses that person's timers (Spell Timers panel and the enchanter CC
+	// column respectively).
 	timerLineTargets map[int]string
+	ccLineTargets    map[int]string
 }
 
 // lowBuffSec is the remaining-time threshold below which a buff triggers an
@@ -150,6 +152,7 @@ func (a *App) refresh() {
 	a.updateGraph(cur)
 	a.updatePanel(cur)
 	a.updateRepops()
+	a.updateCC()
 	a.updateShortcuts()
 }
 
@@ -309,7 +312,34 @@ func (a *App) timersStr(width int) (string, map[int]string) {
 	now := time.Now().Unix()
 	active := a.tracker.Active(now)
 	a.announceLowBuffs(active, now)
-	return renderTimers(active, now, width)
+	// when the enchanter CC column is shown, mez/charm live there, not inline
+	return renderTimers(active, now, width, !a.enchanterLayout())
+}
+
+// updateCC repaints the enchanter's dedicated Crowd Control column (mez + charm).
+// No-op when that column isn't shown (non-enchanter / view not laid out).
+func (a *App) updateCC() {
+	if a.tracker == nil || !a.enchanterLayout() {
+		return
+	}
+	now := time.Now().Unix()
+	width := a.viewInnerWidth(viewCC)
+	cc, _ := splitCC(a.tracker.Active(now))
+	str, lineTargets := renderCC(cc, now, width)
+	if str == "" {
+		str = "No crowd control."
+	}
+	a.mu.Lock()
+	a.ccLineTargets = lineTargets
+	a.mu.Unlock()
+
+	a.gui.Update(func(g *gocui.Gui) error {
+		if _, err := g.View(viewCC); err != nil {
+			return nil // not laid out yet this frame
+		}
+		a.writeView(viewCC, str)
+		return nil
+	})
 }
 
 // announceLowBuffs speaks a cue when a (non-charm) timer first drops below the
@@ -557,7 +587,11 @@ func (a *App) dismissTimerClick(gui *gocui.Gui, view *gocui.View) error {
 	_, cy := view.Cursor()
 	_, oy := view.Origin()
 	a.mu.Lock()
-	tgt := a.timerLineTargets[oy+cy]
+	m := a.timerLineTargets
+	if view.Name() == viewCC {
+		m = a.ccLineTargets
+	}
+	tgt := m[oy+cy]
 	a.mu.Unlock()
 	if tgt != "" && a.tracker != nil {
 		a.tracker.DismissTarget(tgt)

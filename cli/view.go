@@ -12,6 +12,7 @@ const (
 	viewDamage    = "dmg"
 	viewGraph     = "graph"
 	viewTimers    = "timers"
+	viewCC        = "cc"
 	viewRepops    = "repops"
 	viewShortcuts = "shortcuts"
 )
@@ -98,11 +99,24 @@ var vp = map[string]ViewProperties{
 		Editor:   nil,
 		Editable: false,
 	},
+	// timers/repops X-bounds and the cc tile are placed dynamically in Layout
+	// (the enchanter "Crowd Control" column splits the bottom row), so the coords
+	// here are just the non-enchanter defaults.
 	viewRepops: {
 		Title:    "Mob Tracker",
 		Text:     "",
 		X1:       0.6,
 		X2:       1,
+		Y1:       0.44,
+		Y2:       0.88,
+		Editor:   nil,
+		Editable: false,
+	},
+	viewCC: {
+		Title:    "Crowd Control",
+		Text:     "",
+		X1:       0.46,
+		X2:       0.73,
 		Y1:       0.44,
 		Y2:       0.88,
 		Editor:   nil,
@@ -131,12 +145,37 @@ var views = []string{
 }
 
 func (a *App) Layout(g *gocui.Gui) error {
-
+	// fixed views via their static vp coords; the bottom-row trio is placed below
 	for _, v := range views {
-
+		if v == viewTimers || v == viewRepops {
+			continue
+		}
 		if err := a.initView(v); err != nil {
 			return err
 		}
+	}
+
+	// enchanters get a dedicated Crowd Control column in the center of the bottom
+	// row (Spell Timers | Crowd Control | Mob Tracker); everyone else keeps the
+	// two-tile split and no CC view.
+	if a.enchanterLayout() {
+		if err := a.placeFrac(viewTimers, 0.2, 0.46, 0.44, 0.88); err != nil {
+			return err
+		}
+		if err := a.placeFrac(viewCC, 0.46, 0.73, 0.44, 0.88); err != nil {
+			return err
+		}
+		if err := a.placeFrac(viewRepops, 0.73, 1.0, 0.44, 0.88); err != nil {
+			return err
+		}
+	} else {
+		if err := a.placeFrac(viewTimers, 0.2, 0.6, 0.44, 0.88); err != nil {
+			return err
+		}
+		if err := a.placeFrac(viewRepops, 0.6, 1.0, 0.44, 0.88); err != nil {
+			return err
+		}
+		_ = g.DeleteView(viewCC) // no-op if it was never created
 	}
 
 	// keep keyboard focus on the session list so ↑/↓ navigate it
@@ -147,6 +186,18 @@ func (a *App) Layout(g *gocui.Gui) error {
 	}
 
 	return nil
+}
+
+// enchanterLayout reports whether the dedicated Crowd Control column is shown.
+func (a *App) enchanterLayout() bool {
+	return a.tracker != nil && a.tracker.Class() == common.ClassEnchanter
+}
+
+// placeFrac creates/repositions a view from fractional screen bounds.
+func (a *App) placeFrac(name string, x1f, x2f, y1f, y2f float64) error {
+	maxX, maxY := a.gui.Size()
+	x1, y1, x2, y2 := GetScreenDims(ViewProperties{X1: x1f, Y1: y1f, X2: x2f, Y2: y2f}, maxX, maxY)
+	return a.createView(name, x1, x2, y1, y2)
 }
 
 func (a *App) initView(viewName string) error {
