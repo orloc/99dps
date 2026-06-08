@@ -32,10 +32,11 @@ type Timer struct {
 type Tracker struct {
 	book *Book
 
-	mu     sync.Mutex
-	level  int
-	class  common.Class
-	timers map[string]Timer // key: spell\x00target
+	mu        sync.Mutex
+	level     int
+	class     common.Class
+	timers    map[string]Timer // key: spell\x00target
+	cooldowns map[string]int64 // ability name -> reuse-expiry unix seconds
 
 	// pending cast awaiting its landing emote
 	pending   *Spell
@@ -44,7 +45,7 @@ type Tracker struct {
 
 // NewTracker builds a tracker over a loaded spell book.
 func NewTracker(book *Book) *Tracker {
-	return &Tracker{book: book, timers: make(map[string]Timer)}
+	return &Tracker{book: book, timers: make(map[string]Timer), cooldowns: make(map[string]int64)}
 }
 
 // SpellCount is the number of spells in the loaded book.
@@ -154,6 +155,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.matchLandingLocked(body, at)
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
+	t.matchCooldownLocked(body, at)
 }
 
 func (t *Tracker) matchLandingLocked(body string, at int64) {
@@ -312,6 +314,7 @@ func (t *Tracker) Active(now int64) []Timer {
 func (t *Tracker) Clear() {
 	t.mu.Lock()
 	t.timers = make(map[string]Timer)
+	t.cooldowns = make(map[string]int64)
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

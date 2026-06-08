@@ -206,13 +206,13 @@ func TestRenderSkillsAndSummary(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
 	cur := sm.Current()
 
-	out := renderSkills(cur, common.ClassRogue, 50, 40)
+	out := renderSkills(cur, nil, common.ClassRogue, 50, 40)
 	for _, want := range []string{"Skills", "Backstab", "Hit rate"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSkills missing %q:\n%s", want, out)
 		}
 	}
-	if renderSkills(nil, common.ClassRogue, 50, 40) == "" {
+	if renderSkills(nil, nil, common.ClassRogue, 50, 40) == "" {
 		t.Error("renderSkills(nil) should return placeholder text, not empty")
 	}
 
@@ -233,7 +233,7 @@ func TestSkillLabellingByClass(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 60, Target: "a rat", Verb: "strike"})
 	cur := sm.Current()
 
-	monk := renderSkills(cur, common.ClassMonk, 35, 40)
+	monk := renderSkills(cur, nil, common.ClassMonk, 35, 40)
 	if !strings.Contains(monk, "Flying Kick") {
 		t.Errorf("level-35 monk kick should label Flying Kick:\n%s", monk)
 	}
@@ -242,13 +242,13 @@ func TestSkillLabellingByClass(t *testing.T) {
 	}
 
 	// a low-level monk's kick stays generic
-	low := renderSkills(cur, common.ClassMonk, 20, 40)
+	low := renderSkills(cur, nil, common.ClassMonk, 20, 40)
 	if strings.Contains(low, "Flying Kick") {
 		t.Errorf("level-20 monk should not show Flying Kick:\n%s", low)
 	}
 
 	// for a non-monk, the "strike" bucket is not a skill and must be hidden
-	war := renderSkills(cur, common.ClassWarrior, 35, 40)
+	war := renderSkills(cur, nil, common.ClassWarrior, 35, 40)
 	if strings.Contains(war, "Strike") {
 		t.Errorf("non-monk should not surface a Strike skill:\n%s", war)
 	}

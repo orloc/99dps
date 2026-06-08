@@ -155,7 +155,11 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	var str string
 	switch cat {
 	case common.CatMelee:
-		str = renderSkills(cur, class, level, width)
+		var cds []spell.CooldownTimer
+		if a.tracker != nil {
+			cds = a.tracker.Cooldowns(time.Now().Unix())
+		}
+		str = renderSkills(cur, cds, class, level, width)
 	case common.CatHybrid:
 		str = a.timersStr(width)
 		if sum := skillsSummary(cur, class, level); sum != "" {

@@ -384,12 +384,21 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 // class/level drive a best-guess specific name for the generic verb (see
 // displaySkillName). The discipline-cooldown section will sit above this once
 // that data lands.
-func renderSkills(cur *session.CombatSession, class common.Class, level, width int) string {
+func renderSkills(cur *session.CombatSession, cooldowns []spell.CooldownTimer, class common.Class, level, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
 
 	var b strings.Builder
+
+	if len(cooldowns) > 0 {
+		b.WriteString(headerBar("Cooldowns", dpsHeaderSGR, width))
+		for _, cd := range cooldowns {
+			b.WriteString("  " + renderCooldownRow(cd, width) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
 	b.WriteString(headerBar("Skills — this fight", dpsHeaderSGR, width))
 
 	skills := cur.Skills()
@@ -452,6 +461,21 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 		parts = append(parts, fmt.Sprintf("Hit %d%%", hr))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// renderCooldownRow renders one ability reuse timer as a tinted bar: green when
+// the ability is ready, blue with the remaining time while on cooldown.
+func renderCooldownRow(cd spell.CooldownTimer, width int) string {
+	var content, sgr string
+	if cd.Remaining <= 0 {
+		content = fmt.Sprintf("%-13s ready", truncate(cd.Name, 13))
+		sgr = "42;30" // green: ready to use
+	} else {
+		content = fmt.Sprintf("%-13s %s", truncate(cd.Name, 13),
+			fmtDuration(time.Duration(cd.Remaining)*time.Second))
+		sgr = "44;37" // blue: on cooldown
+	}
+	return fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2))
 }
 
 // displaySkillName turns a generic skill bucket into the best class/level label.
