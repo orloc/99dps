@@ -95,24 +95,34 @@ func TestFeignStatus(t *testing.T) {
 func TestBinding(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 
-	if tr.Binding(1000) {
+	if _, ok := tr.BindRemaining(1000); ok {
 		t.Fatal("not binding initially")
 	}
+
+	// begins → counts down toward the 10s finish
 	tr.Observe("You begin to bandage yourself.", 1000)
-	if !tr.Binding(1002) {
-		t.Error("should be binding after the begin line")
+	if rem, ok := tr.BindRemaining(1003); !ok || rem != 7 {
+		t.Errorf("at +3s = (%d,%v), want (7,true)", rem, ok)
 	}
-	tr.Observe("You are done bandaging.  the bandaging is complete.", 1006)
-	if tr.Binding(1007) {
+	// the "complete" line ends it
+	tr.Observe("The bandaging is complete.", 1010)
+	if _, ok := tr.BindRemaining(1010); ok {
 		t.Error("complete line should end binding")
 	}
 
-	// an interrupted bind (no completion) clears after the timeout
+	// a move interrupts it
 	tr.Observe("You begin to bandage yourself.", 2000)
-	if !tr.Binding(2005) {
-		t.Error("should be binding within the window")
+	tr.Observe("You have moved and your attempt to bandage has failed.", 2003)
+	if _, ok := tr.BindRemaining(2004); ok {
+		t.Error("a failed/interrupted bind should clear")
 	}
-	if tr.Binding(2025) {
-		t.Error("stuck binding should time out")
+
+	// and a stuck bind (no complete/fail line) clears after the grace window
+	tr.Observe("You begin to bandage yourself.", 3000)
+	if _, ok := tr.BindRemaining(3005); !ok {
+		t.Error("should still be binding within the window")
+	}
+	if _, ok := tr.BindRemaining(3020); ok {
+		t.Error("a stuck bind should clear past the duration+grace")
 	}
 }

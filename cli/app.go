@@ -183,8 +183,8 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 		str = renderSkills(cur, cds, class, level, width)
 		if a.tracker != nil {
-			if a.tracker.Binding(now) {
-				str = headerBar("⏳ bandaging…", "43;30", width) + str
+			if rem, ok := a.tracker.BindRemaining(now); ok {
+				str = headerBar(fmt.Sprintf("⏳ bandaging… %s", fmtDuration(time.Duration(rem)*time.Second)), "43;30", width) + str
 			}
 			switch a.tracker.FeignStatus(now) {
 			case spell.FeignFailed:

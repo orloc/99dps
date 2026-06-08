@@ -250,28 +250,43 @@ func (t *Tracker) Observe(body string, at int64) {
 		t.recordCanniBuzzerLocked()
 	}
 
-	// bind wound: "You begin to bandage <target>" … "the bandaging is complete"
-	// — both are the player's own self-messages, so no name gating is needed.
+	// bind wound: "You begin to bandage <target>" runs ~10s to "The bandaging is
+	// complete." (all the player's own self-messages, so no name gating needed). A
+	// move interrupts it with "...attempt to bandage has failed."
 	if strings.HasPrefix(body, "You begin to bandage") {
 		t.bindStartAt = at
 	}
-	if strings.Contains(body, "bandaging is complete") {
+	if strings.Contains(body, "bandaging is complete") ||
+		strings.Contains(body, "attempt to bandage has failed") {
 		t.bindDoneAt = at
 	}
 }
 
-// bindTimeoutSec clears a stuck "bandaging" indicator if the completion line is
-// never seen (movement/damage interrupts bind wound with no message).
-const bindTimeoutSec = 20
+const (
+	// bindDurationSec is how long bind wound channels — measured from Kelkix's
+	// logs (begin → "complete" is a consistent 10s).
+	bindDurationSec = 10
+	// bindGraceSec tolerates a slightly-late "complete" line before the bar clears.
+	bindGraceSec = 4
+)
 
-// Binding reports whether the player is mid-bandage at wall-clock `now`.
-func (t *Tracker) Binding(now int64) bool {
+// BindRemaining reports the seconds left on an in-progress bind wound and whether
+// one is active. Active ends on the "complete"/"failed" line or after the
+// duration (plus a little grace) elapses.
+func (t *Tracker) BindRemaining(now int64) (int, bool) {
 	if t == nil {
-		return false
+		return 0, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.bindStartAt > t.bindDoneAt && now-t.bindStartAt <= bindTimeoutSec
+	if t.bindStartAt <= t.bindDoneAt || now-t.bindStartAt > bindDurationSec+bindGraceSec {
+		return 0, false
+	}
+	rem := t.bindStartAt + bindDurationSec - now
+	if rem < 0 {
+		rem = 0
+	}
+	return int(rem), true
 }
 
 // matchSelfClickyLocked starts a self-buff timer when a line is the landing
