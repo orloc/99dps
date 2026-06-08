@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	viewStatus    = "status"
 	viewSessions  = "sessions"
 	viewDamage    = "dmg"
 	viewGraph     = "graph"
@@ -46,12 +47,22 @@ const keyBindingsText = `CTL + C: quit    BACKSPACE: clear    A: audio cues    (
 // Damage | Graph on top, Spell Timers | Mob Tracker below — and a thin key-
 // bindings bar across the bottom.
 var vp = map[string]ViewProperties{
+	viewStatus: {
+		Title:    "Now",
+		Text:     "",
+		X1:       0.0,
+		X2:       0.2,
+		Y1:       0.0,
+		Y2:       0.18,
+		Editor:   nil,
+		Editable: false,
+	},
 	viewSessions: {
 		Title:      "Sessions",
 		Text:       "",
 		X1:         0.0,
 		X2:         0.2,
-		Y1:         0.0,
+		Y1:         0.18,
 		Y2:         0.88,
 		Editor:     nil,
 		Editable:   false,
@@ -110,6 +121,7 @@ var vp = map[string]ViewProperties{
 }
 
 var views = []string{
+	viewStatus,
 	viewSessions,
 	viewDamage,
 	viewGraph,

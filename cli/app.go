@@ -140,6 +140,7 @@ func (a *App) refresh() {
 	// can close the last session before a new fight has started)
 	live := sel >= 0 && sel == len(all)-1 && all[sel].EndTime().IsZero()
 
+	a.updateStatus()
 	a.updateSessions(all, sel)
 	a.updateDamage(cur, live)
 	a.updateGraph(cur)
@@ -452,7 +453,6 @@ func (a *App) updateShortcuts() {
 	if a.editing {
 		status = fmt.Sprintf("set timer for '%s' (m:ss): %s_    [Enter] save  [Esc] cancel", a.repopSel, a.editBuf)
 	}
-	char := a.character
 	audio := "audio off"
 	if a.ttsOn {
 		audio = "♪ audio on"
@@ -461,28 +461,9 @@ func (a *App) updateShortcuts() {
 	}
 	a.mu.Unlock()
 
-	// who: character + class/level once a /who has been seen
-	who := char
-	zone := "?"
-	if a.tracker != nil {
-		cls, lvl := a.tracker.Class(), a.tracker.Level()
-		switch {
-		case cls != common.ClassUnknown && lvl > 0:
-			who = fmt.Sprintf("%s · L%d %s", char, lvl, cls)
-		case cls != common.ClassUnknown:
-			who = fmt.Sprintf("%s · %s", char, cls)
-		case lvl > 0:
-			who = fmt.Sprintf("%s · L%d", char, lvl)
-		}
-		if z := a.tracker.Zone(); z != "" {
-			zone = z
-			if !a.tracker.ZoneKnown() {
-				zone += " (timer n/a)"
-			}
-		}
-	}
-
-	stats := fmt.Sprintf("Reading %s  ·  Zone: %s  ·  %s  ·  %s", who, zone, a.spellInfo, audio)
+	// character/zone/kills now live in the top-left "Now" box; the bar just keeps
+	// the data-source note, audio state, and key help.
+	stats := fmt.Sprintf("%s  ·  %s", a.spellInfo, audio)
 	// stats first so it survives if the (thin) bar clips; keybindings below it
 	text := stats + "\n" + keyBindingsText
 	if status != "" {
@@ -718,13 +699,32 @@ func (a *App) initGui() {
 // the result onto the gocui event loop.
 
 func (a *App) updateDamage(cur *session.CombatSession, live bool) {
-	var zk zoneKillStats
-	if a.tracker != nil {
-		zk.kills, zk.perHour, zk.deaths = a.tracker.ZoneKillStats(time.Now().Unix())
-	}
-	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage), zk)
+	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage))
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.writeView(viewDamage, str)
+		return nil
+	})
+}
+
+// updateStatus repaints the top-left "Now" box: character, class/level, zone,
+// and the zone-wide xp-kill rate.
+func (a *App) updateStatus() {
+	a.mu.Lock()
+	char := a.character
+	a.mu.Unlock()
+
+	var class common.Class
+	var level, kills, perHour, deaths int
+	var zone string
+	if a.tracker != nil {
+		class, level = a.tracker.Class(), a.tracker.Level()
+		zone = a.tracker.Zone()
+		kills, perHour, deaths = a.tracker.ZoneKillStats(time.Now().Unix())
+	}
+
+	str := renderStatus(char, class, level, zone, kills, perHour, deaths, a.viewInnerWidth(viewStatus))
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.writeView(viewStatus, str)
 		return nil
 	})
 }

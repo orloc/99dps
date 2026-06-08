@@ -150,7 +150,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 70, Target: "a rat", Verb: "slash"})
 
-	out := renderDamage(sm.Current(), true, 60, zoneKillStats{})
+	out := renderDamage(sm.Current(), true, 60)
 
 	for _, want := range []string{"You", "Hit%", "Crit%", "live"} {
 		if !strings.Contains(out, want) {
@@ -159,7 +159,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 	}
 
 	// at a narrow width the optional columns must drop, not clip
-	narrow := renderDamage(sm.Current(), true, 40, zoneKillStats{})
+	narrow := renderDamage(sm.Current(), true, 40)
 	if strings.Contains(narrow, "Hit%") {
 		t.Errorf("narrow render should omit Hit%% column:\n%s", narrow)
 	}
@@ -251,6 +251,19 @@ func TestSkillLabellingByClass(t *testing.T) {
 	war := renderSkills(cur, nil, common.ClassWarrior, 35, 40)
 	if strings.Contains(war, "Strike") {
 		t.Errorf("non-monk should not surface a Strike skill:\n%s", war)
+	}
+}
+
+func TestRenderStatus(t *testing.T) {
+	out := renderStatus("Kelkix", common.ClassMonk, 60, "Greater Faydark", 42, 38, 2, 24)
+	for _, want := range []string{"Kelkix", "Monk", "Greater Faydark", "42 kills", "38/hr", "2 deaths"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderStatus missing %q:\n%s", want, out)
+		}
+	}
+	// pre-/who, pre-kill: still shows the character (no kills/zone line)
+	if out := renderStatus("Kelkix", common.ClassUnknown, 0, "", 0, 0, 0, 24); !strings.Contains(out, "Kelkix") {
+		t.Errorf("renderStatus should always show the character:\n%s", out)
 	}
 }
 

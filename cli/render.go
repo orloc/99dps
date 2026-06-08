@@ -33,7 +33,7 @@ const fullAvoidanceWidth = avNameW + 7*(avNumW+1)
 // renderDamage builds the damage breakdown table. Dealers are ranked by total
 // and colored with the same palette (by rank) as the graph bars, so a dealer's
 // table row and its bar share a color. The player's row is bolded.
-func renderDamage(cur *session.CombatSession, live bool, width int, zk zoneKillStats) string {
+func renderDamage(cur *session.CombatSession, live bool, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
@@ -70,9 +70,6 @@ func renderDamage(cur *session.CombatSession, live bool, width int, zk zoneKillS
 		humanizeInt(encounterTotal),
 		humanizeInt(int(int64(encounterTotal)/span)),
 	))
-	if line := killsLine(zk); line != "" {
-		b.WriteString(line + "\n")
-	}
 	b.WriteString("\n")
 
 	hdr := fmt.Sprintf("%-2s %-14s %6s %8s %5s", "#", "Dealer", "DPS", "Total", "%")
@@ -166,20 +163,36 @@ func headerBar(label, sgr string, width int) string {
 	return fmt.Sprintf("\x1b[%sm%s\x1b[0m\n", sgr, padTo(label, width))
 }
 
-// zoneKillStats carries the zone-wide kill tallies into renderDamage.
-type zoneKillStats struct{ kills, perHour, deaths int }
+// renderStatus is the top-left "Now" box: character, class/level, the current
+// zone (tinted bar), and the zone-wide xp-kill rate — the at-a-glance summary.
+func renderStatus(char string, class common.Class, level int, zone string, kills, perHour, deaths, width int) string {
+	var b strings.Builder
+	b.WriteString("\x1b[1m" + truncate(char, width) + "\x1b[0m\n")
 
-// killsLine summarises the *zone-wide* xp-credited kills and the per-hour rate,
-// or "" when there's nothing to report.
-func killsLine(zk zoneKillStats) string {
-	if zk.kills == 0 && zk.deaths == 0 {
-		return ""
+	cl := ""
+	if level > 0 {
+		cl = fmt.Sprintf("L%d ", level)
 	}
-	line := fmt.Sprintf("%d kills · %d/hr", zk.kills, zk.perHour)
-	if zk.deaths > 0 {
-		line += fmt.Sprintf(" · %d deaths", zk.deaths)
+	if class != common.ClassUnknown {
+		cl += string(class)
 	}
-	return line
+	if cl != "" {
+		b.WriteString(truncate(cl, width) + "\n")
+	}
+
+	z := zone
+	if z == "" {
+		z = "—"
+	}
+	b.WriteString(headerBar(z, "42;1;30", width)) // green zone bar
+
+	if kills > 0 || deaths > 0 {
+		b.WriteString("\x1b[1m" + truncate(fmt.Sprintf("%d kills · %d/hr", kills, perHour), width) + "\x1b[0m\n")
+		if deaths > 0 {
+			b.WriteString(fmt.Sprintf("%d deaths\n", deaths))
+		}
+	}
+	return b.String()
 }
 
 // renderSpecials lists dealers who landed activated skills (backstab/bash/kick),
