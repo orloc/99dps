@@ -287,3 +287,21 @@ func TestSelfClickyTimer(t *testing.T) {
 		t.Error("the fade emote should clear the clicky timer")
 	}
 }
+
+// When many spells share a clicky emote, indexing skips dev "Test" stubs and
+// keeps the longest-duration (real) buff — so "Your feet leave the ground."
+// resolves to a normal Levitation, not the 6-tick "Levitate Test".
+func TestSelfClickyDisambiguation(t *testing.T) {
+	book := loadBook(t,
+		row(map[int]string{fName: "Levitate Test", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "1", fDurCap: "6"}),
+		row(map[int]string{fName: "Levitation", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "3", fDurCap: "120"}),
+	)
+	s, ok := book.SelfClicky("Your feet leave the ground.")
+	got := ""
+	if s != nil {
+		got = s.Name
+	}
+	if !ok || got != "Levitation" {
+		t.Errorf("clicky should resolve to Levitation, got ok=%v name=%q", ok, got)
+	}
+}

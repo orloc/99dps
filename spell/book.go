@@ -136,10 +136,13 @@ func LoadReader(r io.Reader) (*Book, error) {
 		}
 		b.byName[s.Name] = s
 		// index instant (cast-time 0) self-buffs with a real duration by their
-		// landing emote — these clickies emit no "You begin casting" line. First
-		// spell per emote wins (duplicates like the Boots line share a duration).
-		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" {
-			if _, dup := b.byEmote[s.CastOnYou]; !dup {
+		// landing emote — these clickies emit no "You begin casting" line. Many
+		// spells share an emote ("Your feet leave the ground." → Levitate, a dev
+		// "Levitate Test" stub, …), so skip obvious test stubs and keep the
+		// longest-duration candidate, which is the real buff rather than a stub.
+		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" &&
+			!strings.Contains(strings.ToLower(s.Name), "test") {
+			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s
 			}
 		}
