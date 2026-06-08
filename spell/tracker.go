@@ -53,6 +53,19 @@ type Tracker struct {
 	zoneDeaths      int
 	zoneFirstKillAt int64
 
+	// "canni dance" gamification: ride the Cannibalize recast edge as fast as
+	// possible without the "Spell recast time not yet met" buzzer.
+	canniRank       string
+	canniEdgeMs     int
+	canniDanceStart int64
+	canniLastCast   int64
+	canniCasts      int
+	canniBuzzers    int
+	canniSinceCast  int
+	canniCombo      int
+	canniScore      int
+	canniBestPct    int
+
 	// pending cast awaiting its landing emote
 	pending   *Spell
 	pendingAt int64
@@ -152,6 +165,9 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 		t.pending = s
 		t.pendingAt = at
 	}
+	if strings.HasPrefix(spellName, "Cannibalize") {
+		t.recordCanniCastLocked(spellName, at)
+	}
 }
 
 // Observe feeds one log line (timestamp body, no leading "[...]"). It matches a
@@ -183,6 +199,9 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.expireOnSlainLocked(body)
 	t.matchCooldownLocked(body, at)
 	t.observeZoneLocked(body, at)
+	if body == "Spell recast time not yet met." {
+		t.recordCanniBuzzerLocked()
+	}
 
 	// bind wound: "You begin to bandage <target>" … "the bandaging is complete"
 	// — both are the player's own self-messages, so no name gating is needed.
@@ -393,6 +412,10 @@ func (t *Tracker) Clear() {
 	t.zoneRespawnSec = 0
 	t.respawns = nil
 	t.zoneXpKills, t.zoneDeaths, t.zoneFirstKillAt = 0, 0, 0
+	t.canniRank, t.canniEdgeMs = "", 0
+	t.canniDanceStart, t.canniLastCast = 0, 0
+	t.canniCasts, t.canniBuzzers, t.canniSinceCast, t.canniCombo = 0, 0, 0, 0
+	t.canniScore, t.canniBestPct = 0, 0
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown

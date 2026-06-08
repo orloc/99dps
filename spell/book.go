@@ -19,6 +19,7 @@ const (
 	fCastOnOther = 7  // emote when it lands on someone else (prefix = target)
 	fFades       = 8  // wear-off message
 	fCastTime    = 13 // cast time, ms
+	fRecastTime  = 15 // recast time, ms (the spell's own reuse gate)
 	fDurFormula  = 16 // buffdurationformula
 	fDurCap      = 17 // buffduration (tick cap)
 	fGoodEffect  = 83 // 0 = detrimental, 1/2 = beneficial
@@ -29,6 +30,7 @@ const (
 type Spell struct {
 	Name        string
 	CastTimeMs  int
+	RecastMs    int
 	DurFormula  int
 	DurCap      int
 	CastOnYou   string
@@ -166,6 +168,7 @@ func decode(line string) *Spell {
 	return &Spell{
 		Name:        name,
 		CastTimeMs:  atoi(f[fCastTime]),
+		RecastMs:    atoi(f[fRecastTime]),
 		DurFormula:  atoi(f[fDurFormula]),
 		DurCap:      atoi(f[fDurCap]),
 		CastOnYou:   NormEmote(strings.TrimSpace(f[fCastOnYou])),

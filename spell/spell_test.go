@@ -305,3 +305,34 @@ func TestSelfClickyDisambiguation(t *testing.T) {
 		t.Errorf("clicky should resolve to Levitation, got ok=%v name=%q", ok, got)
 	}
 }
+
+// Canni dance: replays a real spam sequence (casts at 36/39/41/43 with a buzzer
+// at 42) and checks the efficiency/buzzer/active readout.
+func TestCanniDance(t *testing.T) {
+	book := loadBook(t, row(map[int]string{
+		fName: "Cannibalize III", fCastTime: "1250", fRecastTime: "2250",
+	}))
+	tr := NewTracker(book)
+
+	tr.BeginCast("Cannibalize III", 36)
+	tr.BeginCast("Cannibalize III", 39)
+	tr.BeginCast("Cannibalize III", 41)
+	tr.Observe("Spell recast time not yet met.", 42) // too early — the buzzer
+	tr.BeginCast("Cannibalize III", 43)
+
+	c := tr.CanniStats(43)
+	if !c.Active || c.Rank != "Cannibalize III" {
+		t.Fatalf("expected active Cannibalize III dance, got %+v", c)
+	}
+	if c.Buzzers != 1 {
+		t.Errorf("buzzers = %d, want 1", c.Buzzers)
+	}
+	if c.Pct != 96 { // 3 intervals × 2.25s over 7s ≈ 96%
+		t.Errorf("efficiency = %d%%, want 96%%", c.Pct)
+	}
+
+	// stops dancing → inactive after the timeout
+	if tr.CanniStats(43 + canniDanceTimeoutSec + 1).Active {
+		t.Error("dance should go inactive after the timeout")
+	}
+}

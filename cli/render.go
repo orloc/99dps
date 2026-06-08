@@ -358,6 +358,15 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 
 	groups, order := groupByTarget(timers)
 
+	// spell name gets all the room left after the 2-char indent, the count-down
+	// (5), and a 1-char marker — so long names ("Speed of the Shissar") fit and
+	// the column flexes with the panel width, like the Mob Tracker.
+	inner := width - 2
+	nameW := inner - 6
+	if nameW < 8 {
+		nameW = 8
+	}
+
 	var b strings.Builder
 	for _, tgt := range order {
 		// target header (bold, full name)
@@ -370,19 +379,17 @@ func renderTimers(timers []spell.Timer, now int64, width int) string {
 			if rem < 0 {
 				rem = 0
 			}
-			var content, sgr string
+			marker, sgr := " ", timerStyle(tm.Detrimental, rem, now)
 			if tm.Charm {
 				// charm counts down from its formula-max duration (a ceiling it
 				// breaks before, unpredictably) — ⊗ marks it, magenta until the
 				// cap nears, then the normal urgency escalation kicks in.
-				content = fmt.Sprintf("%-13s ⊗%s", truncate(tm.Spell, 13), fmtDuration(time.Duration(rem)*time.Second))
-				sgr = charmStyle(rem, now)
-			} else {
-				content = fmt.Sprintf("%-13s %s", truncate(tm.Spell, 13), fmtDuration(time.Duration(rem)*time.Second))
-				sgr = timerStyle(tm.Detrimental, rem, now)
+				marker, sgr = "⊗", charmStyle(rem, now)
 			}
+			content := fmt.Sprintf("%-*s%s%5s", nameW, truncate(tm.Spell, nameW), marker,
+				fmtDuration(time.Duration(rem)*time.Second))
 			// 2-space indent (plain), then a colored bar filling the rest
-			bar := fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2))
+			bar := fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, inner))
 			b.WriteString("  " + bar + "\n")
 		}
 	}
@@ -471,6 +478,55 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 		parts = append(parts, fmt.Sprintf("Hit %d%%", hr))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// renderCanni is the gamified "canni dance" meter: ride the Cannibalize recast
+// edge as fast as possible without the "recast not yet met" buzzer. "" when not
+// dancing.
+func renderCanni(c spell.CanniStats, width int) string {
+	if !c.Active {
+		return ""
+	}
+	grade, sgr := canniGrade(c.Pct)
+
+	var b strings.Builder
+	b.WriteString(headerBar(fmt.Sprintf("⟳ CANNI DANCE   %d%%   %s   ×%d", c.Pct, grade, c.Combo), sgr, width))
+
+	// a progress bar of the efficiency, in the grade's colour
+	barW := width - 2
+	if barW < 4 {
+		barW = 4
+	}
+	filled := c.Pct * barW / 100
+	if filled > barW {
+		filled = barW
+	}
+	b.WriteString("  " + fmt.Sprintf("\x1b[%sm%s\x1b[0m%s", sgr,
+		strings.Repeat("█", filled), strings.Repeat("░", barW-filled)) + "\n")
+
+	detail := fmt.Sprintf("%s · %.2fs · %s pts · best %d%%",
+		c.Rank, float64(c.EdgeMs)/1000, formatInt(c.Score), c.Best)
+	if c.Buzzers > 0 {
+		detail += fmt.Sprintf(" · %d early", c.Buzzers)
+	}
+	b.WriteString("  " + truncate(detail, width-2) + "\n")
+	return b.String()
+}
+
+// canniGrade maps an efficiency % to a letter grade + SGR colour (green→red).
+func canniGrade(pct int) (string, string) {
+	switch {
+	case pct >= 95:
+		return "S", "42;1;30" // bright green
+	case pct >= 85:
+		return "A", "42;30" // green
+	case pct >= 70:
+		return "B", "43;30" // yellow
+	case pct >= 50:
+		return "C", "43;30" // yellow
+	default:
+		return "D", "41;37" // red
+	}
 }
 
 // renderRespawns lists pending mob repops: the player's own kills first, then a

@@ -196,8 +196,19 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 	}
 
+	// the canni-dance meter rides above the panel while you're actively dancing
+	if a.tracker != nil {
+		if cm := renderCanni(a.tracker.CanniStats(now), width); cm != "" {
+			if str != "" {
+				str = cm + "\n" + str
+			} else {
+				str = cm
+			}
+		}
+	}
+
 	if str == "" {
-		return // nothing to show (no spell data, no class)
+		return // nothing to show (no spell data, no class, not dancing)
 	}
 
 	a.mu.Lock()
