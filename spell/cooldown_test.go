@@ -58,6 +58,10 @@ func TestFeignStatus(t *testing.T) {
 	if tr.Class() != common.ClassMonk {
 		t.Errorf("feign attempt should infer Monk, got %q", tr.Class())
 	}
+	// the attempt also starts the 11s FD reuse cooldown
+	if cds := tr.Cooldowns(1000); len(cds) != 1 || cds[0].Name != "Feign Death" || cds[0].Remaining != feignReuseSec {
+		t.Errorf("feign attempt should start an 11s cooldown, got %+v", cds)
+	}
 	if s := tr.FeignStatus(1001); s != FeignPending {
 		t.Errorf("within grace = %v, want FeignPending", s)
 	}

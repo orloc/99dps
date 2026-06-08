@@ -60,14 +60,21 @@ const (
 	feignFailShowSec  = 8 // how long a failure alert stays up
 )
 
+// feignReuseSec is the Feign Death reuse. Measured from real spam logs: the
+// macro fires on each FD activation, consistently 11s apart, and a failed feign
+// consumes the timer too.
+const feignReuseSec = 11
+
 // FeignAttempt records that the player initiated a feign (detected via their
-// custom macro line). Seeing it also infers the class as Monk.
+// custom macro line) and starts the FD reuse countdown. Seeing it also infers
+// the class as Monk.
 func (t *Tracker) FeignAttempt(at int64) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
 	t.feignAttemptAt = at
+	t.cooldowns["Feign Death"] = at + feignReuseSec
 	if t.class == common.ClassUnknown {
 		t.class = common.ClassMonk
 	}
