@@ -45,3 +45,21 @@ func TestMendCooldown(t *testing.T) {
 		t.Error("Clear should drop cooldowns")
 	}
 }
+
+func TestFeignFailDetection(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+
+	if tr.FeignFailedAt() != 0 {
+		t.Fatal("no feign fail expected initially")
+	}
+
+	tr.Observe("You have fallen to the ground.", 5000)
+	if tr.FeignFailedAt() != 5000 {
+		t.Errorf("feign fail time = %d, want 5000", tr.FeignFailedAt())
+	}
+
+	tr.Clear()
+	if tr.FeignFailedAt() != 0 {
+		t.Error("Clear should reset feign fail time")
+	}
+}
