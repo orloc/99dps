@@ -92,11 +92,22 @@ func ceilDiv(a, b int) int { return (a + b - 1) / b }
 // Book is a spell lookup keyed by name.
 type Book struct {
 	byName map[string]*Spell
+	// byEmote maps an instant self-buff's landing emote (cast_on_you) to its
+	// spell, so clickies that emit no "You begin casting" line (Journeyman Boots
+	// etc.) are still trackable.
+	byEmote map[string]*Spell
 }
 
 // ByName returns the spell with the given name, if known.
 func (b *Book) ByName(name string) (*Spell, bool) {
 	s, ok := b.byName[name]
+	return s, ok
+}
+
+// SelfClicky returns the instant self-buff whose cast-on-you emote is line, if
+// any — used to time clickies that produce no cast line.
+func (b *Book) SelfClicky(line string) (*Spell, bool) {
+	s, ok := b.byEmote[line]
 	return s, ok
 }
 
@@ -115,13 +126,22 @@ func Load(path string) (*Book, error) {
 
 // LoadReader parses spells_us.txt content from r.
 func LoadReader(r io.Reader) (*Book, error) {
-	b := &Book{byName: make(map[string]*Spell, 9000)}
+	b := &Book{byName: make(map[string]*Spell, 9000), byEmote: make(map[string]*Spell)}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		s := decode(sc.Text())
-		if s != nil {
-			b.byName[s.Name] = s
+		if s == nil {
+			continue
+		}
+		b.byName[s.Name] = s
+		// index instant (cast-time 0) self-buffs with a real duration by their
+		// landing emote — these clickies emit no "You begin casting" line. First
+		// spell per emote wins (duplicates like the Boots line share a duration).
+		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" {
+			if _, dup := b.byEmote[s.CastOnYou]; !dup {
+				b.byEmote[s.CastOnYou] = s
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {

@@ -259,3 +259,31 @@ func TestTracker_ExpiresOnTimeout(t *testing.T) {
 		t.Errorf("should be expired at 1051, got %d", len(act))
 	}
 }
+
+// An instant clicky self-buff (Journeyman Boots) emits no cast line, so its
+// landing emote is matched directly to start the timer.
+func TestSelfClickyTimer(t *testing.T) {
+	jboots := &Spell{
+		Name: "JourneymanBoots", CastTimeMs: 0, DurFormula: 3, DurCap: 180,
+		CastOnYou: "Your feet feel quick.", Fades: "Your feet slow down.",
+	}
+	book := &Book{
+		byName:  map[string]*Spell{jboots.Name: jboots},
+		byEmote: map[string]*Spell{jboots.CastOnYou: jboots},
+	}
+	tr := NewTracker(book)
+
+	tr.Observe("Your feet feel quick.", 1000)
+	act := tr.Active(1000)
+	if len(act) != 1 || act[0].Spell != "JourneymanBoots" || act[0].Target != "You" {
+		t.Fatalf("clicky should start a self timer, got %+v", act)
+	}
+	if rem := act[0].Expiry - 1000; rem != 1080 { // formula 3 capped at 180 ticks = 18 min
+		t.Errorf("duration = %d, want 1080", rem)
+	}
+
+	tr.Observe("Your feet slow down.", 1100)
+	if len(tr.Active(1100)) != 0 {
+		t.Error("the fade emote should clear the clicky timer")
+	}
+}

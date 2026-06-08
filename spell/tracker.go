@@ -171,7 +171,14 @@ func (t *Tracker) Observe(body string, at int64) {
 		t.pending = nil
 	}
 
+	hadPending := t.pending != nil
 	t.matchLandingLocked(body, at)
+	// an instant clicky self-buff (Journeyman Boots etc.) emits no cast line, so
+	// it never sets a pending cast — match its landing emote directly. Only when
+	// nothing was pending, so a normal cast's landing isn't double-counted.
+	if !hadPending {
+		t.matchSelfClickyLocked(body, at)
+	}
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
 	t.matchCooldownLocked(body, at)
@@ -199,6 +206,26 @@ func (t *Tracker) Binding(now int64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.bindStartAt > t.bindDoneAt && now-t.bindStartAt <= bindTimeoutSec
+}
+
+// matchSelfClickyLocked starts a self-buff timer when a line is the landing
+// emote of an instant clicky (no cast line preceded it). Caller holds the lock.
+func (t *Tracker) matchSelfClickyLocked(body string, at int64) {
+	s, ok := t.book.SelfClicky(body)
+	if !ok {
+		return
+	}
+	dur := s.DurationSeconds(t.levelOrDefault())
+	if dur <= 0 {
+		return
+	}
+	t.timers[key(s.Name, "You")] = Timer{
+		Spell:       s.Name,
+		Target:      "You",
+		Start:       at,
+		Expiry:      at + int64(dur),
+		Detrimental: s.Detrimental,
+	}
 }
 
 func (t *Tracker) matchLandingLocked(body string, at int64) {
