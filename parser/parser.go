@@ -78,11 +78,29 @@ func (p *DmgParser) observeSpells(line string) {
 		p.tracker.SetClass(cls) // no-op for ClassUnknown (e.g. a level-up line)
 		return
 	}
+	if p.isFeignMacro(body) {
+		p.tracker.FeignAttempt(ts) // the FD attempt; a fail line (if any) follows
+		return
+	}
 	if strings.HasPrefix(body, castPrefix) {
 		p.tracker.BeginCast(strings.TrimSuffix(strings.TrimSpace(body[len(castPrefix):]), "."), ts)
 		return
 	}
 	p.tracker.Observe(body, ts)
+}
+
+// feignMacroPhrase is the distinctive text in the player's custom feign-death
+// macro emote ("<character> looks dead..."). Change it here if the macro text
+// changes; it's how we detect a feign *attempt* (success has no message).
+const feignMacroPhrase = "looks dead"
+
+// isFeignMacro reports whether a line is the player's own feign-death macro —
+// their character name followed by the macro phrase. Gating on the name avoids
+// tripping on another monk's emote.
+func (p *DmgParser) isFeignMacro(body string) bool {
+	return p.character != "" &&
+		strings.HasPrefix(body, p.character) &&
+		strings.Contains(body, feignMacroPhrase)
 }
 
 // parseLevel reads the player's level (and class, when available) from a /who

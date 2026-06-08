@@ -44,6 +44,60 @@ type CooldownTimer struct {
 	Remaining int64 // seconds until ready; <= 0 means ready now
 }
 
+// FeignState is the outcome of the most recent feign, for the panel banner.
+type FeignState int
+
+const (
+	FeignNone    FeignState = iota
+	FeignPending            // attempt seen, too soon to know if a fail follows
+	FeignOK                 // attempt with no failure message — feigned
+	FeignFailed             // "fallen to the ground" — mobs still attacking
+)
+
+const (
+	feignFailGraceSec = 2 // a fail message lands within ~this long of the attempt
+	feignOKShowSec    = 5 // how long a success banner stays up
+	feignFailShowSec  = 8 // how long a failure alert stays up
+)
+
+// FeignAttempt records that the player initiated a feign (detected via their
+// custom macro line). Seeing it also infers the class as Monk.
+func (t *Tracker) FeignAttempt(at int64) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.feignAttemptAt = at
+	if t.class == common.ClassUnknown {
+		t.class = common.ClassMonk
+	}
+	t.mu.Unlock()
+}
+
+// FeignStatus reports the current feign banner state at wall-clock `now`. A
+// recent failure always alerts (even with no macro attempt); otherwise a recent
+// attempt with no following failure reads as success once the grace window has
+// passed.
+func (t *Tracker) FeignStatus(now int64) FeignState {
+	if t == nil {
+		return FeignNone
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	a, f := t.feignAttemptAt, t.feignFailAt
+	if f > 0 && f >= a && now-f <= feignFailShowSec {
+		return FeignFailed
+	}
+	if a > 0 && now-a <= feignOKShowSec {
+		if now-a >= feignFailGraceSec {
+			return FeignOK
+		}
+		return FeignPending
+	}
+	return FeignNone
+}
+
 // matchCooldownLocked starts (or restarts) a reuse timer when a line is an
 // ability activation. Detecting a class-specific ability also reveals the class
 // if a /who hasn't yet. Caller holds the lock.

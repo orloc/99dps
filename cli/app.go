@@ -57,9 +57,6 @@ type App struct {
 // audio cue.
 const lowBuffSec = 15
 
-// feignAlertSec is how long the failed-feign warning stays up after a fail.
-const feignAlertSec = 8
-
 // SetSources records the log directory and a spell-data summary for the
 // bottom-bar stats line. Call once before the Sync goroutine starts.
 func (a *App) SetSources(logDir, spellInfo string) {
@@ -165,8 +162,11 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 		str = renderSkills(cur, cds, class, level, width)
 		if a.tracker != nil {
-			if ft := a.tracker.FeignFailedAt(); ft > 0 && now-ft <= feignAlertSec {
+			switch a.tracker.FeignStatus(now) {
+			case spell.FeignFailed:
 				str = headerBar("⚠ FEIGN FAILED — mobs still on you", "41;1;37", width) + str
+			case spell.FeignOK:
+				str = headerBar("✓ feigned", "42;1;30", width) + str
 			}
 		}
 	case common.CatHybrid:

@@ -46,20 +46,44 @@ func TestMendCooldown(t *testing.T) {
 	}
 }
 
-func TestFeignFailDetection(t *testing.T) {
+func TestFeignStatus(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 
-	if tr.FeignFailedAt() != 0 {
-		t.Fatal("no feign fail expected initially")
+	if tr.FeignStatus(1000) != FeignNone {
+		t.Fatal("no feign status expected initially")
 	}
 
-	tr.Observe("You have fallen to the ground.", 5000)
-	if tr.FeignFailedAt() != 5000 {
-		t.Errorf("feign fail time = %d, want 5000", tr.FeignFailedAt())
+	// attempt via macro: pending during the grace window, then OK with no fail
+	tr.FeignAttempt(1000)
+	if tr.Class() != common.ClassMonk {
+		t.Errorf("feign attempt should infer Monk, got %q", tr.Class())
+	}
+	if s := tr.FeignStatus(1001); s != FeignPending {
+		t.Errorf("within grace = %v, want FeignPending", s)
+	}
+	if s := tr.FeignStatus(1003); s != FeignOK {
+		t.Errorf("after grace, no fail = %v, want FeignOK", s)
+	}
+	if s := tr.FeignStatus(1100); s != FeignNone {
+		t.Errorf("past the show window = %v, want FeignNone", s)
+	}
+
+	// a fail message right after an attempt classifies as failed
+	tr.FeignAttempt(2000)
+	tr.Observe("You have fallen to the ground.", 2001)
+	if s := tr.FeignStatus(2002); s != FeignFailed {
+		t.Errorf("fail after attempt = %v, want FeignFailed", s)
+	}
+
+	// a bare fail with no macro still alerts
+	tr2 := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr2.Observe("You have fallen to the ground.", 5000)
+	if s := tr2.FeignStatus(5001); s != FeignFailed {
+		t.Errorf("bare fail = %v, want FeignFailed", s)
 	}
 
 	tr.Clear()
-	if tr.FeignFailedAt() != 0 {
-		t.Error("Clear should reset feign fail time")
+	if tr.FeignStatus(2002) != FeignNone {
+		t.Error("Clear should reset feign state")
 	}
 }

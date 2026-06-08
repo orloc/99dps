@@ -32,12 +32,13 @@ type Timer struct {
 type Tracker struct {
 	book *Book
 
-	mu          sync.Mutex
-	level       int
-	class       common.Class
-	timers      map[string]Timer // key: spell\x00target
-	cooldowns   map[string]int64 // ability name -> reuse-expiry unix seconds
-	feignFailAt int64            // log time of the last failed feign (0 = none)
+	mu             sync.Mutex
+	level          int
+	class          common.Class
+	timers         map[string]Timer // key: spell\x00target
+	cooldowns      map[string]int64 // ability name -> reuse-expiry unix seconds
+	feignAttemptAt int64            // log time of the last feign attempt (macro)
+	feignFailAt    int64            // log time of the last failed feign (0 = none)
 
 	// pending cast awaiting its landing emote
 	pending   *Spell
@@ -159,23 +160,13 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.matchCooldownLocked(body, at)
 
 	// a failed feign ("<you> have/has fallen to the ground") — mobs keep
-	// attacking, so flag it for the panel's alert.
+	// attacking, so flag it (the absence of this after an attempt = success).
 	if strings.Contains(body, "fallen to the ground") {
 		t.feignFailAt = at
 		if t.class == common.ClassUnknown {
 			t.class = common.ClassMonk
 		}
 	}
-}
-
-// FeignFailedAt returns the log time of the last failed feign, or 0 if none.
-func (t *Tracker) FeignFailedAt() int64 {
-	if t == nil {
-		return 0
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.feignFailAt
 }
 
 func (t *Tracker) matchLandingLocked(body string, at int64) {
@@ -335,6 +326,7 @@ func (t *Tracker) Clear() {
 	t.mu.Lock()
 	t.timers = make(map[string]Timer)
 	t.cooldowns = make(map[string]int64)
+	t.feignAttemptAt = 0
 	t.feignFailAt = 0
 	t.pending = nil
 	t.level = 0

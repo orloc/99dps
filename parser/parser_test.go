@@ -192,6 +192,19 @@ func TestNonMeleeRoutesToMagicNotDamage(t *testing.T) {
 	}
 }
 
+func TestIsFeignMacro(t *testing.T) {
+	p := &DmgParser{character: "Kelkix"}
+	if !p.isFeignMacro("Kelkix looks dead...") {
+		t.Error("should detect the player's own feign macro")
+	}
+	if p.isFeignMacro("Someguy looks dead...") {
+		t.Error("another player's emote must not trip the macro")
+	}
+	if p.isFeignMacro("Kelkix says, 'hello'") {
+		t.Error("an unrelated line from the player should not match")
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	p := &DmgParser{character: "Kelkix"}
 
