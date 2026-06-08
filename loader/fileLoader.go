@@ -2,57 +2,104 @@ package loader
 
 import (
 	"99dps/common"
-	"99dps/sorts"
 	"fmt"
-	"github.com/hpcloud/tail"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"strings"
+
+	"github.com/hpcloud/tail"
 )
 
-// @TODO make me config
-const eqLogDir = "/home/orloc/.wine/drive_c/everquest/Logs"
+// DefaultLogDir is the fallback EverQuest log directory, used when neither the
+// -logdir flag nor the EQ_LOG_DIR environment variable is set.
+const DefaultLogDir = "/mnt/storage/p99/drive_c/EQ2Lite/Logs"
 
-func LoadFile() *tail.Tail {
-	fname := getLastActiveFile()
-
-	//	startSpot := tail.SeekInfo{0, os.SEEK_END}
-	t, err := tail.TailFile(fname, tail.Config{
-		//		Location: &startSpot,
-		Follow: true,
-	})
-	common.CheckErr(err)
-
-	return t
+type LogSource struct {
+	Tail      *tail.Tail
+	Path      string
+	Character string
 }
 
-func getLastActiveFile() string {
-	var validCharFile = regexp.MustCompile(`^.*eqlog_.*.txt$`)
-
-	dir, err := filepath.Abs(eqLogDir)
+// LoadFile picks the most-recently-active eqlog_*.txt under dir and follows it
+// from the start of the file.
+func LoadFile(dir string) *LogSource {
+	path, err := Latest(dir)
 	common.CheckErr(err)
-	var fileList []os.FileInfo
-
-	err = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
-		if validCharFile.MatchString(path) {
-			fileList = append(fileList, f)
-		}
-		return nil
-	})
-
+	src, err := Follow(path, false)
 	common.CheckErr(err)
-	sort.Sort(sorts.ByLastTouched(fileList))
+	return src
+}
 
-	if len(fileList) == 0 {
-		panic(fmt.Sprintf("found no files in %s", eqLogDir))
+var eqlogName = regexp.MustCompile(`^eqlog_.*\.txt$`)
+
+// Latest returns the path of the most-recently-modified eqlog_*.txt under dir.
+// Symlinks are resolved (so a symlinked Logs directory works) and the mtime is
+// read via Stat (following the link). Safe to call repeatedly — it returns an
+// error rather than panicking, so the character-switch poller can use it.
+func Latest(dir string) (string, error) {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", err
 	}
 
-	topFile := fileList[0]
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
 
-	return getFilePath(topFile)
+	var newest os.FileInfo
+	var newestName string
+	for _, entry := range entries {
+		if !eqlogName.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(root, entry.Name()))
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if newest == nil || info.ModTime().After(newest.ModTime()) {
+			newest, newestName = info, entry.Name()
+		}
+	}
+
+	if newest == nil {
+		return "", fmt.Errorf("no eqlog_*.txt files in %s", dir)
+	}
+	return filepath.Join(root, newestName), nil
 }
 
-func getFilePath(f os.FileInfo) string {
-	return eqLogDir + "/" + f.Name()
+// Follow opens a tail on a specific eqlog file. fromEnd starts at the end of the
+// file — used on a character switch so only new combat is read, not the new
+// character's entire history — otherwise it follows from the beginning.
+func Follow(path string, fromEnd bool) (*LogSource, error) {
+	// DiscardingLogger: the tail library otherwise writes "Seeked …"/"Stopping
+	// tail …" lines to os.Stderr, which corrupt the gocui TUI (most visibly on a
+	// character switch, which opens a new tail with a SeekEnd location).
+	cfg := tail.Config{Follow: true, Logger: tail.DiscardingLogger}
+	if fromEnd {
+		cfg.Location = &tail.SeekInfo{Whence: io.SeekEnd}
+	}
+	t, err := tail.TailFile(path, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &LogSource{Tail: t, Path: path, Character: parseCharacter(path)}, nil
+}
+
+// parseCharacter pulls the character name out of an eqlog_<Char>_<server>.txt
+// filename. Returns "" if the name doesn't match the expected shape.
+func parseCharacter(path string) string {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".txt")
+	parts := strings.SplitN(base, "_", 3)
+	if len(parts) < 2 || parts[0] != "eqlog" {
+		return ""
+	}
+	return parts[1]
 }

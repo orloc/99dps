@@ -1,0 +1,714 @@
+package cli
+
+import (
+	"99dps/common"
+	"99dps/session"
+	"99dps/spell"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+)
+
+// This file holds the pure rendering layer: functions that turn a session
+// snapshot into the text drawn in each panel. They take no gui state (only the
+// data and a target width), so they're unit-testable without a terminal.
+
+// barColors cycles fg colors for the bars, ranked highest-damage first.
+// gocui's OutputNormal only honours the 8 base colors (30-37), so we stay in
+// that range rather than the bright 90-97 codes (which it ignores).
+var barColors = []int{36, 32, 33, 35, 34, 31, 37}
+
+// avoidance column widths for the full (wide) layout.
+const (
+	avNameW = 14
+	avNumW  = 6 // each numeric column, e.g. "Faced", "Dodge"
+)
+
+// fullAvoidanceWidth is the column count the labelled layout needs (7 numeric
+// columns: Faced/Avoid/Miss/Dodge/Parry/Block/Ripo).
+const fullAvoidanceWidth = avNameW + 7*(avNumW+1)
+
+// renderDamage builds the damage breakdown table. Dealers are ranked by total
+// and colored with the same palette (by rank) as the graph bars, so a dealer's
+// table row and its bar share a color. The player's row is bolded.
+func renderDamage(cur *session.CombatSession, live bool, width int) string {
+	if cur == nil {
+		return "No fight selected.\n\nFight something!"
+	}
+
+	stats := cur.GetAggressors()
+	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+
+	groupTotal := cur.Total()
+	magic := cur.MagicTotal()
+	encounterTotal := groupTotal + magic // melee + unattributed spell damage
+
+	// session-span seconds, shared by every dealer's DPS so the rows are
+	// comparable contributions to the same fight
+	span := cur.LastTime - cur.StartTime().Unix()
+	if span < 1 {
+		span = 1
+	}
+
+	status, titleSGR := "● live", dpsTitleLiveSGR
+	if !live {
+		status, titleSGR = "○ ended "+cur.EndTime().Format("15:04:05"), dpsTitleDoneSGR
+	}
+
+	// the optional accuracy/crit columns only appear when the panel is wide
+	// enough to hold them without clipping the core stats off the right edge.
+	showHit := width >= 45
+	showCrit := width >= 51
+
+	var b strings.Builder
+	// encounter title bar (green = live, blue = ended)
+	b.WriteString(headerBar(fmt.Sprintf("⚔ %s   %s", cur.Name(), status), titleSGR, width))
+	b.WriteString(fmt.Sprintf("%s · group %s · %s dps\n",
+		fmtDuration(cur.Duration()),
+		humanizeInt(encounterTotal),
+		humanizeInt(int(int64(encounterTotal)/span)),
+	))
+	if line := killsLine(cur, span); line != "" {
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n")
+
+	hdr := fmt.Sprintf("%-2s %-14s %6s %8s %5s", "#", "Dealer", "DPS", "Total", "%")
+	if showHit {
+		hdr += fmt.Sprintf(" %5s", "Hit%")
+	}
+	if showCrit {
+		hdr += fmt.Sprintf(" %5s", "Crit%")
+	}
+	b.WriteString(headerBar(hdr, dpsHeaderSGR, width))
+
+	for i, v := range stats {
+		name := v.Dealer
+
+		pct := 0
+		if encounterTotal > 0 {
+			pct = v.Total * 100 / encounterTotal
+		}
+
+		row := fmt.Sprintf("%-2d %-14s %6s %8s %4d%%",
+			i+1,
+			truncate(name, 14),
+			humanizeInt(v.Total/int(span)),
+			humanizeInt(v.Total),
+			pct,
+		)
+		if showHit {
+			// accuracy = landed hits / (hits + misses); "-" when this dealer
+			// never produced a parseable swing (e.g. spell-only activity)
+			hit := "-"
+			if hr := cur.OffenseFor(name).HitRate(); hr >= 0 {
+				hit = fmt.Sprintf("%d%%", hr)
+			}
+			row += fmt.Sprintf(" %5s", hit)
+		}
+		if showCrit {
+			crit := "-"
+			if c := cur.CritFor(name); c.Count > 0 {
+				// distant group-members' crit messages arrive even when their
+				// swing damage is out of range, so crits can exceed locally
+				// visible hits — cap the ratio at 100%.
+				cp := c.Count * 100 / v.Hits
+				if cp > 100 {
+					cp = 100
+				}
+				crit = fmt.Sprintf("%d%%", cp)
+			}
+			row += fmt.Sprintf(" %5s", crit)
+		}
+
+		color := barColors[i%len(barColors)]
+		style := fmt.Sprintf("\x1b[%dm", color)
+		if strings.EqualFold(name, "you") {
+			style = fmt.Sprintf("\x1b[1;%dm", color) // bold the player's row
+		}
+		b.WriteString(style + row + "\x1b[0m\n")
+	}
+
+	// unattributed spell/proc/DoT damage — EQ logs name no caster, so it can't
+	// join a dealer row; shown as its own line (n/a) and folded into the group
+	// total. Per-spell tracking lives in the spell-timer panel.
+	if magic > 0 {
+		pct := 0
+		if encounterTotal > 0 {
+			pct = magic * 100 / encounterTotal
+		}
+		b.WriteString(fmt.Sprintf("%-2s %-14s %6s %8s %4d%%\n",
+			"", "spells (n/a)",
+			humanizeInt(magic/int(span)),
+			humanizeInt(magic),
+			pct))
+	}
+
+	b.WriteString(renderSpecials(stats, width))
+	b.WriteString(renderAvoidance(cur, width))
+
+	return b.String()
+}
+
+// DPS-panel header bar styles (SGR params: bg;fg;attrs). gocui OutputNormal
+// supports the 8 base colors plus bold(1)/underline(4)/reverse(7).
+const (
+	dpsTitleLiveSGR = "42;1;30" // green bg, bold black — a live encounter
+	dpsTitleDoneSGR = "44;1;37" // blue bg, bold white  — an ended encounter
+	dpsHeaderSGR    = "7;1"     // reverse + bold        — column/section headers
+)
+
+// headerBar renders label as a full-width bar (sgr = SGR params), padded to
+// width so the tint fills the whole row.
+func headerBar(label, sgr string, width int) string {
+	return fmt.Sprintf("\x1b[%sm%s\x1b[0m\n", sgr, padTo(label, width))
+}
+
+// killsLine summarises a fight's kills and deaths, or "" when there's nothing
+// to report. Kill count prefers xp-credited kills (mobs you got credit for);
+// the rate is extrapolated to an hour from the session span.
+func killsLine(cur *session.CombatSession, span int64) string {
+	kills := cur.XpGains()
+	if kills == 0 {
+		kills = cur.Kills()
+	}
+	deaths := cur.Deaths()
+	if kills == 0 && deaths == 0 {
+		return ""
+	}
+
+	line := fmt.Sprintf("%d kills · %d/hr", kills, kills*3600/int(span))
+	if deaths > 0 {
+		line += fmt.Sprintf(" · %d deaths", deaths)
+	}
+	return line
+}
+
+// renderSpecials lists dealers who landed activated skills (backstab/bash/kick),
+// showing that damage and its share of the dealer's total. Empty when nobody
+// used a special.
+func renderSpecials(stats []common.DamageStat, width int) string {
+	var b strings.Builder
+	for _, v := range stats {
+		if v.SpecialHits == 0 {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n" + headerBar("Specials — backstab/bash/kick", dpsHeaderSGR, width))
+		}
+		pct := 0
+		if v.Total > 0 {
+			pct = v.SpecialTotal * 100 / v.Total
+		}
+		b.WriteString(fmt.Sprintf("%-14s %8s %4d%%  %d hits\n",
+			truncate(displayName(v.Dealer), 14),
+			humanizeInt(v.SpecialTotal),
+			pct,
+			v.SpecialHits,
+		))
+	}
+	return b.String()
+}
+
+// renderAvoidance appends a per-combatant defensive table. When the Damage
+// panel is wide enough it uses a fully-labelled table (Faced / Avoid / Miss /
+// Dodge / Parry / Block); on narrower panels it falls back to a compact form,
+// and on very narrow ones to just name + avoid% — so the key numbers are never
+// clipped off the right edge. The player's row is bolded.
+func renderAvoidance(cur *session.CombatSession, width int) string {
+	defenders := cur.Defense()
+	if len(defenders) == 0 {
+		return ""
+	}
+
+	const maxRows = 6
+	full := width >= fullAvoidanceWidth
+
+	var b strings.Builder
+	b.WriteString("\n" + headerBar("Avoidance", dpsHeaderSGR, width))
+	if full {
+		b.WriteString(fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s %*s\n",
+			avNameW, "Defender",
+			avNumW, "Faced", avNumW, "Avoid",
+			avNumW, "Miss", avNumW, "Dodge", avNumW, "Parry", avNumW, "Block", avNumW, "Ripo"))
+	}
+
+	for i, d := range defenders {
+		if i >= maxRows {
+			break
+		}
+		s := d.Stats
+		faced := s.Swings()
+		if faced == 0 {
+			continue
+		}
+
+		row := compactAvoidanceRow(d.Name, s, faced, width)
+		if full {
+			row = fmt.Sprintf("%-*s %*d %*s %*s %*s %*s %*s %*s",
+				avNameW, truncate(displayName(d.Name), avNameW),
+				avNumW, faced,
+				avNumW, pctStr(s.Avoided(), faced),
+				avNumW, pctStr(s.Misses, faced),
+				avNumW, pctStr(s.Dodges, faced),
+				avNumW, pctStr(s.Parries, faced),
+				avNumW, pctStr(s.Blocks, faced),
+				avNumW, pctStr(s.Ripostes, faced))
+		}
+
+		if strings.EqualFold(d.Name, "you") {
+			b.WriteString("\x1b[1m" + row + "\x1b[0m\n")
+		} else {
+			b.WriteString(row + "\n")
+		}
+	}
+
+	return b.String()
+}
+
+// compactAvoidanceRow is the narrow fallback: name + avoid% (faced), with the
+// miss/dodge/parry/block split appended only if it still fits the width.
+func compactAvoidanceRow(name string, s common.SwingStats, faced, width int) string {
+	base := fmt.Sprintf("%-12s %3d%% %5d",
+		truncate(displayName(name), 12),
+		s.Avoided()*100/faced,
+		faced,
+	)
+	breakdown := fmt.Sprintf("  m%2d d%2d p%2d b%2d r%2d",
+		pctOf(s.Misses, faced),
+		pctOf(s.Dodges, faced),
+		pctOf(s.Parries, faced),
+		pctOf(s.Blocks, faced),
+		pctOf(s.Ripostes, faced),
+	)
+	if width >= len(base)+len(breakdown) {
+		return base + breakdown
+	}
+	return base
+}
+
+// renderSessions builds the side-panel session list: one card per fight, the
+// selected one drawn as a reverse-video bar.
+func renderSessions(dat []*session.CombatSession, selected, width int) string {
+	if len(dat) == 0 {
+		return "No sessions yet.\n\nFight something!"
+	}
+
+	// Sessions are append-only, so the live (active) session is the last entry.
+	active := len(dat) - 1
+
+	var b strings.Builder
+	for i, d := range dat {
+		dealer, pct := d.TopDealer()
+
+		name := d.Name()
+		if i == active {
+			name += "  ● LIVE"
+		}
+
+		meta := fmt.Sprintf("%s · %s · %s",
+			d.StartTime().Format("15:04:05"),
+			fmtDuration(d.Duration()),
+			humanizeInt(d.Total()),
+		)
+
+		top := ""
+		if dealer != "" {
+			top = fmt.Sprintf("top: %s %d%%", dealer, pct)
+		}
+
+		marker := "  "
+		if i == selected {
+			marker = "▸ "
+		}
+
+		// Each card is exactly linesPerCard rows so clicks map back cleanly.
+		card := []string{marker + name, "  " + meta, "  " + top, ""}
+		for j, line := range card {
+			if i == selected && j < len(card)-1 {
+				// reverse-video bar across the full row marks the selection
+				b.WriteString("\x1b[7m" + padTo(line, width) + "\x1b[0m\n")
+			} else {
+				b.WriteString(line + "\n")
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// renderTimers lists the player's active spell timers, soonest-to-expire first:
+// detrimental spells (debuffs/DoTs on mobs) in magenta, beneficial (buffs) in
+// green, and anything with ≤10s left in red. Target and remaining time shown.
+func renderTimers(timers []spell.Timer, now int64, width int) string {
+	if len(timers) == 0 {
+		return "No active spells."
+	}
+
+	groups, order := groupByTarget(timers)
+
+	var b strings.Builder
+	for _, tgt := range order {
+		// target header (bold, full name)
+		b.WriteString("\x1b[1m" + truncate(displayName(tgt), width) + "\x1b[0m\n")
+
+		g := groups[tgt]
+		sort.SliceStable(g, func(i, j int) bool { return g[i].Expiry < g[j].Expiry })
+		for _, tm := range g {
+			rem := tm.Expiry - now
+			if rem < 0 {
+				rem = 0
+			}
+			var content, sgr string
+			if tm.Charm {
+				// charm counts down from its formula-max duration (a ceiling it
+				// breaks before, unpredictably) — ⊗ marks it, magenta until the
+				// cap nears, then the normal urgency escalation kicks in.
+				content = fmt.Sprintf("%-13s ⊗%s", truncate(tm.Spell, 13), fmtDuration(time.Duration(rem)*time.Second))
+				sgr = charmStyle(rem, now)
+			} else {
+				content = fmt.Sprintf("%-13s %s", truncate(tm.Spell, 13), fmtDuration(time.Duration(rem)*time.Second))
+				sgr = timerStyle(tm.Detrimental, rem, now)
+			}
+			// 2-space indent (plain), then a colored bar filling the rest
+			bar := fmt.Sprintf("\x1b[%sm%s\x1b[0m", sgr, padTo(content, width-2))
+			b.WriteString("  " + bar + "\n")
+		}
+	}
+	return b.String()
+}
+
+// renderSkills is the melee-class panel: the player's activated-skill breakdown
+// (Backstab/Bash/Kick) this fight, plus accuracy, crit rate, and avoidance. The
+// discipline-cooldown section will sit above this once that data lands.
+func renderSkills(cur *session.CombatSession, width int) string {
+	if cur == nil {
+		return "No fight selected.\n\nFight something!"
+	}
+
+	var b strings.Builder
+	b.WriteString(headerBar("Skills — this fight", dpsHeaderSGR, width))
+
+	skills := cur.Skills()
+	if len(skills) == 0 {
+		b.WriteString("  no skill attacks yet\n")
+	} else {
+		type row struct {
+			name string
+			s    common.SkillStat
+		}
+		rows := make([]row, 0, len(skills))
+		for n, s := range skills {
+			rows = append(rows, row{n, s})
+		}
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].s.Total > rows[j].s.Total })
+		for _, r := range rows {
+			b.WriteString(fmt.Sprintf("  %-9s %6s  %d hits\n", r.name, humanizeInt(r.s.Total), r.s.Hits))
+		}
+	}
+
+	b.WriteString("\n" + headerBar("Accuracy", dpsHeaderSGR, width))
+	you := playerStat(cur)
+	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
+		b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Hit rate", hr))
+	}
+	if you.Hits > 0 {
+		if c := cur.CritFor("You"); c.Count > 0 {
+			b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Crit rate", critPct(c.Count, you.Hits)))
+		}
+	}
+	if av, faced := playerAvoidance(cur); faced > 0 {
+		b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Avoided", av*100/faced))
+	}
+	return b.String()
+}
+
+// skillsSummary is the one-line skill digest appended to the hybrid panel under
+// the spell timers, e.g. "Bash 220 · Crit 8% · Hit 71%". "" when there's nothing.
+func skillsSummary(cur *session.CombatSession) string {
+	if cur == nil {
+		return ""
+	}
+	var parts []string
+	if name, s := topSkill(cur.Skills()); name != "" {
+		parts = append(parts, fmt.Sprintf("%s %s", name, humanizeInt(s.Total)))
+	}
+	you := playerStat(cur)
+	if you.Hits > 0 {
+		if c := cur.CritFor("You"); c.Count > 0 {
+			parts = append(parts, fmt.Sprintf("Crit %d%%", critPct(c.Count, you.Hits)))
+		}
+	}
+	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
+		parts = append(parts, fmt.Sprintf("Hit %d%%", hr))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// critPct is crit count as a percentage of melee hits, capped at 100 (distant
+// group crits can arrive without their matching swing — see renderDamage).
+func critPct(crits, hits int) int {
+	if hits <= 0 {
+		return 0
+	}
+	if p := crits * 100 / hits; p <= 100 {
+		return p
+	}
+	return 100
+}
+
+// topSkill returns the highest-damage skill in the tally, or ("", zero).
+func topSkill(skills map[string]common.SkillStat) (string, common.SkillStat) {
+	var name string
+	var best common.SkillStat
+	for n, s := range skills {
+		if s.Total > best.Total {
+			name, best = n, s
+		}
+	}
+	return name, best
+}
+
+// playerStat returns the player's own DamageStat from a session snapshot.
+func playerStat(cur *session.CombatSession) common.DamageStat {
+	for _, v := range cur.GetAggressors() {
+		if strings.EqualFold(v.Dealer, "you") {
+			return v
+		}
+	}
+	return common.DamageStat{}
+}
+
+// playerAvoidance returns the player's avoided count and swings faced as the
+// defender, or (0, 0) if they took no swings.
+func playerAvoidance(cur *session.CombatSession) (avoided, faced int) {
+	for _, d := range cur.Defense() {
+		if strings.EqualFold(d.Name, "you") {
+			return d.Stats.Avoided(), d.Stats.Swings()
+		}
+	}
+	return 0, 0
+}
+
+// groupByTarget buckets timers by their target and returns the targets ordered
+// with charm always first, then the rest by their soonest-expiring timer
+// (ascending) — so charm pets sit pinned at the top and, below them, whoever's
+// buff is about to drop floats up, which is what you want when raid-buffing.
+func groupByTarget(timers []spell.Timer) (map[string][]spell.Timer, []string) {
+	groups := make(map[string][]spell.Timer)
+	for _, tm := range timers {
+		groups[tm.Target] = append(groups[tm.Target], tm)
+	}
+
+	soonest := func(g []spell.Timer) int64 {
+		m := g[0].Expiry
+		for _, x := range g[1:] {
+			if x.Expiry < m {
+				m = x.Expiry
+			}
+		}
+		return m
+	}
+	isCharm := func(g []spell.Timer) bool {
+		for _, x := range g {
+			if x.Charm {
+				return true
+			}
+		}
+		return false
+	}
+
+	order := make([]string, 0, len(groups))
+	for tgt := range groups {
+		order = append(order, tgt)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		ci, cj := isCharm(groups[order[i]]), isCharm(groups[order[j]])
+		if ci != cj {
+			return ci // charm groups sort ahead of everything else
+		}
+		return soonest(groups[order[i]]) < soonest(groups[order[j]])
+	})
+	return groups, order
+}
+
+// charmSGR is the resting bar style for a charm timer (magenta bg, white),
+// used while it's well short of its duration cap.
+const charmSGR = "45;37"
+
+// charmStyle tints a charm row: magenta while comfortably below the cap, then
+// the same yellow→red urgency escalation as any other timer as the formula
+// maximum (a hard ceiling the charm breaks before) approaches.
+func charmStyle(rem, now int64) string {
+	if rem > 30 {
+		return charmSGR
+	}
+	return timerStyle(true, rem, now)
+}
+
+// timerStyle returns the ANSI SGR parameters (background;foreground) for a timer
+// row. The whole row is tinted: green for a healthy buff, blue for a debuff,
+// escalating to yellow then red as expiry nears, and a red/white flash that
+// alternates each second in the final seconds (the panel repaints once a sec).
+func timerStyle(detrimental bool, rem, now int64) string {
+	switch {
+	case rem <= 5:
+		if now%2 == 0 {
+			return "41;37" // red bg, white fg
+		}
+		return "47;31" // inverted: white bg, red fg (the flash)
+	case rem <= 10:
+		return "41;37" // red bg
+	case rem <= 30:
+		return "43;30" // yellow bg, black fg
+	}
+	if detrimental {
+		return "44;37" // blue bg: active debuff
+	}
+	return "42;30" // green bg: healthy buff
+}
+
+// renderBars draws one horizontal bar per dealer, Recount-style: a colored
+// fill proportional to that dealer's share of the top dealer's damage, with the
+// name on the left and total/dps on the right.
+func renderBars(agg []common.DamageStat, width, height int) string {
+	if len(agg) == 0 || width < 12 || height < 1 {
+		return "Fight something!"
+	}
+
+	maxTotal := agg[0].Total
+	if maxTotal <= 0 {
+		return "Fight something!"
+	}
+
+	// cap rows to what fits in the view
+	if len(agg) > height {
+		agg = agg[:height]
+	}
+
+	const nameW = 14
+	var b strings.Builder
+
+	for i, d := range agg {
+		name := truncate(d.Dealer, nameW)
+
+		value := fmt.Sprintf(" %s  %d/s", formatInt(d.Total), dealerDPS(d))
+
+		barW := width - nameW - len(value)
+		if barW < 1 {
+			barW = 1
+		}
+
+		filled := int(float64(barW) * float64(d.Total) / float64(maxTotal))
+		if filled < 1 {
+			filled = 1
+		}
+		if filled > barW {
+			filled = barW
+		}
+
+		color := barColors[i%len(barColors)]
+		bar := fmt.Sprintf("\x1b[%dm%s\x1b[0m%s",
+			color,
+			strings.Repeat("█", filled),
+			strings.Repeat("░", barW-filled),
+		)
+
+		b.WriteString(fmt.Sprintf("%-*s %s%s\n", nameW, name, bar, value))
+	}
+
+	return b.String()
+}
+
+// dealerDPS derives damage-per-second from a dealer's own first-to-last-hit
+// span. A zero span (or a single hit) falls back to raw total.
+func dealerDPS(d common.DamageStat) int {
+	if d.Hits == 0 {
+		return 0
+	}
+	span := d.LastTime - d.FirstTime
+	if span <= 0 {
+		return d.Total
+	}
+	return d.Total / int(span)
+}
+
+// --- small pure formatters -------------------------------------------------
+
+// pctStr formats n as a whole percentage of total, e.g. "47%".
+func pctStr(n, total int) string {
+	return fmt.Sprintf("%d%%", pctOf(n, total))
+}
+
+// pctOf returns n as a whole percentage of total (total assumed > 0).
+func pctOf(n, total int) int {
+	return n * 100 / total
+}
+
+// displayName renders the player's normalized "YOU" token as "You" for the UI.
+func displayName(name string) string {
+	if name == "YOU" {
+		return "You"
+	}
+	return name
+}
+
+// fmtDuration renders a fight length compactly as m:ss.
+func fmtDuration(d time.Duration) string {
+	total := int(d.Seconds())
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
+}
+
+// humanizeInt abbreviates large counts for the narrow session panel:
+// 1_234 -> "1.2k", 1_500_000 -> "1.5m".
+func humanizeInt(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fm", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// formatInt renders an int with thousands separators (e.g. 12345 -> "12,345").
+func formatInt(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if n < 0 {
+		return s
+	}
+	var out strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out.WriteByte(',')
+		}
+		out.WriteRune(c)
+	}
+	return out.String()
+}
+
+// truncate clips s to at most n runes (not bytes), so multibyte names don't
+// get cut mid-glyph.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// padTo right-pads s with spaces to width (truncating if longer) so a
+// reverse-video highlight fills the whole row. Counts runes, not bytes, so the
+// multibyte glyphs in the cards (▸, ●) line up with their on-screen cells.
+func padTo(s string, width int) string {
+	r := []rune(s)
+	if len(r) >= width {
+		if width <= 0 {
+			return ""
+		}
+		return string(r[:width])
+	}
+	return s + strings.Repeat(" ", width-len(r))
+}

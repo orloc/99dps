@@ -11,6 +11,8 @@ type keyConfig struct {
 
 func (a *App) setKeybindings() error {
 	qView := []string{""}
+	sessionsView := []string{viewSessions}
+	timersView := []string{viewTimers}
 
 	var kc = []keyConfig{
 		{
@@ -24,6 +26,60 @@ func (a *App) setKeybindings() error {
 			gocui.KeyBackspace,
 			gocui.ModNone,
 			a.clear,
+		},
+		{
+			&qView,
+			gocui.KeyArrowUp,
+			gocui.ModNone,
+			a.selectUp,
+		},
+		{
+			&qView,
+			gocui.KeyArrowDown,
+			gocui.ModNone,
+			a.selectDown,
+		},
+		{
+			&qView,
+			gocui.KeyEnd,
+			gocui.ModNone,
+			a.selectLive,
+		},
+		{
+			&qView,
+			'a',
+			gocui.ModNone,
+			a.toggleTTS,
+		},
+		{
+			&sessionsView,
+			gocui.MouseLeft,
+			gocui.ModNone,
+			a.selectClick,
+		},
+		{
+			&sessionsView,
+			gocui.MouseWheelUp,
+			gocui.ModNone,
+			a.wheelUp,
+		},
+		{
+			&sessionsView,
+			gocui.MouseWheelDown,
+			gocui.ModNone,
+			a.wheelDown,
+		},
+		{
+			&timersView,
+			gocui.MouseWheelUp,
+			gocui.ModNone,
+			a.timerWheelUp,
+		},
+		{
+			&timersView,
+			gocui.MouseWheelDown,
+			gocui.ModNone,
+			a.timerWheelDown,
 		},
 	}
 

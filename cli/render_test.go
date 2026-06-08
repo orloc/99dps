@@ -1,0 +1,255 @@
+package cli
+
+import (
+	"99dps/common"
+	"99dps/session"
+	"99dps/spell"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestHumanizeInt(t *testing.T) {
+	cases := map[int]string{0: "0", 999: "999", 1500: "1.5k", 1_500_000: "1.5m"}
+	for in, want := range cases {
+		if got := humanizeInt(in); got != want {
+			t.Errorf("humanizeInt(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFmtDuration(t *testing.T) {
+	cases := map[int]string{0: "0:00", 65: "1:05", 600: "10:00"}
+	for secs, want := range cases {
+		// fmtDuration takes a time.Duration via seconds
+		if got := fmtDuration(time.Duration(secs) * time.Second); got != want {
+			t.Errorf("fmtDuration(%ds) = %q, want %q", secs, got, want)
+		}
+	}
+}
+
+func TestFormatInt(t *testing.T) {
+	cases := map[int]string{100: "100", 12345: "12,345", 1000000: "1,000,000", -5: "-5"}
+	for in, want := range cases {
+		if got := formatInt(in); got != want {
+			t.Errorf("formatInt(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTruncateAndPad_Multibyte(t *testing.T) {
+	if got := truncate("ünïcode", 3); got != "ünï" {
+		t.Errorf("truncate multibyte = %q, want %q", got, "ünï")
+	}
+	if got := padTo("ab", 5); got != "ab   " {
+		t.Errorf("padTo widen = %q", got)
+	}
+	if got := padTo("abcdef", 3); got != "abc" {
+		t.Errorf("padTo clip = %q", got)
+	}
+	// the multibyte selection marker should count as one cell, not three
+	if got := padTo("▸ x", 5); len([]rune(got)) != 5 {
+		t.Errorf("padTo rune width wrong: %q has %d runes", got, len([]rune(got)))
+	}
+}
+
+func TestEnsureVisible(t *testing.T) {
+	// linesPerCard == 4. Viewport of 8 lines shows 2 cards.
+	const h = 8
+	// card 0 already at top: no scroll
+	if got := ensureVisible(0, 0, h); got != 0 {
+		t.Errorf("card0 from top = %d, want 0", got)
+	}
+	// card 3 (lines 12-15) below an 8-line viewport at top: scroll so its
+	// bottom (15) is the last visible line -> origin 8
+	if got := ensureVisible(0, 3, h); got != 8 {
+		t.Errorf("card3 scroll-down = %d, want 8", got)
+	}
+	// selecting an earlier card while scrolled down jumps the origin up to it
+	if got := ensureVisible(8, 1, h); got != 4 {
+		t.Errorf("card1 scroll-up = %d, want 4", got)
+	}
+	// a card already inside the viewport doesn't move it
+	if got := ensureVisible(8, 2, h); got != 8 {
+		t.Errorf("card2 in view = %d, want 8 (unchanged)", got)
+	}
+}
+
+func TestClampScroll(t *testing.T) {
+	// total 40 lines, height 16 -> max origin 24
+	if got := clampScroll(100, 40, 16); got != 24 {
+		t.Errorf("over-max = %d, want 24", got)
+	}
+	if got := clampScroll(-5, 40, 16); got != 0 {
+		t.Errorf("under-zero = %d, want 0", got)
+	}
+	// content shorter than the viewport pins to top
+	if got := clampScroll(5, 8, 16); got != 0 {
+		t.Errorf("short content = %d, want 0", got)
+	}
+}
+
+func TestTimerStyle(t *testing.T) {
+	// background tint escalates with urgency; final seconds flash red/white
+	cases := []struct {
+		detrimental bool
+		rem, now    int64
+		want        string
+	}{
+		{false, 120, 101, "42;30"}, // buff, lots of time → green bg
+		{true, 120, 101, "44;37"},  // debuff → blue bg
+		{false, 25, 101, "43;30"},  // ≤30s → yellow bg
+		{true, 25, 101, "43;30"},   // urgency overrides type
+		{false, 8, 101, "41;37"},   // ≤10s → red bg
+		{false, 4, 100, "41;37"},   // ≤5s, even second → red fill
+		{false, 4, 101, "47;31"},   // ≤5s, odd second → inverted (flash)
+		{true, 3, 101, "47;31"},    // debuff flashing
+	}
+	for _, c := range cases {
+		if got := timerStyle(c.detrimental, c.rem, c.now); got != c.want {
+			t.Errorf("timerStyle(detr=%v, rem=%d, now=%d) = %q, want %q",
+				c.detrimental, c.rem, c.now, got, c.want)
+		}
+	}
+}
+
+func TestGroupByTarget(t *testing.T) {
+	timers := []spell.Timer{
+		{Spell: "Spirit of Wolf", Target: "You", Expiry: 200},
+		{Spell: "Snare", Target: "a rat", Expiry: 50},
+		{Spell: "Bedlam", Target: "You", Expiry: 100},
+		{Spell: "Tashani", Target: "a giant", Expiry: 40},
+	}
+	groups, order := groupByTarget(timers)
+
+	// ordered by soonest-expiring timer: a giant(40) < a rat(50) < You(100)
+	want := []string{"a giant", "a rat", "You"}
+	for i, w := range want {
+		if i >= len(order) || order[i] != w {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+	if len(groups["You"]) != 2 {
+		t.Errorf("You group has %d timers, want 2", len(groups["You"]))
+	}
+}
+
+func TestPctOfAndDisplayName(t *testing.T) {
+	if pctOf(1, 4) != 25 {
+		t.Errorf("pctOf(1,4) = %d, want 25", pctOf(1, 4))
+	}
+	if displayName("YOU") != "You" || displayName("Naku") != "Naku" {
+		t.Errorf("displayName mapping wrong")
+	}
+}
+
+// renderDamage smoke test: build a real session via the manager, render it, and
+// assert the key facts surface. Exercises the whole pure render path.
+func TestRenderDamage_Smoke(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
+	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 70, Target: "a rat", Verb: "slash"})
+
+	out := renderDamage(sm.Current(), true, 60)
+
+	for _, want := range []string{"You", "Hit%", "Crit%", "live"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderDamage output missing %q:\n%s", want, out)
+		}
+	}
+
+	// at a narrow width the optional columns must drop, not clip
+	narrow := renderDamage(sm.Current(), true, 40)
+	if strings.Contains(narrow, "Hit%") {
+		t.Errorf("narrow render should omit Hit%% column:\n%s", narrow)
+	}
+}
+
+func TestRenderBars(t *testing.T) {
+	agg := []common.DamageStat{
+		{Dealer: "You", Total: 1000, Hits: 10, FirstTime: 100, LastTime: 110},
+		{Dealer: "Bob", Total: 500, Hits: 5, FirstTime: 100, LastTime: 110},
+	}
+
+	out := renderBars(agg, 60, 5)
+	for _, want := range []string{"You", "Bob", "█"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderBars missing %q:\n%s", want, out)
+		}
+	}
+
+	// height caps the number of bars (no overflow past the view)
+	if capped := renderBars(agg, 60, 1); strings.Contains(capped, "Bob") {
+		t.Errorf("height=1 should drop the 2nd bar:\n%s", capped)
+	}
+
+	// degenerate inputs all yield the placeholder rather than panicking
+	for _, c := range []struct {
+		name          string
+		agg           []common.DamageStat
+		width, height int
+	}{
+		{"empty", nil, 60, 5},
+		{"too narrow", agg, 5, 5},
+		{"zero height", agg, 60, 0},
+		{"zero total", []common.DamageStat{{Dealer: "x", Total: 0}}, 60, 5},
+	} {
+		if got := renderBars(c.agg, c.width, c.height); got != "Fight something!" {
+			t.Errorf("renderBars(%s) = %q, want placeholder", c.name, got)
+		}
+	}
+}
+
+func TestRenderSkillsAndSummary(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 200, Target: "a rat", Verb: "backstabs"})
+	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
+	cur := sm.Current()
+
+	out := renderSkills(cur, 40)
+	for _, want := range []string{"Skills", "Backstab", "Hit rate"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderSkills missing %q:\n%s", want, out)
+		}
+	}
+	if renderSkills(nil, 40) == "" {
+		t.Error("renderSkills(nil) should return placeholder text, not empty")
+	}
+
+	// the hybrid one-liner leads with the top skill and includes accuracy
+	if sum := skillsSummary(cur); !strings.Contains(sum, "Backstab") || !strings.Contains(sum, "Hit") {
+		t.Errorf("skillsSummary = %q, want Backstab + Hit", sum)
+	}
+	if skillsSummary(nil) != "" {
+		t.Error("skillsSummary(nil) should be empty")
+	}
+}
+
+func TestGetScreenDims(t *testing.T) {
+	// full-screen view on an 80x24 terminal
+	x1, y1, x2, y2 := GetScreenDims(ViewProperties{X1: 0, X2: 1, Y1: 0, Y2: 1}, 80, 24)
+	if x1 != 0 || y1 != 0 || x2 != 79 || y2 != 23 {
+		t.Errorf("got (%d,%d,%d,%d), want (0,0,79,23)", x1, y1, x2, y2)
+	}
+
+	// right 80% panel
+	x1, _, x2, _ = GetScreenDims(ViewProperties{X1: 0.2, X2: 1}, 100, 24)
+	if x1 != 20 || x2 != 99 {
+		t.Errorf("got x1=%d x2=%d, want 20/99", x1, x2)
+	}
+}
+
+func TestDealerDPS(t *testing.T) {
+	// 1000 damage over a 10s span = 100/s
+	if got := dealerDPS(common.DamageStat{Total: 1000, Hits: 5, FirstTime: 100, LastTime: 110}); got != 100 {
+		t.Errorf("dealerDPS = %d, want 100", got)
+	}
+	// a zero span (single hit) falls back to the raw total
+	if got := dealerDPS(common.DamageStat{Total: 250, Hits: 1, FirstTime: 100, LastTime: 100}); got != 250 {
+		t.Errorf("zero-span dealerDPS = %d, want 250", got)
+	}
+	// no hits → 0, no division
+	if got := dealerDPS(common.DamageStat{}); got != 0 {
+		t.Errorf("empty dealerDPS = %d, want 0", got)
+	}
+}
