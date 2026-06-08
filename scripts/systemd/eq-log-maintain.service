@@ -1,0 +1,6 @@
+[Unit]
+Description=Rotate EverQuest logs and keep client logging enabled (for 99dps)
+
+[Service]
+Type=oneshot
+ExecStart=/home/orloc/dev/go/src/99dps/scripts/eq-log-maintain.sh
