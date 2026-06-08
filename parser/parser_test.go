@@ -3,6 +3,8 @@ package parser
 import (
 	"99dps/common"
 	"99dps/spell"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +191,27 @@ func TestNonMeleeRoutesToMagicNotDamage(t *testing.T) {
 	}
 	if m.Target != "a sand giant" || m.Dmg != 4 {
 		t.Errorf("parseMagic = %+v, want target='a sand giant' dmg=4", m)
+	}
+}
+
+func TestRebuildTrackerFromFile(t *testing.T) {
+	book, _ := spell.LoadReader(strings.NewReader(""))
+	tr := spell.NewTracker(book)
+
+	path := filepath.Join(t.TempDir(), "eqlog_Kelkix_test.txt")
+	lines := fakeTS + "[60 Warlord] Kelkix (Troll)\n" +
+		fakeTS + "You have entered Greater Faydark.\n"
+	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	RebuildTrackerFromFile(path, "Kelkix", tr)
+
+	if tr.Class() != common.ClassWarrior || tr.Level() != 60 {
+		t.Errorf("class/level not recovered from file: %v L%d", tr.Class(), tr.Level())
+	}
+	if tr.Zone() != "Greater Faydark" {
+		t.Errorf("zone not recovered from file: %q", tr.Zone())
 	}
 }
 

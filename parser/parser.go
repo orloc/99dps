@@ -3,8 +3,10 @@ package parser
 import (
 	"99dps/common"
 	"99dps/spell"
+	"bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -49,6 +51,30 @@ func DoParse(t *tail.Tail, sink Sink, character string, tracker *spell.Tracker) 
 		if p.tracker != nil {
 			p.observeSpells(text)
 		}
+	}
+}
+
+// RebuildTrackerFromFile replays a log file's spell/zone/class signals into the
+// tracker only (no Sink, so no session side-effects). Used on a character switch
+// to recover the new character's active spell timers, class/level, and zone
+// instead of starting blank — the live tail still follows from end-of-file.
+// Already-expired timers fall out via tracker.Active. Cheap because logs are
+// rotated small.
+func RebuildTrackerFromFile(path, character string, tracker *spell.Tracker) {
+	if tracker == nil {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	p := DmgParser{character: character, tracker: tracker}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		p.observeSpells(strings.TrimRight(sc.Text(), "\r\n"))
 	}
 }
 

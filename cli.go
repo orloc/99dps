@@ -128,6 +128,9 @@ func (c *logController) switchTo(path string) {
 	c.sm.Clear()     // fresh slate for the new character
 	if c.tracker != nil {
 		c.tracker.Clear()
+		// recover the new character's active spell timers / class / zone from the
+		// log (the live tail below only sees new lines from end-of-file).
+		parser.RebuildTrackerFromFile(next.Path, next.Character, c.tracker)
 	}
 	c.app.SetCharacter(next.Character)
 	c.startParse(next)
