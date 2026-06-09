@@ -16,74 +16,111 @@ type CanniStats struct {
 	Best    int    // session best Pct
 }
 
-// recordCanniCastLocked logs a successful Cannibalize cast. Caller holds lock.
-func (t *Tracker) recordCanniCastLocked(rank string, at int64) {
-	s, ok := t.book.ByName(rank)
+// canniMeter is the shaman "canni dance" gamification subsystem: ride the
+// Cannibalize recast edge as fast as possible without the "Spell recast time
+// not yet met" buzzer. Its methods are caller-locked (the owning Tracker holds
+// the mutex).
+type canniMeter struct {
+	rank       string
+	edgeMs     int
+	danceStart int64
+	lastCast   int64
+	casts      int
+	buzzers    int
+	sinceCast  int
+	combo      int
+	score      int
+	bestPct    int
+}
+
+func (c *canniMeter) clear() { *c = canniMeter{} }
+
+// recordCastLocked logs a successful Cannibalize cast. Caller holds lock.
+func (c *canniMeter) recordCastLocked(book *Book, rank string, at int64) {
+	s, ok := book.ByName(rank)
 	if !ok || s.RecastMs <= 0 {
 		return
 	}
 	// a fresh dance starts on the first cast or after a long gap
-	if t.canniLastCast == 0 || at-t.canniLastCast > canniDanceTimeoutSec {
-		t.canniDanceStart = at
-		t.canniCasts, t.canniBuzzers, t.canniCombo, t.canniSinceCast = 0, 0, 0, 0
+	if c.lastCast == 0 || at-c.lastCast > canniDanceTimeoutSec {
+		c.danceStart = at
+		c.casts, c.buzzers, c.combo, c.sinceCast = 0, 0, 0, 0
 	}
-	gap := at - t.canniLastCast
-	t.canniRank, t.canniEdgeMs = rank, s.RecastMs
-	t.canniCasts++
+	gap := at - c.lastCast
+	c.rank, c.edgeMs = rank, s.RecastMs
+	c.casts++
 
 	// a "clean" cast: no buzzer since the last one, and not dawdling
 	edgeSec := int64(s.RecastMs+999) / 1000
-	if t.canniCasts > 1 && t.canniSinceCast == 0 && gap <= edgeSec+2 {
-		t.canniCombo++
+	if c.casts > 1 && c.sinceCast == 0 && gap <= edgeSec+2 {
+		c.combo++
 	} else {
-		t.canniCombo = 1
+		c.combo = 1
 	}
-	t.canniSinceCast = 0
-	t.canniScore += 10 * t.canniCombo
-	t.canniLastCast = at
+	c.sinceCast = 0
+	c.score += 10 * c.combo
+	c.lastCast = at
 
-	if p := t.canniPctLocked(); p > t.canniBestPct {
-		t.canniBestPct = p
+	if p := c.pctLocked(); p > c.bestPct {
+		c.bestPct = p
 	}
 }
 
-// recordCanniBuzzerLocked logs a too-early "Spell recast time not yet met."
-func (t *Tracker) recordCanniBuzzerLocked() {
-	if t.canniLastCast == 0 {
+// recordBuzzerLocked logs a too-early "Spell recast time not yet met."
+func (c *canniMeter) recordBuzzerLocked() {
+	if c.lastCast == 0 {
 		return // not dancing
 	}
-	t.canniBuzzers++
-	t.canniSinceCast++
-	t.canniCombo = 0 // overshot the edge — broke the rhythm
+	c.buzzers++
+	c.sinceCast++
+	c.combo = 0 // overshot the edge — broke the rhythm
 }
 
-// canniPctLocked is the dance efficiency: throughput (cast rate vs the recast
-// cap) × accuracy (good casts vs total attempts). Each "recast not yet met"
-// buzzer is a wasted attempt that drags accuracy — and thus efficiency — down,
-// so the goal is fast *and* clean. Uses log times, robust to 1-second
-// resolution over a run of casts.
-func (t *Tracker) canniPctLocked() int {
-	if t.canniCasts < 1 {
+// pctLocked is the dance efficiency: throughput (cast rate vs the recast cap) ×
+// accuracy (good casts vs total attempts). Each "recast not yet met" buzzer is a
+// wasted attempt that drags accuracy — and thus efficiency — down, so the goal
+// is fast *and* clean. Uses log times, robust to 1-second resolution over a run
+// of casts.
+func (c *canniMeter) pctLocked() int {
+	if c.casts < 1 {
 		return 0
 	}
 
 	// throughput: how close the cast rate is to the recast cap
 	thru := 100
-	if intervals := t.canniCasts - 1; intervals >= 1 && t.canniEdgeMs > 0 {
-		elapsed := t.canniLastCast - t.canniDanceStart
+	if intervals := c.casts - 1; intervals >= 1 && c.edgeMs > 0 {
+		elapsed := c.lastCast - c.danceStart
 		if elapsed < 1 {
 			elapsed = 1
 		}
-		thru = int(int64(intervals) * int64(t.canniEdgeMs) * 100 / (elapsed * 1000))
+		thru = int(int64(intervals) * int64(c.edgeMs) * 100 / (elapsed * 1000))
 		if thru > 100 {
 			thru = 100
 		}
 	}
 
 	// accuracy: successful casts out of total presses (buzzers = too-early misses)
-	acc := t.canniCasts * 100 / (t.canniCasts + t.canniBuzzers)
+	acc := c.casts * 100 / (c.casts + c.buzzers)
 
 	return thru * acc / 100
+}
+
+// statsLocked returns the live dance readout, or an empty (inactive) value once
+// the dance has lapsed. Caller holds the lock.
+func (c *canniMeter) statsLocked(now int64) CanniStats {
+	if c.lastCast == 0 || now-c.lastCast > canniDanceTimeoutSec {
+		return CanniStats{}
+	}
+	return CanniStats{
+		Active:  true,
+		Rank:    c.rank,
+		EdgeMs:  c.edgeMs,
+		Pct:     c.pctLocked(),
+		Combo:   c.combo,
+		Buzzers: c.buzzers,
+		Score:   c.score,
+		Best:    c.bestPct,
+	}
 }
 
 // CanniStats returns the live dance readout, or an empty (inactive) value once
@@ -94,17 +131,5 @@ func (t *Tracker) CanniStats(now int64) CanniStats {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.canniLastCast == 0 || now-t.canniLastCast > canniDanceTimeoutSec {
-		return CanniStats{}
-	}
-	return CanniStats{
-		Active:  true,
-		Rank:    t.canniRank,
-		EdgeMs:  t.canniEdgeMs,
-		Pct:     t.canniPctLocked(),
-		Combo:   t.canniCombo,
-		Buzzers: t.canniBuzzers,
-		Score:   t.canniScore,
-		Best:    t.canniBestPct,
-	}
+	return t.canni.statsLocked(now)
 }

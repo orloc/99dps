@@ -33,39 +33,15 @@ type Timer struct {
 type Tracker struct {
 	book *Book
 
-	mu             sync.Mutex
-	level          int
-	class          common.Class
-	timers         map[string]Timer // key: spell\x00target
-	cooldowns      map[string]int64 // ability name -> reuse-expiry unix seconds
-	feignAttemptAt int64            // log time of the last feign attempt (macro)
-	feignFailAt    int64            // log time of the last failed feign (0 = none)
-	bindStartAt    int64            // log time bandaging began
-	bindDoneAt     int64            // log time bandaging last completed
+	mu     sync.Mutex
+	level  int
+	class  common.Class
+	timers map[string]Timer // key: spell\x00target
 
-	zone           string         // current zone (from a "You have entered" line)
-	zoneRespawnSec int            // current zone's default respawn, 0 if unknown
-	respawns       []respawnEntry // pending mob repops (one entry per death)
-	overrides      *Overrides     // persisted per-(zone,mob) respawn overrides
+	cool cooldownTracker // activated-ability reuse, feign, bind (see cooldown.go)
+	zone zoneTracker     // zone-awareness: current zone, repops, kills (see zone.go)
 
-	// zone-wide tallies (reset on a zone change): xp-credited kills, player
-	// deaths, and the log time of the first xp kill (the kills/hr denominator).
-	zoneXpKills     int
-	zoneDeaths      int
-	zoneFirstKillAt int64
-
-	// "canni dance" gamification: ride the Cannibalize recast edge as fast as
-	// possible without the "Spell recast time not yet met" buzzer.
-	canniRank       string
-	canniEdgeMs     int
-	canniDanceStart int64
-	canniLastCast   int64
-	canniCasts      int
-	canniBuzzers    int
-	canniSinceCast  int
-	canniCombo      int
-	canniScore      int
-	canniBestPct    int
+	canni canniMeter // shaman "canni dance" gamification (see canni.go)
 
 	// pending cast awaiting its landing emote
 	pending   *Spell
@@ -75,9 +51,17 @@ type Tracker struct {
 // NewTracker builds a tracker over a loaded spell book.
 func NewTracker(book *Book) *Tracker {
 	return &Tracker{
-		book:      book,
-		timers:    make(map[string]Timer),
-		cooldowns: make(map[string]int64),
+		book:   book,
+		timers: make(map[string]Timer),
+		cool:   cooldownTracker{cooldowns: make(map[string]int64)},
+	}
+}
+
+// inferClassLocked adopts a class detected by a subsystem, but only when one
+// isn't already known (a /who title always wins). Caller holds the lock.
+func (t *Tracker) inferClassLocked(c common.Class) {
+	if c != common.ClassUnknown && t.class == common.ClassUnknown {
+		t.class = c
 	}
 }
 
@@ -167,7 +151,7 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 		t.pendingAt = at
 	}
 	if strings.HasPrefix(spellName, "Cannibalize") {
-		t.recordCanniCastLocked(spellName, at)
+		t.canni.recordCastLocked(t.book, spellName, at)
 	}
 }
 
@@ -244,49 +228,12 @@ func (t *Tracker) Observe(body string, at int64) {
 	}
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
-	t.matchCooldownLocked(body, at)
-	t.observeZoneLocked(body, at)
+	t.inferClassLocked(t.cool.matchLocked(body, at))
+	t.zone.observeLocked(body, at)
 	if body == "Spell recast time not yet met." {
-		t.recordCanniBuzzerLocked()
+		t.canni.recordBuzzerLocked()
 	}
-
-	// bind wound: "You begin to bandage <target>" runs ~10s to "The bandaging is
-	// complete." (all the player's own self-messages, so no name gating needed). A
-	// move interrupts it with "...attempt to bandage has failed."
-	if strings.HasPrefix(body, "You begin to bandage") {
-		t.bindStartAt = at
-	}
-	if strings.Contains(body, "bandaging is complete") ||
-		strings.Contains(body, "attempt to bandage has failed") {
-		t.bindDoneAt = at
-	}
-}
-
-const (
-	// bindDurationSec is how long bind wound channels — measured from Kelkix's
-	// logs (begin → "complete" is a consistent 10s).
-	bindDurationSec = 10
-	// bindGraceSec tolerates a slightly-late "complete" line before the bar clears.
-	bindGraceSec = 4
-)
-
-// BindRemaining reports the seconds left on an in-progress bind wound and whether
-// one is active. Active ends on the "complete"/"failed" line or after the
-// duration (plus a little grace) elapses.
-func (t *Tracker) BindRemaining(now int64) (int, bool) {
-	if t == nil {
-		return 0, false
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.bindStartAt <= t.bindDoneAt || now-t.bindStartAt > bindDurationSec+bindGraceSec {
-		return 0, false
-	}
-	rem := t.bindStartAt + bindDurationSec - now
-	if rem < 0 {
-		rem = 0
-	}
-	return int(rem), true
+	t.cool.observeBindLocked(body, at)
 }
 
 // matchSelfClickyLocked starts a self-buff timer when a line is the landing
@@ -466,19 +413,9 @@ func (t *Tracker) Active(now int64) []Timer {
 func (t *Tracker) Clear() {
 	t.mu.Lock()
 	t.timers = make(map[string]Timer)
-	t.cooldowns = make(map[string]int64)
-	t.feignAttemptAt = 0
-	t.feignFailAt = 0
-	t.bindStartAt = 0
-	t.bindDoneAt = 0
-	t.zone = ""
-	t.zoneRespawnSec = 0
-	t.respawns = nil
-	t.zoneXpKills, t.zoneDeaths, t.zoneFirstKillAt = 0, 0, 0
-	t.canniRank, t.canniEdgeMs = "", 0
-	t.canniDanceStart, t.canniLastCast = 0, 0
-	t.canniCasts, t.canniBuzzers, t.canniSinceCast, t.canniCombo = 0, 0, 0, 0
-	t.canniScore, t.canniBestPct = 0, 0
+	t.cool.clear()
+	t.zone.clear()
+	t.canni.clear()
 	t.pending = nil
 	t.level = 0
 	t.class = common.ClassUnknown
