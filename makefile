@@ -6,9 +6,14 @@ all: build clean
 
 build:
 	go build -o 99dps -ldflags="-s -w" .
+
+# cross-compile a Windows binary (pure Go, no cgo — runs anywhere).
+windows:
+	GOOS=windows GOARCH=amd64 go build -o 99dps.exe -ldflags="-s -w" .
+
 clean:
 	${GOCLEAN}
-	rm -f 99dps
+	rm -f 99dps 99dps.exe
 
 test:
 	go test ./...
@@ -26,4 +31,4 @@ tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 
-.PHONY: all build clean test lint tools
+.PHONY: all build windows clean test lint tools

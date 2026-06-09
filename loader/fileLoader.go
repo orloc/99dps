@@ -13,8 +13,10 @@ import (
 )
 
 // DefaultLogDir is the fallback EverQuest log directory, used when neither the
-// -logdir flag nor the EQ_LOG_DIR environment variable is set.
-const DefaultLogDir = "/mnt/storage/p99/drive_c/EQ2Lite/Logs"
+// -logdir flag nor the EQ_LOG_DIR environment variable is set. Its value is
+// platform-specific (see defaultdir_*.go): the EQ folder layout is identical on
+// every OS, so once the log dir is known, sibling files like spells_us.txt are
+// located relative to it (<logdir>/../spells_us.txt) regardless of platform.
 
 type LogSource struct {
 	Tail      *tail.Tail

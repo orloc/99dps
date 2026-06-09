@@ -2,42 +2,25 @@ package cli
 
 import "os/exec"
 
-// speaker shells out to a Linux TTS engine for audio cues. Output is discarded
-// so the engine can never print over the gocui display.
+// speaker shells out to a platform TTS engine for audio cues. Output is
+// discarded so the engine can never print over the gocui display. The engine is
+// chosen per-OS in speech_unix.go / speech_windows.go via newSpeaker.
 type speaker struct {
-	bin  string
-	args []string
-}
-
-// newSpeaker picks the first available TTS engine. spd-say (speech-dispatcher)
-// is preferred because it's asynchronous and desktop-integrated; espeak is a
-// blocking fallback (we run it detached either way).
-func newSpeaker() *speaker {
-	for _, c := range []struct {
-		bin  string
-		args []string
-	}{
-		{"spd-say", nil},
-		{"espeak-ng", nil},
-		{"espeak", nil},
-	} {
-		if p, err := exec.LookPath(c.bin); err == nil {
-			return &speaker{bin: p, args: c.args}
-		}
-	}
-	return &speaker{}
+	// build constructs the command that speaks text, or is nil when no engine is
+	// available (cues then silently no-op).
+	build func(text string) *exec.Cmd
 }
 
 // available reports whether a TTS engine was found.
-func (s *speaker) available() bool { return s.bin != "" }
+func (s *speaker) available() bool { return s != nil && s.build != nil }
 
-// say speaks text without blocking. stdout/stderr go to /dev/null so nothing
-// leaks onto the terminal.
+// say speaks text without blocking — the process is started detached and reaped
+// in the background so a slow/blocking engine never stalls the UI.
 func (s *speaker) say(text string) {
-	if s.bin == "" {
+	if !s.available() {
 		return
 	}
-	cmd := exec.Command(s.bin, append(append([]string{}, s.args...), text)...)
+	cmd := s.build(text)
 	if cmd.Start() == nil {
 		go func() { _ = cmd.Wait() }() // reap, don't leave zombies
 	}

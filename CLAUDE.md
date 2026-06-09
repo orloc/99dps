@@ -15,6 +15,14 @@ Go 1.25. Tests live next to the code (`parser`, `session`, `common`, `cli`); run
 - `go run . -logdir <path>` — fastest dev iteration. Log dir also reads `EQ_LOG_DIR`, else `loader.DefaultLogDir`.
 - `go test ./...` — all tests. Single test: `go test ./parser -run TestParseCast`. Coverage: `go test ./... -cover`.
 - `gofmt -l .` must be empty; `go vet ./...` must be clean before finishing a change.
+- `make windows` — cross-compile `99dps.exe` (`GOOS=windows GOARCH=amd64`). Pure Go / no cgo, so it builds from any host.
+
+## Cross-platform (Windows)
+
+The app is portable: pure-Go deps (no cgo), `gocui`→`termbox-go` which renders via the Win32 console API (so the ANSI SGR codes the renderer emits are interpreted by gocui, not the terminal — colors/mouse work in `conhost` or Windows Terminal), and CRLF is already stripped (`TrimRight(…, "\r\n")`). Platform-specific pieces are isolated by build tags:
+- **`loader/defaultdir_{unix,windows}.go`** — `DefaultLogDir`. The EQ folder layout is identical on every OS, so once the log dir is known everything else (e.g. `spells_us.txt` at `<logdir>/../spells_us.txt`) is located relative to it. The Windows default is a relative `Logs` (run from the EQ folder); override with `-logdir "C:\path\to\EQ\Logs"` or `EQ_LOG_DIR`.
+- **`cli/speech_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
+The Linux-only log-rotation tooling (`scripts/`, systemd) has no Windows equivalent; on Windows logs just grow (or wire a Task Scheduler + PowerShell job).
 
 ## Data flow (three concurrent pieces)
 
