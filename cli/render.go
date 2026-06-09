@@ -292,7 +292,7 @@ func compactAvoidanceRow(name string, s common.SwingStats, faced, width int) str
 		pctOf(s.Blocks, faced),
 		pctOf(s.Ripostes, faced),
 	)
-	if width >= len(base)+len(breakdown) {
+	if width >= len([]rune(base))+len([]rune(breakdown)) { // rune-count: names may be multibyte
 		return base + breakdown
 	}
 	return base

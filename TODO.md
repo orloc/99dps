@@ -37,6 +37,12 @@ is client-specific and isn't in the current all-caster logs). Add to
 - [ ] Wiki had no data for: Kelethin, Dagnor's Cauldron, Emerald Jungle, Veeshan's Peak, Western Wastes (not in the map).
 - [ ] Zone-name matching is normalized (lowercase / strip "the" / period); some EQ zone-in long names may not match the wiki keys — report misses.
 
+## Code-review follow-ups (deferred — low priority, not bugs)
+- [ ] `cli.go` `switchTo` re-reads the new log twice: `loader.Follow` seeks EOF, then `RebuildTrackerFromFile` replays the whole file. The replay is idempotent so this is harmless; Follow-first is kept for error-safety. Reorder only if startup cost on huge logs becomes noticeable.
+- [ ] `spell/book.go` `DurationSeconds` formulas 2 and 3 are best-effort against the EQ buffduration table and may be slightly off; verify against a known-duration debuff before trusting the countdown to the second.
+- [ ] `spell/tracker.go` `expireByMessage` matches the first timer whose fade emote fits; with two same-named debuffs up it may clear the wrong one (same-name ambiguity caveat).
+- [ ] Test gaps remaining: `renderTimers` charm-pinning, `splitCC`/`renderCC` column layout, `parseTimer` edge cases, zone override round-trip.
+
 ## Not yet built (earlier ideas / offers)
 - [ ] **Audio cue on failed feign** (TTS "feign failed" via the `a`-toggle speaker) — offered, not wired.
 - [ ] Optional TTS "Mend ready" / cooldown-ready cues.

@@ -440,7 +440,7 @@ func (a *App) timerWheelDown(gui *gocui.Gui, view *gocui.View) error {
 }
 
 // scrollTimers nudges the spell-timer panel; the clamp to content happens in
-// updateTimers.
+// updatePanel.
 func (a *App) scrollTimers(delta int) {
 	a.mu.Lock()
 	a.timerScrollY += delta

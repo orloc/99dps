@@ -354,3 +354,45 @@ func TestRenderCC(t *testing.T) {
 		t.Error("empty CC should render empty")
 	}
 }
+
+func TestRenderAvoidance(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 10, Target: "a rat"})
+	for _, o := range []common.SwingOutcome{common.OutcomeMiss, common.OutcomeDodge, common.OutcomeRiposte} {
+		sm.ApplySwing(&common.Swing{ActionTime: 100, Attacker: "You", Defender: "a rat", Outcome: o})
+	}
+	cur := sm.Current()
+
+	full := renderAvoidance(cur, 80) // wide → labelled table
+	for _, want := range []string{"Defender", "Avoid", "Dodge", "Ripo", "a rat"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("full avoidance missing %q:\n%s", want, full)
+		}
+	}
+	if narrow := renderAvoidance(cur, 30); strings.Contains(narrow, "Defender") {
+		t.Errorf("narrow avoidance should drop the labelled header:\n%s", narrow)
+	}
+}
+
+func TestRenderRespawnsGroupsAndKiller(t *testing.T) {
+	rs := []spell.Respawn{
+		{Mob: "a fippy darkpaw", Remaining: 0, Mine: true}, // up
+		{Mob: "a noble", Remaining: 300, Mine: true},       // mine, counting
+		{Mob: "a guard", Remaining: 120, Killer: "Gnadad"}, // other's kill
+	}
+	out := renderRespawns(rs, "", 40)
+	for _, want := range []string{"killed by others", "Gnadad", "UP", "a noble"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("renderRespawns missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCanniGrade(t *testing.T) {
+	cases := map[int]string{100: "S", 95: "S", 94: "A", 85: "A", 84: "B", 70: "B", 69: "C", 50: "C", 49: "D", 0: "D"}
+	for pct, want := range cases {
+		if g, _ := canniGrade(pct); g != want {
+			t.Errorf("canniGrade(%d) = %q, want %q", pct, g, want)
+		}
+	}
+}

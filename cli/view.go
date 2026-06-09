@@ -265,8 +265,11 @@ func (a *App) panelTitle() string {
 }
 
 func (a *App) writeView(name, text string) {
-	v, _ := a.gui.View(name)
+	v, err := a.gui.View(name)
+	if err != nil {
+		return // view not laid out yet (e.g. the conditional CC column)
+	}
 	v.Clear()
 	fmt.Fprint(v, text)
-	v.SetCursor(len(text), 0)
+	v.SetCursor(0, 0)
 }
