@@ -10,8 +10,9 @@ Go 1.25. Tests live next to the code (`parser`, `session`, `common`, `cli`); run
 
 ## Commands
 
-- `make build` — build, keeping the `99dps` binary (`go build -o 99dps -ldflags="-s -w" .`).
-- `make` — `build` then `clean` (builds, then deletes the binary; useful as a compile check).
+- `make` — list all targets with descriptions (the default goal is `help`).
+- `make build` — build, keeping the `99dps` binary (`go build -trimpath -ldflags="-s -w" -o 99dps .`).
+- `make all` — `build` then `clean` (builds, then deletes the binary; useful as a compile check).
 - `go run . -logdir <path>` — fastest dev iteration. Log dir also reads `EQ_LOG_DIR`, else `loader.DefaultLogDir`.
 - `go test ./...` — all tests. Single test: `go test ./parser -run TestParseCast`. Coverage: `go test ./... -cover`.
 - `gofmt -l .` must be empty; `go vet ./...` must be clean before finishing a change.
