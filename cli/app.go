@@ -207,7 +207,7 @@ func (a *App) panelBody(cur *session.CombatSession, cat common.Category, class c
 	case common.CatHybrid:
 		body, timerMap := a.timersStr(width)
 		if sum := skillsSummary(cur, class, level); sum != "" {
-			body += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
+			body += "\n" + sectionHeader("skills", width) + "  " + sum
 		}
 		return body, timerMap
 	default: // CatCaster

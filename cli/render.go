@@ -79,7 +79,7 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 	if showCrit {
 		hdr += fmt.Sprintf(" %5s", "Crit%")
 	}
-	b.WriteString(headerBar(hdr, dpsHeaderSGR, width))
+	b.WriteString(sectionHeader(hdr, width))
 
 	for i, v := range stats {
 		name := v.Dealer
@@ -163,6 +163,13 @@ func headerBar(label, sgr string, width int) string {
 	return fmt.Sprintf("\x1b[%sm%s\x1b[0m\n", sgr, padTo(label, width))
 }
 
+// sectionHeader renders a panel section label as a compact UPPERCASE gilded
+// header — the in-app "header font" treatment (terminals pick the typeface; this
+// is the styling we control). Centralized so the look is tweakable in one place.
+func sectionHeader(label string, width int) string {
+	return headerBar(strings.ToUpper(label), dpsHeaderSGR, width)
+}
+
 // renderStatus is the top-left "Now" box: character, class/level, the current
 // zone (tinted bar), and the zone-wide xp-kill rate — the at-a-glance summary.
 func renderStatus(char string, class common.Class, level int, zone string, kills, perHour, deaths, width int) string {
@@ -205,7 +212,7 @@ func renderSpecials(stats []common.DamageStat, width int) string {
 			continue
 		}
 		if b.Len() == 0 {
-			b.WriteString("\n" + headerBar("Specials — backstab/bash/kick", dpsHeaderSGR, width))
+			b.WriteString("\n" + sectionHeader("Specials · backstab/bash/kick", width))
 		}
 		pct := 0
 		if v.Total > 0 {
@@ -236,7 +243,7 @@ func renderAvoidance(cur *session.CombatSession, width int) string {
 	full := width >= fullAvoidanceWidth
 
 	var b strings.Builder
-	b.WriteString("\n" + headerBar("Avoidance", dpsHeaderSGR, width))
+	b.WriteString("\n" + sectionHeader("Avoidance", width))
 	if full {
 		fmt.Fprintf(&b, "%-*s %*s %*s %*s %*s %*s %*s %*s\n",
 			avNameW, "Defender",
@@ -487,7 +494,7 @@ func renderCooldowns(cooldowns []gamestate.CooldownTimer, width int) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(headerBar("Cooldowns", dpsHeaderSGR, width))
+	b.WriteString(sectionHeader("Cooldowns", width))
 	for _, cd := range cooldowns {
 		b.WriteString("  " + renderCooldownRow(cd, width) + "\n")
 	}
@@ -501,7 +508,7 @@ func renderSkills(cur *session.CombatSession, class common.Class, level, width i
 
 	var b strings.Builder
 
-	b.WriteString(headerBar("Skills — this fight", dpsHeaderSGR, width))
+	b.WriteString(sectionHeader("Skills · this fight", width))
 
 	skills := cur.Skills()
 	if len(skills) == 0 {
@@ -527,7 +534,7 @@ func renderSkills(cur *session.CombatSession, class common.Class, level, width i
 		}
 	}
 
-	b.WriteString("\n" + headerBar("Accuracy", dpsHeaderSGR, width))
+	b.WriteString("\n" + sectionHeader("Accuracy", width))
 	you := playerStat(cur)
 	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
 		fmt.Fprintf(&b, "  %-12s %3d%%\n", "Hit rate", hr)

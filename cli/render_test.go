@@ -152,7 +152,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 
 	out := renderDamage(sm.Current(), true, 60)
 
-	for _, want := range []string{"You", "Hit%", "Crit%", "live"} {
+	for _, want := range []string{"You", "HIT%", "CRIT%", "live"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderDamage output missing %q:\n%s", want, out)
 		}
@@ -160,7 +160,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 
 	// at a narrow width the optional columns must drop, not clip
 	narrow := renderDamage(sm.Current(), true, 40)
-	if strings.Contains(narrow, "Hit%") {
+	if strings.Contains(narrow, "HIT%") {
 		t.Errorf("narrow render should omit Hit%% column:\n%s", narrow)
 	}
 }
@@ -207,7 +207,7 @@ func TestRenderSkillsAndSummary(t *testing.T) {
 	cur := sm.Current()
 
 	out := renderSkills(cur, common.ClassRogue, 50, 40)
-	for _, want := range []string{"Skills", "Backstab", "Hit rate"} {
+	for _, want := range []string{"SKILLS", "Backstab", "Hit rate"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSkills missing %q:\n%s", want, out)
 		}

@@ -46,6 +46,11 @@ Tips
 ----
 - It looks best in "Windows Terminal" (search for it in the Start
   menu, then drag 99dps.exe into it). Double-clicking works too.
+- For the cleanest, tightest look, set a compact monospace font like
+  "Iosevka Term" (free: github.com/be5invis/Iosevka/releases). In
+  Windows Terminal:  Settings -> your profile -> Appearance ->
+  Font face -> Iosevka Term. Any monospace font works; this one just
+  fits more on screen while staying readable.
 - Press the 'a' key to toggle spoken audio cues for low buffs.
 - To quit: press Ctrl+C, or just close the window.
 
