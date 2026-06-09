@@ -1,10 +1,11 @@
-GOCMD=go
-GOBUILD=${GOCMD} build
-GOCLEAN=${GOCMD} clean
+GOCLEAN=go clean
 
 # -trimpath strips local filesystem paths (e.g. /home/<user>/...) from the
 # binary — privacy + reproducibility. Used for every build.
 BUILDFLAGS=-trimpath -ldflags="-s -w"
+
+# the analysis suite, reused by `lint` (host) and `lint-windows` (GOOS=windows).
+ANALYZE=go vet ./... && golangci-lint run ./... && govulncheck ./...
 
 .DEFAULT_GOAL := help
 
@@ -57,14 +58,11 @@ test: ## Run all tests
 # installs it with the local toolchain.
 lint: ## Lint + vuln scan (host/Linux build)
 	gofmt -l .
-	go vet ./...
-	golangci-lint run ./...
-	govulncheck ./...
+	$(ANALYZE)
 
+lint-windows: export GOOS := windows
 lint-windows: ## Lint + vuln scan the Windows build (host lint skips build-tagged files)
-	GOOS=windows go vet ./...
-	GOOS=windows golangci-lint run ./...
-	GOOS=windows govulncheck ./...
+	$(ANALYZE)
 
 tools: ## Install the dev tools (golangci-lint, govulncheck, goversioninfo)
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
