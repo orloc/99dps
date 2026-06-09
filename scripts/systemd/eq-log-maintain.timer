@@ -1,9 +1,10 @@
 [Unit]
-Description=Daily EverQuest log maintenance (for 99dps)
+Description=Twice-weekly EverQuest log maintenance (for 99dps)
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=1d
+# Mondays and Thursdays at 11:00 local — twice a week. Rotation is size-gated
+# (THRESHOLD), so a run only rotates a log that's actually oversized.
+OnCalendar=Mon,Thu *-*-* 11:00:00
 Persistent=true
 
 [Install]

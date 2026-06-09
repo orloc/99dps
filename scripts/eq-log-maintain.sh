@@ -9,7 +9,7 @@
 #      when EQ is closed, since EQ rewrites eqclient.ini on exit and would
 #      clobber a live edit.
 #
-# Intended to run daily via the systemd user timer in scripts/systemd/.
+# Intended to run twice a week via the systemd user timer in scripts/systemd/.
 # Rotation itself is size-gated (THRESHOLD), so it only fires when a log is
 # actually oversized — in practice every few days of normal play.
 set -euo pipefail
