@@ -206,13 +206,13 @@ func TestRenderSkillsAndSummary(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
 	cur := sm.Current()
 
-	out := renderSkills(cur, nil, common.ClassRogue, 50, 40)
+	out := renderSkills(cur, common.ClassRogue, 50, 40)
 	for _, want := range []string{"Skills", "Backstab", "Hit rate"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderSkills missing %q:\n%s", want, out)
 		}
 	}
-	if renderSkills(nil, nil, common.ClassRogue, 50, 40) == "" {
+	if renderSkills(nil, common.ClassRogue, 50, 40) == "" {
 		t.Error("renderSkills(nil) should return placeholder text, not empty")
 	}
 
@@ -233,7 +233,7 @@ func TestSkillLabellingByClass(t *testing.T) {
 	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 60, Target: "a rat", Verb: "strike"})
 	cur := sm.Current()
 
-	monk := renderSkills(cur, nil, common.ClassMonk, 35, 40)
+	monk := renderSkills(cur, common.ClassMonk, 35, 40)
 	if !strings.Contains(monk, "Flying Kick") {
 		t.Errorf("level-35 monk kick should label Flying Kick:\n%s", monk)
 	}
@@ -242,13 +242,13 @@ func TestSkillLabellingByClass(t *testing.T) {
 	}
 
 	// a low-level monk's kick stays generic
-	low := renderSkills(cur, nil, common.ClassMonk, 20, 40)
+	low := renderSkills(cur, common.ClassMonk, 20, 40)
 	if strings.Contains(low, "Flying Kick") {
 		t.Errorf("level-20 monk should not show Flying Kick:\n%s", low)
 	}
 
 	// for a non-monk, the "strike" bucket is not a skill and must be hidden
-	war := renderSkills(cur, nil, common.ClassWarrior, 35, 40)
+	war := renderSkills(cur, common.ClassWarrior, 35, 40)
 	if strings.Contains(war, "Strike") {
 		t.Errorf("non-monk should not surface a Strike skill:\n%s", war)
 	}
@@ -394,5 +394,35 @@ func TestCanniGrade(t *testing.T) {
 		if g, _ := canniGrade(pct); g != want {
 			t.Errorf("canniGrade(%d) = %q, want %q", pct, g, want)
 		}
+	}
+}
+
+func TestStackPanel(t *testing.T) {
+	// no sections: body and its click map pass through untouched
+	str, m := stackPanel(nil, "timers\nrow", map[int]string{1: "Tank"})
+	if str != "timers\nrow" || m[1] != "Tank" {
+		t.Fatalf("no-section passthrough: str=%q map=%v", str, m)
+	}
+
+	// empties are skipped; a 1-line banner (trailing newline normalized) shifts
+	// the body map down by exactly one line
+	str, m = stackPanel([]string{"", "BANNER\n", ""}, "row0\nrow1", map[int]string{0: "A", 1: "B"})
+	if str != "BANNER\nrow0\nrow1" {
+		t.Errorf("stack str = %q", str)
+	}
+	if m[1] != "A" || m[2] != "B" || m[0] != "" {
+		t.Errorf("map should shift by 1: %v", m)
+	}
+
+	// a multi-line section shifts by its full line count
+	_, m = stackPanel([]string{"a\nb\nc"}, "body", map[int]string{0: "X"})
+	if m[3] != "X" {
+		t.Errorf("3-line section should shift map by 3: %v", m)
+	}
+
+	// sections but an empty body: sections still render, map drops to nil
+	str, m = stackPanel([]string{"only"}, "", map[int]string{0: "Z"})
+	if str != "only" || m != nil {
+		t.Errorf("empty body: str=%q map=%v (want \"only\", nil)", str, m)
 	}
 }

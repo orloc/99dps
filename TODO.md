@@ -44,6 +44,7 @@ is client-specific and isn't in the current all-caster logs). Add to
 - [ ] Test gaps remaining: `renderTimers` charm-pinning, `splitCC`/`renderCC` column layout, `parseTimer` edge cases, zone override round-trip.
 
 ## Not yet built (earlier ideas / offers)
+- [ ] **Pet module** (Necro/Mage/Shaman/Beastlord) — another per-class widget in the modular "all-in-one for your class" vision. The hard part is *identity*: pet names look like player names and logs have no entity IDs. The tractable hook is the `/pet leader` emote (pet announces its owner), which links `petName → owner`; once linked, the pet's damage row could be tagged/surfaced (pet DPS, slain status). Deferred — judged "too fancy" for now. Need the verbatim P99 emote string before building.
 - [ ] **Audio cue on failed feign** (TTS "feign failed" via the `a`-toggle speaker) — offered, not wired.
 - [ ] Optional TTS "Mend ready" / cooldown-ready cues.
 - [ ] Resist tracking (per-target resist% for debuffs/charm).

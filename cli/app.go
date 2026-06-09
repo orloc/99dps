@@ -155,10 +155,11 @@ func (a *App) refresh() {
 	a.updateShortcuts()
 }
 
-// updatePanel repaints the bottom-right panel according to the player's class
-// category: casters get spell timers, pure melee get the skills breakdown, and
-// hybrids get spell timers with a one-line skills digest underneath. Until a
-// /who reveals the class it defaults to spell timers (CatCaster).
+// updatePanel repaints the bottom-right panel: a stack of independently-gated
+// indicator sections (canni / feign / bind / cooldowns) above a category-driven
+// body — casters get spell timers, pure melee the skills breakdown, hybrids
+// spell timers plus a one-line skills digest. Until a /who reveals the class the
+// body defaults to spell timers (CatCaster).
 func (a *App) updatePanel(cur *session.CombatSession) {
 	width := a.viewInnerWidth(viewTimers)
 	now := time.Now().Unix()
@@ -172,56 +173,8 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		level = a.tracker.Level()
 	}
 
-	var str string
-	var timerMap map[int]string // panel line -> buff target, for click-to-dismiss
-	switch cat {
-	case common.CatMelee:
-		var cds []gamestate.CooldownTimer
-		if a.tracker != nil {
-			cds = a.tracker.Cooldowns(now)
-		}
-		str = renderSkills(cur, cds, class, level, width)
-		if a.tracker != nil {
-			if rem, ok := a.tracker.BindRemaining(now); ok {
-				str = headerBar(fmt.Sprintf("⏳ bandaging… %s", fmtDuration(time.Duration(rem)*time.Second)), "43;30", width) + str
-			}
-			switch a.tracker.FeignStatus(now) {
-			case gamestate.FeignFailed:
-				str = headerBar("⚠ FEIGN FAILED — mobs still on you", "41;1;37", width) + str
-			case gamestate.FeignOK:
-				str = headerBar("✓ feigned", "42;1;30", width) + str
-			}
-		}
-	case common.CatHybrid:
-		str, timerMap = a.timersStr(width)
-		if sum := skillsSummary(cur, class, level); sum != "" {
-			str += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
-		}
-	default: // CatCaster
-		if a.tracker != nil {
-			str, timerMap = a.timersStr(width)
-		}
-	}
-
-	// the canni-dance meter rides above the panel while you're actively dancing —
-	// it shifts the timer lines down, so re-key the click map by the same offset.
-	if a.tracker != nil {
-		if cm := renderCanni(a.tracker.CanniStats(now), width); cm != "" {
-			off := strings.Count(cm, "\n") + 1
-			if timerMap != nil {
-				shifted := make(map[int]string, len(timerMap))
-				for k, v := range timerMap {
-					shifted[k+off] = v
-				}
-				timerMap = shifted
-			}
-			if str != "" {
-				str = cm + "\n" + str
-			} else {
-				str = cm
-			}
-		}
-	}
+	body, timerMap := a.panelBody(cur, cat, class, level, width)
+	str, timerMap := stackPanel(a.panelSections(width, now), body, timerMap)
 
 	a.mu.Lock()
 	a.timerLineTargets = timerMap
@@ -243,6 +196,80 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 		}
 		return nil
 	})
+}
+
+// panelBody is the category-driven main content of the bottom-right panel, plus
+// the spell-timer click-to-dismiss line map (nil for the skills view).
+func (a *App) panelBody(cur *session.CombatSession, cat common.Category, class common.Class, level, width int) (string, map[int]string) {
+	switch cat {
+	case common.CatMelee:
+		return renderSkills(cur, class, level, width), nil
+	case common.CatHybrid:
+		body, timerMap := a.timersStr(width)
+		if sum := skillsSummary(cur, class, level); sum != "" {
+			body += "\n" + headerBar("skills", dpsHeaderSGR, width) + "  " + sum
+		}
+		return body, timerMap
+	default: // CatCaster
+		if a.tracker == nil {
+			return "", nil
+		}
+		return a.timersStr(width)
+	}
+}
+
+// panelSections are the indicator blocks stacked above the panel body, top-down.
+// Each appears only when its own live state warrants it — independent of class
+// or category — so e.g. a bind-wound bar shows for any class, not just melee.
+func (a *App) panelSections(width int, now int64) []string {
+	if a.tracker == nil {
+		return nil
+	}
+	sections := []string{renderCanni(a.tracker.CanniStats(now), width)}
+
+	switch a.tracker.FeignStatus(now) {
+	case gamestate.FeignFailed:
+		sections = append(sections, headerBar("⚠ FEIGN FAILED — mobs still on you", "41;1;37", width))
+	case gamestate.FeignOK:
+		sections = append(sections, headerBar("✓ feigned", "42;1;30", width))
+	}
+
+	if rem, ok := a.tracker.BindRemaining(now); ok {
+		sections = append(sections, headerBar(fmt.Sprintf("⏳ bandaging… %s", fmtDuration(time.Duration(rem)*time.Second)), "43;30", width))
+	}
+
+	return append(sections, renderCooldowns(a.tracker.Cooldowns(now), width))
+}
+
+// stackPanel joins the non-empty sections above body (top-to-bottom) and shifts
+// body's line-keyed click map down by the number of lines the sections occupy,
+// so click resolution stays aligned. Trailing newlines are normalized away so
+// each block contributes an exact line count. Returns ("", nil) when empty.
+func stackPanel(sections []string, body string, bodyMap map[int]string) (string, map[int]string) {
+	blocks := make([]string, 0, len(sections)+1)
+	prefixLines := 0
+	for _, s := range sections {
+		if s = strings.TrimRight(s, "\n"); s == "" {
+			continue
+		}
+		blocks = append(blocks, s)
+		prefixLines += strings.Count(s, "\n") + 1
+	}
+
+	if body = strings.TrimRight(body, "\n"); body != "" {
+		if prefixLines > 0 && len(bodyMap) > 0 {
+			shifted := make(map[int]string, len(bodyMap))
+			for k, v := range bodyMap {
+				shifted[k+prefixLines] = v
+			}
+			bodyMap = shifted
+		}
+		blocks = append(blocks, body)
+	} else {
+		bodyMap = nil
+	}
+
+	return strings.Join(blocks, "\n"), bodyMap
 }
 
 // updateRepops repaints the dedicated Mob Tracker panel: the zone-aware repop

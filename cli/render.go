@@ -474,20 +474,27 @@ func renderTimers(timers []gamestate.Timer, now int64, width int, ccInline bool)
 // class/level drive a best-guess specific name for the generic verb (see
 // displaySkillName). The discipline-cooldown section will sit above this once
 // that data lands.
-func renderSkills(cur *session.CombatSession, cooldowns []gamestate.CooldownTimer, class common.Class, level, width int) string {
+// renderCooldowns is the activated-ability reuse section (Mend, Feign Death, …),
+// or "" when nothing is on cooldown. A standalone, class-independent section so
+// it can stack above any panel body — not just the melee skills view.
+func renderCooldowns(cooldowns []gamestate.CooldownTimer, width int) string {
+	if len(cooldowns) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(headerBar("Cooldowns", dpsHeaderSGR, width))
+	for _, cd := range cooldowns {
+		b.WriteString("  " + renderCooldownRow(cd, width) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderSkills(cur *session.CombatSession, class common.Class, level, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
 
 	var b strings.Builder
-
-	if len(cooldowns) > 0 {
-		b.WriteString(headerBar("Cooldowns", dpsHeaderSGR, width))
-		for _, cd := range cooldowns {
-			b.WriteString("  " + renderCooldownRow(cd, width) + "\n")
-		}
-		b.WriteString("\n")
-	}
 
 	b.WriteString(headerBar("Skills — this fight", dpsHeaderSGR, width))
 
