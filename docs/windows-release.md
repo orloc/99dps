@@ -14,11 +14,12 @@ make release-windows  # builds 99dps.exe + 99dps.exe.sha256
 
 - **`-trimpath`** — strips local filesystem paths (`/home/<you>/...`) from the
   binary. (Without it, ~47 such strings leak in.)
-- **Version metadata** (`versioninfo.json` → `resource_windows_amd64.syso`) —
-  ProductName / version / description show up in Explorer → Properties → Details
-  and Task Manager, instead of a blank, anonymous exe. A metadata-less binary
-  also looks more suspicious to AV heuristics. Bump the version in
-  `versioninfo.json` per release.
+- **Version metadata + icon** (`versioninfo.json` → `resource_windows_amd64.syso`)
+  — ProductName / version / description show up in Explorer → Properties → Details
+  and Task Manager, and `icon.ico` gives the exe a real icon in Explorer, instead
+  of a blank, anonymous file. A metadata-less binary also looks more suspicious to
+  AV heuristics. Bump the version in `versioninfo.json` per release; regenerate the
+  icon with `python3 scripts/make-icon.py`.
 - **SHA-256** (`99dps.exe.sha256`) — so the recipient can verify the download
   wasn't tampered with.
 
@@ -48,12 +49,6 @@ For a hobby tool this isn't worth it. Instead we mitigate:
 If this ever graduates to a wide release, the upgrade path is: buy an OV/EV
 cert, sign with `signtool sign /fd sha256 /tr <timestamp-url> ...` as a final
 step after `make release-windows`.
-
-## Optional polish (not wired yet)
-
-- **Icon** — add an `.ico` and reference it from `versioninfo.json`
-  (`"IconPath": "icon.ico"`); goversioninfo embeds it so the exe gets a real
-  icon in Explorer.
 
 ## Sending it
 

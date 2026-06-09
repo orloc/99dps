@@ -12,5 +12,6 @@
     "ProductName": "99dps",
     "ProductVersion": "0.1.0"
   },
-  "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}}
+  "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}},
+  "IconPath": "icon.ico"
 }
