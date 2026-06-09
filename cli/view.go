@@ -41,6 +41,11 @@ func GetScreenDims(v ViewProperties, maxX, maxY int) (int, int, int, int) {
 	return x1, y1, x2, y2
 }
 
+// timerMinCols is the floor width (columns) for the enchanter Spell Timers
+// column. ~30 leaves room for a full buff name plus its countdown after the
+// view borders and the renderer's own indent (name column ≈ width − 10).
+const timerMinCols = 30
+
 const keyBindingsText = `CTL + C: quit    BACKSPACE: clear    A: audio cues    (char switches auto-detected)
 ↑/↓: select session    CLICK: select    WHEEL: scroll    END: jump to live    CLICK a repop: set timer    CLICK a buff: dismiss`
 
@@ -159,13 +164,18 @@ func (a *App) Layout(g *gocui.Gui) error {
 	// row (Spell Timers | Crowd Control | Mob Tracker); everyone else keeps the
 	// two-tile split and no CC view.
 	if a.enchanterLayout() {
-		if err := a.placeFrac(viewTimers, 0.2, 0.46, 0.44, 0.88); err != nil {
+		maxX, maxY := a.gui.Size()
+		y1 := int(0.44 * float64(maxY))
+		y2 := int(0.88*float64(maxY)) - 1
+		x0, ccStart, repopStart := enchanterCols(maxX)
+
+		if err := a.createView(viewTimers, x0, ccStart-1, y1, y2); err != nil {
 			return err
 		}
-		if err := a.placeFrac(viewCC, 0.46, 0.73, 0.44, 0.88); err != nil {
+		if err := a.createView(viewCC, ccStart, repopStart-1, y1, y2); err != nil {
 			return err
 		}
-		if err := a.placeFrac(viewRepops, 0.73, 1.0, 0.44, 0.88); err != nil {
+		if err := a.createView(viewRepops, repopStart, maxX-1, y1, y2); err != nil {
 			return err
 		}
 	} else {
@@ -191,6 +201,28 @@ func (a *App) Layout(g *gocui.Gui) error {
 // enchanterLayout reports whether the dedicated Crowd Control column is shown.
 func (a *App) enchanterLayout() bool {
 	return a.tracker != nil && a.tracker.Class() == common.ClassEnchanter
+}
+
+// enchanterCols computes the bottom-row column boundaries for the enchanter
+// 3-pane layout from the terminal width: Spell Timers spans [x0, ccStart-1], CC
+// [ccStart, repopStart-1], Mob Tracker [repopStart, maxX-1]. The timer column is
+// proportional on a wide screen but floored at timerMinCols so a narrow/portrait
+// screen pins it to the floor and lets CC + Mob Tracker shrink (and clip)
+// instead. The floor only yields when the row is too small to honor it at all.
+func enchanterCols(maxX int) (x0, ccStart, repopStart int) {
+	x0 = int(0.2 * float64(maxX)) // the bottom row begins after the Sessions sidebar
+	rowW := maxX - x0
+
+	timerW := rowW * 26 / 80 // the old 0.20–0.46 share of the screen
+	if timerW < timerMinCols {
+		timerW = timerMinCols
+	}
+	if timerW > rowW-4 { // always leave a sliver for the other two columns
+		timerW = rowW - 4
+	}
+	ccStart = x0 + timerW
+	repopStart = ccStart + (maxX-ccStart)/2 // CC takes the first half of the remainder
+	return x0, ccStart, repopStart
 }
 
 // placeFrac creates/repositions a view from fractional screen bounds.

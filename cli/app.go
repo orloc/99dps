@@ -596,24 +596,36 @@ func (a *App) updateGraph(cur *session.CombatSession) {
 	})
 }
 
-// viewInnerWidth returns the drawable column count inside a view, borders excluded.
+// viewInnerWidth returns the drawable column count inside a view, borders
+// excluded. It reads the view's *actual* placed size (the bottom-row columns are
+// positioned dynamically), falling back to the static vp coords before the first
+// Layout has run.
 func (a *App) viewInnerWidth(name string) int {
+	if v, err := a.gui.View(name); err == nil {
+		if w, _ := v.Size(); w > 0 {
+			return w
+		}
+	}
 	maxX, maxY := a.gui.Size()
 	x1, _, x2, _ := GetScreenDims(vp[name], maxX, maxY)
-	w := x2 - x1 - 1
-	if w < 0 {
-		return 0
+	if w := x2 - x1 - 1; w > 0 {
+		return w
 	}
-	return w
+	return 0
 }
 
 // viewInnerHeight returns the drawable row count inside a view, borders excluded.
+// Like viewInnerWidth, it prefers the actual placed size.
 func (a *App) viewInnerHeight(name string) int {
+	if v, err := a.gui.View(name); err == nil {
+		if _, h := v.Size(); h > 0 {
+			return h
+		}
+	}
 	maxX, maxY := a.gui.Size()
 	_, y1, _, y2 := GetScreenDims(vp[name], maxX, maxY)
-	h := y2 - y1 - 1
-	if h < 0 {
-		return 0
+	if h := y2 - y1 - 1; h > 0 {
+		return h
 	}
-	return h
+	return 0
 }
