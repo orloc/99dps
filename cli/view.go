@@ -254,6 +254,9 @@ func (a *App) createView(name string, x1, x2, y1, y2 int) error {
 		v.Editor = p.Editor
 		v.Editable = p.Editable
 		v.Autoscroll = p.Autoscroll
+		// the gold frame color (g.FgColor) is inherited as the view's text color
+		// too — force body text back to white so only the borders are gilded.
+		v.FgColor = gocui.ColorWhite
 		a.writeView(name, p.Text)
 	}
 

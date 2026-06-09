@@ -152,9 +152,9 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 // DPS-panel header bar styles (SGR params: bg;fg;attrs). gocui OutputNormal
 // supports the 8 base colors plus bold(1)/underline(4)/reverse(7).
 const (
-	dpsTitleLiveSGR = "42;1;30" // green bg, bold black — a live encounter
-	dpsTitleDoneSGR = "44;1;37" // blue bg, bold white  — an ended encounter
-	dpsHeaderSGR    = "7;1"     // reverse + bold        — column/section headers
+	dpsTitleLiveSGR = "43;1;30" // gold bg, bold black — a live encounter (EQ "gold plaque")
+	dpsTitleDoneSGR = "44;1;37" // blue bg, bold white — an ended encounter (cool/past)
+	dpsHeaderSGR    = "1;33"    // bold gold text      — column/section headers (gilded lettering)
 )
 
 // headerBar renders label as a full-width bar (sgr = SGR params), padded to
@@ -184,7 +184,7 @@ func renderStatus(char string, class common.Class, level int, zone string, kills
 	if z == "" {
 		z = "—"
 	}
-	b.WriteString(headerBar(z, "42;1;30", width)) // green zone bar
+	b.WriteString(headerBar(z, "43;1;30", width)) // gold zone plaque (EQ-flavored)
 
 	if kills > 0 || deaths > 0 {
 		b.WriteString("\x1b[1m" + truncate(fmt.Sprintf("%d kills · %d/hr", kills, perHour), width) + "\x1b[0m\n")

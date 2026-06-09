@@ -502,7 +502,11 @@ func (a *App) initGui() {
 	a.gui.InputEsc = true
 	a.gui.Mouse = true
 	a.gui.BgColor = gocui.ColorDefault
-	a.gui.FgColor = gocui.ColorDefault
+	// gold window frames (EQ-flavored); per-view text is forced back to white in
+	// createView so only the borders are gilded. SelFgColor keeps the focused
+	// panel's frame gold too.
+	a.gui.FgColor = gocui.ColorYellow
+	a.gui.SelFgColor = gocui.ColorYellow
 
 	// set layout
 	a.gui.SetManagerFunc(a.Layout)
