@@ -1,9 +1,9 @@
 [Unit]
-Description=Hourly EverQuest log maintenance (for 99dps)
+Description=Daily EverQuest log maintenance (for 99dps)
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=1h
+OnUnitActiveSec=1d
 Persistent=true
 
 [Install]
