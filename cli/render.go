@@ -333,12 +333,17 @@ func renderSessions(dat []*session.CombatSession, selected, width int) string {
 			marker = "▸ "
 		}
 
+		// a thin gilded rule closes each card — separates the list cleanly without
+		// a new row (keeps linesPerCard at 4 so click-to-select math is unchanged).
+		rule := "\x1b[33m" + strings.Repeat("─", max(width, 0)) + "\x1b[0m"
+
 		// Each card is exactly linesPerCard rows so clicks map back cleanly.
-		card := []string{marker + name, "  " + meta, "  " + top, ""}
+		card := []string{marker + name, "  " + meta, "  " + top, rule}
 		for j, line := range card {
 			if i == selected && j < len(card)-1 {
-				// reverse-video bar across the full row marks the selection
-				b.WriteString("\x1b[7m" + padTo(line, width) + "\x1b[0m\n")
+				// selected card → a gold "plaque" (black on gold), matching the
+				// encounter-title and zone plaques elsewhere
+				b.WriteString("\x1b[43;30m" + padTo(line, width) + "\x1b[0m\n")
 			} else {
 				b.WriteString(line + "\n")
 			}
