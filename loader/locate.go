@@ -89,6 +89,23 @@ func scanForEQ(candidates []string) []string {
 	return found
 }
 
+// logDirFromChoice resolves a user-picked path — an EQ folder, its Logs
+// subfolder, or a raw logs path — to a usable log directory. It falls back to
+// the path as-is so a mistaken pick surfaces as "no logs" rather than silently
+// doing nothing. "" in, "" out.
+func logDirFromChoice(path string) string {
+	if path == "" {
+		return ""
+	}
+	if d := eqLogDirFrom(path); d != "" {
+		return d
+	}
+	if logs := filepath.Join(path, "Logs"); DirHasLogs(logs) {
+		return logs
+	}
+	return path
+}
+
 // configPath is where the chosen log dir is remembered between runs
 // (%APPDATA%\99dps\logdir.txt on Windows, ~/.config/99dps/logdir.txt on Unix).
 func configPath() string {

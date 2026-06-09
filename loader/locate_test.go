@@ -63,3 +63,20 @@ func TestSaveAndLoadLogDir(t *testing.T) {
 		t.Errorf("round-trip = %q, want /some/eq/Logs", got)
 	}
 }
+
+func TestLogDirFromChoice(t *testing.T) {
+	if logDirFromChoice("") != "" {
+		t.Error("empty choice should stay empty")
+	}
+	// an EQ root resolves to its Logs subfolder
+	eq := t.TempDir()
+	writeFile(t, filepath.Join(eq, "eqgame.exe"), "x")
+	if got, want := logDirFromChoice(eq), filepath.Join(eq, "Logs"); got != want {
+		t.Errorf("EQ root choice = %q, want %q", got, want)
+	}
+	// an unrecognized path is taken as-is (surfaces as "no logs" later)
+	bogus := t.TempDir()
+	if got := logDirFromChoice(bogus); got != bogus {
+		t.Errorf("bogus choice = %q, want it returned as-is %q", got, bogus)
+	}
+}

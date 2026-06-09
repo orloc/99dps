@@ -60,17 +60,7 @@ func PromptForLogDir(found []string) string {
 			return d
 		}
 	}
-	picked := pickDir()
-	if picked == "" {
-		return ""
-	}
-	if d := eqLogDirFrom(picked); d != "" {
-		return d // recognized an EQ folder (or its Logs subdir)
-	}
-	if logs := filepath.Join(picked, "Logs"); DirHasLogs(logs) {
-		return logs
-	}
-	return picked // take it as-is; the meter will report if it holds no logs
+	return logDirFromChoice(pickDir())
 }
 
 // powershell runs a PowerShell snippet and returns its trimmed stdout, or "" on

@@ -18,7 +18,7 @@ linters:
       - linters: [errcheck]
         source: '\.(SetOrigin|SetCursor)\('
       - linters: [errcheck]
-        source: 'fmt\.Fprint'
+        source: 'fmt\.(Fprint|Print)'
       # deferred Close on read-only files / the tail handle: nothing actionable.
       - linters: [errcheck]
         source: 'defer .*\.Close\(\)'
