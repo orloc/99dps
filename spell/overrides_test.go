@@ -12,7 +12,9 @@ func TestOverridesPersist(t *testing.T) {
 		t.Fatal("expected empty overrides")
 	}
 
-	o.Set("Greater Faydark", "a named orc", 1680)
+	if err := o.Set("Greater Faydark", "a named orc", 1680); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
 	if s, ok := o.Get("Greater Faydark", "a named orc"); !ok || s != 1680 {
 		t.Fatalf("get = (%d,%v), want 1680/true", s, ok)
 	}
@@ -23,7 +25,9 @@ func TestOverridesPersist(t *testing.T) {
 	}
 
 	// sec <= 0 clears it
-	o.Set("Greater Faydark", "a named orc", 0)
+	if err := o.Set("Greater Faydark", "a named orc", 0); err != nil {
+		t.Fatalf("Set clear: %v", err)
+	}
 	if _, ok := o.Get("Greater Faydark", "a named orc"); ok {
 		t.Error("override should be cleared")
 	}

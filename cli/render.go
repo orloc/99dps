@@ -65,11 +65,11 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 	var b strings.Builder
 	// encounter title bar (green = live, blue = ended)
 	b.WriteString(headerBar(fmt.Sprintf("⚔ %s   %s", cur.Name(), status), titleSGR, width))
-	b.WriteString(fmt.Sprintf("%s · group %s · %s dps\n",
+	fmt.Fprintf(&b, "%s · group %s · %s dps\n",
 		fmtDuration(cur.Duration()),
 		humanizeInt(encounterTotal),
 		humanizeInt(int(int64(encounterTotal)/span)),
-	))
+	)
 	b.WriteString("\n")
 
 	hdr := fmt.Sprintf("%-2s %-14s %6s %8s %5s", "#", "Dealer", "DPS", "Total", "%")
@@ -136,11 +136,11 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 		if encounterTotal > 0 {
 			pct = magic * 100 / encounterTotal
 		}
-		b.WriteString(fmt.Sprintf("%-2s %-14s %6s %8s %4d%%\n",
+		fmt.Fprintf(&b, "%-2s %-14s %6s %8s %4d%%\n",
 			"", "spells (n/a)",
 			humanizeInt(magic/int(span)),
 			humanizeInt(magic),
-			pct))
+			pct)
 	}
 
 	b.WriteString(renderSpecials(stats, width))
@@ -189,7 +189,7 @@ func renderStatus(char string, class common.Class, level int, zone string, kills
 	if kills > 0 || deaths > 0 {
 		b.WriteString("\x1b[1m" + truncate(fmt.Sprintf("%d kills · %d/hr", kills, perHour), width) + "\x1b[0m\n")
 		if deaths > 0 {
-			b.WriteString(fmt.Sprintf("%d deaths\n", deaths))
+			fmt.Fprintf(&b, "%d deaths\n", deaths)
 		}
 	}
 	return b.String()
@@ -211,12 +211,12 @@ func renderSpecials(stats []common.DamageStat, width int) string {
 		if v.Total > 0 {
 			pct = v.SpecialTotal * 100 / v.Total
 		}
-		b.WriteString(fmt.Sprintf("%-14s %8s %4d%%  %d hits\n",
+		fmt.Fprintf(&b, "%-14s %8s %4d%%  %d hits\n",
 			truncate(displayName(v.Dealer), 14),
 			humanizeInt(v.SpecialTotal),
 			pct,
 			v.SpecialHits,
-		))
+		)
 	}
 	return b.String()
 }
@@ -238,10 +238,10 @@ func renderAvoidance(cur *session.CombatSession, width int) string {
 	var b strings.Builder
 	b.WriteString("\n" + headerBar("Avoidance", dpsHeaderSGR, width))
 	if full {
-		b.WriteString(fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s %*s\n",
+		fmt.Fprintf(&b, "%-*s %*s %*s %*s %*s %*s %*s %*s\n",
 			avNameW, "Defender",
 			avNumW, "Faced", avNumW, "Avoid",
-			avNumW, "Miss", avNumW, "Dodge", avNumW, "Parry", avNumW, "Block", avNumW, "Ripo"))
+			avNumW, "Miss", avNumW, "Dodge", avNumW, "Parry", avNumW, "Block", avNumW, "Ripo")
 	}
 
 	for i, d := range defenders {
@@ -511,22 +511,22 @@ func renderSkills(cur *session.CombatSession, cooldowns []spell.CooldownTimer, c
 			b.WriteString("  no skill attacks yet\n")
 		}
 		for _, r := range rows {
-			b.WriteString(fmt.Sprintf("  %-12s %6s  %d hits\n", r.name, humanizeInt(r.s.Total), r.s.Hits))
+			fmt.Fprintf(&b, "  %-12s %6s  %d hits\n", r.name, humanizeInt(r.s.Total), r.s.Hits)
 		}
 	}
 
 	b.WriteString("\n" + headerBar("Accuracy", dpsHeaderSGR, width))
 	you := playerStat(cur)
 	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
-		b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Hit rate", hr))
+		fmt.Fprintf(&b, "  %-12s %3d%%\n", "Hit rate", hr)
 	}
 	if you.Hits > 0 {
 		if c := cur.CritFor("You"); c.Count > 0 {
-			b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Crit rate", critPct(c.Count, you.Hits)))
+			fmt.Fprintf(&b, "  %-12s %3d%%\n", "Crit rate", critPct(c.Count, you.Hits))
 		}
 	}
 	if av, faced := playerAvoidance(cur); faced > 0 {
-		b.WriteString(fmt.Sprintf("  %-12s %3d%%\n", "Avoided", av*100/faced))
+		fmt.Fprintf(&b, "  %-12s %3d%%\n", "Avoided", av*100/faced)
 	}
 	return b.String()
 }
@@ -862,7 +862,7 @@ func renderBars(agg []common.DamageStat, width, height int) string {
 			strings.Repeat("░", barW-filled),
 		)
 
-		b.WriteString(fmt.Sprintf("%-*s %s%s\n", nameW, name, bar, value))
+		fmt.Fprintf(&b, "%-*s %s%s\n", nameW, name, bar, value)
 	}
 
 	return b.String()
