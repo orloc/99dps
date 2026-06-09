@@ -2,7 +2,7 @@ package parser
 
 import (
 	"99dps/common"
-	"99dps/spell"
+	"99dps/gamestate"
 	"bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
@@ -30,7 +30,7 @@ type DmgParser struct {
 	character string
 	// tracker, when non-nil, receives cast/level/landing signals for the spell
 	// timer overlay.
-	tracker *spell.Tracker
+	tracker *gamestate.Tracker
 }
 
 const COMBAT_VERB_STRING = "gores|gore|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush"
@@ -41,7 +41,7 @@ const LOG_SUBJECT_INDEX_START = 27
 // DoParse tails the log, classifying each line and forwarding the parsed event
 // to sink. tracker (optional) receives spell-timer signals. It blocks until the
 // tail's line channel closes.
-func DoParse(t *tail.Tail, sink Sink, character string, tracker *spell.Tracker) {
+func DoParse(t *tail.Tail, sink Sink, character string, tracker *gamestate.Tracker) {
 	p := DmgParser{character: character, tracker: tracker}
 	for line := range t.Lines {
 		// EQ writes CRLF; strip the trailing \r so exact/suffix matches (spell
@@ -60,7 +60,7 @@ func DoParse(t *tail.Tail, sink Sink, character string, tracker *spell.Tracker) 
 // instead of starting blank — the live tail still follows from end-of-file.
 // Already-expired timers fall out via tracker.Active. Cheap because logs are
 // rotated small.
-func RebuildTrackerFromFile(path, character string, tracker *spell.Tracker) {
+func RebuildTrackerFromFile(path, character string, tracker *gamestate.Tracker) {
 	if tracker == nil {
 		return
 	}

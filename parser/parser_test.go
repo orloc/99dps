@@ -2,7 +2,7 @@ package parser
 
 import (
 	"99dps/common"
-	"99dps/spell"
+	"99dps/gamestate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +39,7 @@ func spellRow(set map[int]string) string {
 // Regression: EQ logs are CRLF. The trailing \r must not break the exact/suffix
 // match used for spell landing emotes — otherwise no timer ever starts.
 func TestObserveSpells_CRLFLandingStartsTimer(t *testing.T) {
-	book, err := spell.LoadReader(strings.NewReader(spellRow(map[int]string{
+	book, err := gamestate.LoadReader(strings.NewReader(spellRow(map[int]string{
 		1:  "Bedlam",
 		6:  "Your eyes gleam with bedlam.", // cast_on_you
 		7:  "'s eyes gleam with bedlam.",   // cast_on_other
@@ -52,7 +52,7 @@ func TestObserveSpells_CRLFLandingStartsTimer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tr := spell.NewTracker(book)
+	tr := gamestate.NewTracker(book)
 	tr.SetLevel(50)
 	p := &DmgParser{character: "Iznoa", tracker: tr}
 
@@ -195,8 +195,8 @@ func TestNonMeleeRoutesToMagicNotDamage(t *testing.T) {
 }
 
 func TestRebuildTrackerFromFile(t *testing.T) {
-	book, _ := spell.LoadReader(strings.NewReader(""))
-	tr := spell.NewTracker(book)
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
 
 	path := filepath.Join(t.TempDir(), "eqlog_Kelkix_test.txt")
 	lines := fakeTS + "[60 Warlord] Kelkix (Troll)\n" +

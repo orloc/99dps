@@ -2,8 +2,8 @@ package cli
 
 import (
 	"99dps/common"
+	"99dps/gamestate"
 	"99dps/session"
-	"99dps/spell"
 	"fmt"
 	"sort"
 	"strings"
@@ -349,7 +349,7 @@ func renderSessions(dat []*session.CombatSession, selected, width int) string {
 }
 
 // splitCC partitions timers into crowd control (mez/charm) and everything else.
-func splitCC(timers []spell.Timer) (cc, rest []spell.Timer) {
+func splitCC(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
 	for _, tm := range timers {
 		if tm.Mez || tm.Charm {
 			cc = append(cc, tm)
@@ -362,7 +362,7 @@ func splitCC(timers []spell.Timer) (cc, rest []spell.Timer) {
 
 // ccRow renders one crowd-control timer: mez ("M", debuff-urgency tint that
 // escalates red as it nears a break) or charm ("⊗", magenta), target + remaining.
-func ccRow(tm spell.Timer, now int64, width int) string {
+func ccRow(tm gamestate.Timer, now int64, width int) string {
 	inner := width - 2
 	nameW := inner - 7
 	if nameW < 8 {
@@ -384,7 +384,7 @@ func ccRow(tm spell.Timer, now int64, width int) string {
 // renderCC renders the crowd-control list (mez + charm) for the enchanter's
 // dedicated column, soonest-to-break first. No header (the panel title supplies
 // it). Returns the line→target map (line 0 = first row) for click-to-dismiss.
-func renderCC(cc []spell.Timer, now int64, width int) (string, map[int]string) {
+func renderCC(cc []gamestate.Timer, now int64, width int) (string, map[int]string) {
 	if len(cc) == 0 {
 		return "", nil
 	}
@@ -404,7 +404,7 @@ func renderCC(cc []spell.Timer, now int64, width int) (string, map[int]string) {
 // person's buffs. When ccInline is true, mez/charm are pinned in a CROWD CONTROL
 // section at the top; when false (enchanter, CC has its own column) they're
 // omitted here.
-func renderTimers(timers []spell.Timer, now int64, width int, ccInline bool) (string, map[int]string) {
+func renderTimers(timers []gamestate.Timer, now int64, width int, ccInline bool) (string, map[int]string) {
 	if len(timers) == 0 {
 		return "No active spells.", nil
 	}
@@ -474,7 +474,7 @@ func renderTimers(timers []spell.Timer, now int64, width int, ccInline bool) (st
 // class/level drive a best-guess specific name for the generic verb (see
 // displaySkillName). The discipline-cooldown section will sit above this once
 // that data lands.
-func renderSkills(cur *session.CombatSession, cooldowns []spell.CooldownTimer, class common.Class, level, width int) string {
+func renderSkills(cur *session.CombatSession, cooldowns []gamestate.CooldownTimer, class common.Class, level, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
@@ -556,7 +556,7 @@ func skillsSummary(cur *session.CombatSession, class common.Class, level int) st
 // renderCanni is the gamified "canni dance" meter: ride the Cannibalize recast
 // edge as fast as possible without the "recast not yet met" buzzer. "" when not
 // dancing.
-func renderCanni(c spell.CanniStats, width int) string {
+func renderCanni(c gamestate.CanniStats, width int) string {
 	if !c.Active {
 		return ""
 	}
@@ -606,7 +606,7 @@ func canniGrade(pct int) (string, string) {
 // separator and the kills others got (with the killer's name). A mob past its
 // timer shows "UP" (green); the rest count down (blue). Rows stay aligned with
 // updateRepops's line→mob map, which inserts the same one separator line.
-func renderRespawns(respawns []spell.Respawn, selected string, width int) string {
+func renderRespawns(respawns []gamestate.Respawn, selected string, width int) string {
 	if len(respawns) == 0 {
 		return ""
 	}
@@ -653,7 +653,7 @@ func renderRespawns(respawns []spell.Respawn, selected string, width int) string
 
 // renderCooldownRow renders one ability reuse timer as a tinted bar: green when
 // the ability is ready, blue with the remaining time while on cooldown.
-func renderCooldownRow(cd spell.CooldownTimer, width int) string {
+func renderCooldownRow(cd gamestate.CooldownTimer, width int) string {
 	var content, sgr string
 	if cd.Remaining <= 0 {
 		content = fmt.Sprintf("%-13s ready", truncate(cd.Name, 13))
@@ -740,13 +740,13 @@ func playerAvoidance(cur *session.CombatSession) (avoided, faced int) {
 // with charm always first, then the rest by their soonest-expiring timer
 // (ascending) — so charm pets sit pinned at the top and, below them, whoever's
 // buff is about to drop floats up, which is what you want when raid-buffing.
-func groupByTarget(timers []spell.Timer) (map[string][]spell.Timer, []string) {
-	groups := make(map[string][]spell.Timer)
+func groupByTarget(timers []gamestate.Timer) (map[string][]gamestate.Timer, []string) {
+	groups := make(map[string][]gamestate.Timer)
 	for _, tm := range timers {
 		groups[tm.Target] = append(groups[tm.Target], tm)
 	}
 
-	soonest := func(g []spell.Timer) int64 {
+	soonest := func(g []gamestate.Timer) int64 {
 		m := g[0].Expiry
 		for _, x := range g[1:] {
 			if x.Expiry < m {
@@ -755,7 +755,7 @@ func groupByTarget(timers []spell.Timer) (map[string][]spell.Timer, []string) {
 		}
 		return m
 	}
-	isCharm := func(g []spell.Timer) bool {
+	isCharm := func(g []gamestate.Timer) bool {
 		for _, x := range g {
 			if x.Charm {
 				return true

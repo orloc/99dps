@@ -7,7 +7,7 @@ done; most of what's left is blocked on capturing exact log messages.
 ## Cooldowns — blocked on log samples
 Each needs its **exact activation message** + **reuse seconds** (the message text
 is client-specific and isn't in the current all-caster logs). Add to
-`spell.cooldownRegistry` (message-matched) or via a trigger like `FeignAttempt`.
+`gamestate.cooldownRegistry` (message-matched) or via a trigger like `FeignAttempt`.
 
 - [ ] **Disciplines** (War/Monk/Rogue) — Defensive, Evasive, Aggressive, etc. Activation emotes + reuse unknown.
 - [ ] **Harm Touch** (Shadow Knight) — long reuse (~72m), distinct message. High value.
@@ -39,8 +39,8 @@ is client-specific and isn't in the current all-caster logs). Add to
 
 ## Code-review follow-ups (deferred — low priority, not bugs)
 - [ ] `cli.go` `switchTo` re-reads the new log twice: `loader.Follow` seeks EOF, then `RebuildTrackerFromFile` replays the whole file. The replay is idempotent so this is harmless; Follow-first is kept for error-safety. Reorder only if startup cost on huge logs becomes noticeable.
-- [ ] `spell/book.go` `DurationSeconds` formulas 2 and 3 are best-effort against the EQ buffduration table and may be slightly off; verify against a known-duration debuff before trusting the countdown to the second.
-- [ ] `spell/tracker.go` `expireByMessage` matches the first timer whose fade emote fits; with two same-named debuffs up it may clear the wrong one (same-name ambiguity caveat).
+- [ ] `gamestate/book.go` `DurationSeconds` formulas 2 and 3 are best-effort against the EQ buffduration table and may be slightly off; verify against a known-duration debuff before trusting the countdown to the second.
+- [ ] `gamestate/tracker.go` `expireByMessage` matches the first timer whose fade emote fits; with two same-named debuffs up it may clear the wrong one (same-name ambiguity caveat).
 - [ ] Test gaps remaining: `renderTimers` charm-pinning, `splitCC`/`renderCC` column layout, `parseTimer` edge cases, zone override round-trip.
 
 ## Not yet built (earlier ideas / offers)

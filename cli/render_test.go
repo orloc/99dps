@@ -2,8 +2,8 @@ package cli
 
 import (
 	"99dps/common"
+	"99dps/gamestate"
 	"99dps/session"
-	"99dps/spell"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +114,7 @@ func TestTimerStyle(t *testing.T) {
 }
 
 func TestGroupByTarget(t *testing.T) {
-	timers := []spell.Timer{
+	timers := []gamestate.Timer{
 		{Spell: "Spirit of Wolf", Target: "You", Expiry: 200},
 		{Spell: "Snare", Target: "a rat", Expiry: 50},
 		{Spell: "Bedlam", Target: "You", Expiry: 100},
@@ -313,7 +313,7 @@ func TestDealerDPS(t *testing.T) {
 // Mez/charm are pinned in a CROWD CONTROL section above buffs/debuffs; the
 // line→target map (for click-to-dismiss) accounts for the header + separator.
 func TestRenderTimersCrowdControl(t *testing.T) {
-	timers := []spell.Timer{
+	timers := []gamestate.Timer{
 		{Spell: "Mesmerize", Target: "a kobold", Expiry: 30, Mez: true},
 		{Spell: "Clarity II", Target: "You", Expiry: 600},
 	}
@@ -337,7 +337,7 @@ func TestRenderTimersCrowdControl(t *testing.T) {
 // renderCC is the enchanter Crowd Control column: mez+charm, soonest-first, no
 // header (the panel title supplies it).
 func TestRenderCC(t *testing.T) {
-	cc := []spell.Timer{
+	cc := []gamestate.Timer{
 		{Spell: "Charm", Target: "Charm", Expiry: 300, Charm: true},
 		{Spell: "Mesmerize", Target: "a kobold", Expiry: 30, Mez: true},
 	}
@@ -375,7 +375,7 @@ func TestRenderAvoidance(t *testing.T) {
 }
 
 func TestRenderRespawnsGroupsAndKiller(t *testing.T) {
-	rs := []spell.Respawn{
+	rs := []gamestate.Respawn{
 		{Mob: "a fippy darkpaw", Remaining: 0, Mine: true}, // up
 		{Mob: "a noble", Remaining: 300, Mine: true},       // mine, counting
 		{Mob: "a guard", Remaining: 120, Killer: "Gnadad"}, // other's kill

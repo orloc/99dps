@@ -2,7 +2,7 @@
 // live durations for spells the player casts (debuffs on others, self/other
 // buffs). The data is the canonical client SPDat_Spell_Struct (217 ^-delimited
 // fields); only the handful we need are decoded.
-package spell
+package gamestate
 
 import (
 	"bufio"

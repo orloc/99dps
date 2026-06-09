@@ -1,4 +1,4 @@
-package spell
+package gamestate
 
 import (
 	"strings"

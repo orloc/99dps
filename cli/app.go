@@ -2,8 +2,8 @@ package cli
 
 import (
 	"99dps/common"
+	"99dps/gamestate"
 	"99dps/session"
-	"99dps/spell"
 	"fmt"
 	"github.com/jroimartin/gocui"
 	"sort"
@@ -20,7 +20,7 @@ const linesPerCard = 4
 type App struct {
 	gui     *gocui.Gui
 	manager *session.SessionManager
-	tracker *spell.Tracker
+	tracker *gamestate.Tracker
 
 	// selection + scroll state for the session side panel, guarded by mu.
 	// selected is the pinned session index; follow keeps it glued to the newest
@@ -83,7 +83,7 @@ func (a *App) SetSources(logDir, spellInfo string) {
 // scrollStep is how many lines one mouse-wheel notch moves the session list.
 const scrollStep = 3
 
-func New(m *session.SessionManager, character string, tracker *spell.Tracker) *App {
+func New(m *session.SessionManager, character string, tracker *gamestate.Tracker) *App {
 	a := &App{
 		manager:   m,
 		tracker:   tracker,
@@ -176,7 +176,7 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	var timerMap map[int]string // panel line -> buff target, for click-to-dismiss
 	switch cat {
 	case common.CatMelee:
-		var cds []spell.CooldownTimer
+		var cds []gamestate.CooldownTimer
 		if a.tracker != nil {
 			cds = a.tracker.Cooldowns(now)
 		}
@@ -186,9 +186,9 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 				str = headerBar(fmt.Sprintf("⏳ bandaging… %s", fmtDuration(time.Duration(rem)*time.Second)), "43;30", width) + str
 			}
 			switch a.tracker.FeignStatus(now) {
-			case spell.FeignFailed:
+			case gamestate.FeignFailed:
 				str = headerBar("⚠ FEIGN FAILED — mobs still on you", "41;1;37", width) + str
-			case spell.FeignOK:
+			case gamestate.FeignOK:
 				str = headerBar("✓ feigned", "42;1;30", width) + str
 			}
 		}
@@ -343,7 +343,7 @@ func (a *App) updateCC() {
 
 // announceLowBuffs speaks a cue when a (non-charm) timer first drops below the
 // low threshold, once per timer, re-arming when it's refreshed or expires.
-func (a *App) announceLowBuffs(active []spell.Timer, now int64) {
+func (a *App) announceLowBuffs(active []gamestate.Timer, now int64) {
 	for _, p := range a.dueAnnouncements(active, now) {
 		a.speaker.say(p)
 	}
@@ -352,7 +352,7 @@ func (a *App) announceLowBuffs(active []spell.Timer, now int64) {
 // dueAnnouncements returns the phrases to speak this tick and updates the
 // announced set (each timer fires once; re-arms when refreshed or gone). The
 // speaking itself is left to the caller so this stays unit-testable.
-func (a *App) dueAnnouncements(active []spell.Timer, now int64) []string {
+func (a *App) dueAnnouncements(active []gamestate.Timer, now int64) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !a.ttsOn {
@@ -384,7 +384,7 @@ func (a *App) dueAnnouncements(active []spell.Timer, now int64) []string {
 	return phrases
 }
 
-func lowBuffPhrase(tm spell.Timer) string {
+func lowBuffPhrase(tm gamestate.Timer) string {
 	if tm.Target == "You" {
 		return tm.Spell + " low"
 	}

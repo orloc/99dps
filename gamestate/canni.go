@@ -1,4 +1,4 @@
-package spell
+package gamestate
 
 // canniDanceTimeoutSec ends the current dance after this long with no cast (so
 // stopping to fight/heal doesn't tank the score — only sloppy chaining does).

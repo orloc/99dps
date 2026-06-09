@@ -2,10 +2,10 @@ package main
 
 import (
 	app "99dps/cli"
+	"99dps/gamestate"
 	"99dps/loader"
 	"99dps/parser"
 	"99dps/session"
-	"99dps/spell"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -22,12 +22,12 @@ func launchCLI(logDir, spellsPath string, tts bool) {
 
 	// optional spell-timer tracker — disabled gracefully if spells_us.txt is
 	// missing or unreadable.
-	var tracker *spell.Tracker
+	var tracker *gamestate.Tracker
 	spellInfo := "spell timers off (no spells_us.txt)"
-	if book, err := spell.Load(spellsPath); err == nil {
-		tracker = spell.NewTracker(book)
+	if book, err := gamestate.Load(spellsPath); err == nil {
+		tracker = gamestate.NewTracker(book)
 		// user respawn overrides live next to the logs so they're easy to find
-		tracker.UseOverrides(spell.LoadOverrides(filepath.Join(logDir, "99dps-overrides.json")))
+		tracker.UseOverrides(gamestate.LoadOverrides(filepath.Join(logDir, "99dps-overrides.json")))
 		spellInfo = fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
 	}
 
@@ -69,7 +69,7 @@ type logController struct {
 	dir     string
 	sm      *session.SessionManager
 	app     *app.App
-	tracker *spell.Tracker
+	tracker *gamestate.Tracker
 
 	mu      sync.Mutex
 	cur     *loader.LogSource

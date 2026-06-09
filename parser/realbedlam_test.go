@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"99dps/spell"
+	"99dps/gamestate"
 	"os"
 	"testing"
 )
@@ -13,11 +13,11 @@ func TestObserveSpells_RealBedlam(t *testing.T) {
 	if path == "" {
 		t.Skip("set SPELLS_FILE to run")
 	}
-	book, err := spell.Load(path)
+	book, err := gamestate.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tr := spell.NewTracker(book)
+	tr := gamestate.NewTracker(book)
 	tr.SetLevel(60)
 	p := &DmgParser{character: "Iznoa", tracker: tr}
 
