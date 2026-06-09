@@ -31,8 +31,18 @@ release-windows: windows
 	@sha256sum 99dps.exe | tee 99dps.exe.sha256
 	@echo "Built 99dps.exe. Before sending: scan at https://www.virustotal.com and share the .sha256."
 
+# a friend-ready zip: just the exe + plain-language instructions (no checksum —
+# a non-technical recipient doesn't need it). Send 99dps-windows.zip.
+dist-windows: windows
+	@rm -rf dist 99dps-windows.zip && mkdir dist
+	@cp 99dps.exe dist/
+	@cp packaging/windows-readme.txt "dist/READ-ME-FIRST.txt"
+	@cd dist && zip -q -r ../99dps-windows.zip .
+	@echo "Created 99dps-windows.zip — scan 99dps.exe on virustotal.com, then send the zip."
+
 clean:
 	${GOCLEAN}
+	rm -rf dist 99dps-windows.zip
 	rm -f 99dps 99dps.exe 99dps.exe.sha256 resource_windows_amd64.syso
 
 test:
@@ -58,4 +68,4 @@ tools:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
 
-.PHONY: all build winres windows release-windows clean test lint lint-windows tools
+.PHONY: all build winres windows release-windows dist-windows clean test lint lint-windows tools

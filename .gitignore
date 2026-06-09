@@ -4,3 +4,5 @@
 /resource_windows_amd64.syso
 *.png
 .idea/
+/dist/
+/99dps-windows.zip
