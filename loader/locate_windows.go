@@ -79,20 +79,11 @@ func powershell(script string) string {
 
 // confirmDir shows a native Yes/No box asking whether to use dir.
 func confirmDir(dir string) bool {
-	safe := strings.ReplaceAll(dir, "'", "''") // escape for the PS single-quoted string
-	script := "Add-Type -AssemblyName System.Windows.Forms; " +
-		"[System.Windows.Forms.MessageBox]::Show(" +
-		"'Use this EverQuest folder?`n`n" + safe + "'," +
-		"'99dps — EverQuest folder','YesNo','Question')"
-	return powershell(script) == "Yes"
+	return powershell(confirmFolderScript(dir)) == "Yes"
 }
 
 // pickDir opens the native folder-browse dialog and returns the selected path,
 // or "" if cancelled.
 func pickDir() string {
-	script := "Add-Type -AssemblyName System.Windows.Forms; " +
-		"$f = New-Object System.Windows.Forms.FolderBrowserDialog; " +
-		"$f.Description = 'Select your EverQuest folder'; " +
-		"if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }"
-	return powershell(script)
+	return powershell(pickFolderScript())
 }
