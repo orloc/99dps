@@ -218,6 +218,11 @@ func (t *Tracker) Observe(body string, at int64) {
 		t.pending = nil
 	}
 
+	// One line can matter to several subsystems at once (a kill both expires the
+	// victim's debuffs *and* records a repop), so this is a fan-out to every
+	// matcher, not a mutually-exclusive dispatch. Each matcher is itself cheap:
+	// it either early-returns on a prefix screen or is a no-op when its state is
+	// empty (e.g. the timer scans below short-circuit when no timers are active).
 	hadPending := t.pending != nil
 	t.matchLandingLocked(body, at)
 	// an instant clicky self-buff (Journeyman Boots etc.) emits no cast line, so
@@ -327,6 +332,9 @@ func (t *Tracker) startCharmLocked(at int64) {
 }
 
 func (t *Tracker) expireByMessageLocked(body string) {
+	if len(t.timers) == 0 {
+		return // nothing to expire — skip the charm check and the per-timer scan
+	}
 	// a charm broke
 	if strings.HasPrefix(body, "Your charm spell has worn off") {
 		for k, tm := range t.timers {
@@ -371,6 +379,9 @@ func (t *Tracker) expireByMessageLocked(body string) {
 }
 
 func (t *Tracker) expireOnSlainLocked(body string) {
+	if len(t.timers) == 0 {
+		return // only ever drops timers — nothing to do with none active
+	}
 	var victim string
 	switch {
 	case strings.HasPrefix(body, "You have been slain by"):
