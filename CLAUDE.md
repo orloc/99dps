@@ -15,7 +15,7 @@ Go 1.25. Tests live next to the code (`parser`, `session`, `common`, `cli`); run
 - `go run . -logdir <path>` — fastest dev iteration. Log dir also reads `EQ_LOG_DIR`, else `loader.DefaultLogDir`.
 - `go test ./...` — all tests. Single test: `go test ./parser -run TestParseCast`. Coverage: `go test ./... -cover`.
 - `gofmt -l .` must be empty; `go vet ./...` must be clean before finishing a change.
-- `make windows` — cross-compile `99dps.exe` (`GOOS=windows GOARCH=amd64`). Pure Go / no cgo, so it builds from any host.
+- `make windows` — cross-compile `99dps.exe` (`GOOS=windows GOARCH=amd64`). Pure Go / no cgo, so it builds from any host. `make release-windows` adds version metadata + a SHA-256; `make lint-windows` lints the build-tagged Windows code. See `docs/windows-release.md` (incl. the deliberate no-code-signing decision).
 
 ## Cross-platform (Windows)
 

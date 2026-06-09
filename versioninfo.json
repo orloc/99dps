@@ -1,0 +1,16 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": {"Major": 0, "Minor": 1, "Patch": 0, "Build": 0},
+    "ProductVersion": {"Major": 0, "Minor": 1, "Patch": 0, "Build": 0}
+  },
+  "StringFileInfo": {
+    "CompanyName": "99dps",
+    "FileDescription": "99dps - EverQuest DPS meter",
+    "FileVersion": "0.1.0",
+    "InternalName": "99dps",
+    "OriginalFilename": "99dps.exe",
+    "ProductName": "99dps",
+    "ProductVersion": "0.1.0"
+  },
+  "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}}
+}
