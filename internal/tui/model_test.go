@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -401,6 +402,34 @@ func TestAvoidanceShowsRiposte(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("avoidance missing full label %q in:\n%s", want, out)
 		}
+	}
+}
+
+// TestDueAnnouncements covers the low-buff cue logic (each fires once, re-arms
+// on refresh/expiry, charm is skipped, self-buffs use the short phrase).
+func TestDueAnnouncements(t *testing.T) {
+	m := New(&session.SessionManager{}, nil, "Kelkix")
+	now := int64(1000)
+	healthy := gamestate.Timer{Spell: "Clarity", Target: "Tankguy", Expiry: now + 600}
+	low := gamestate.Timer{Spell: "Clarity", Target: "Healer", Expiry: now + 8}
+	charm := gamestate.Timer{Spell: "Charm", Target: "Charm", Expiry: now + 5, Charm: true}
+
+	got := m.dueAnnouncements([]gamestate.Timer{healthy, low, charm}, now)
+	if want := []string{"Healer, Clarity low"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("first pass = %v, want %v", got, want)
+	}
+	if got := m.dueAnnouncements([]gamestate.Timer{healthy, low, charm}, now); got != nil {
+		t.Errorf("repeat pass spoke again: %v", got)
+	}
+	// refreshed (healthy) re-arms; dropping low again speaks
+	m.dueAnnouncements([]gamestate.Timer{{Spell: "Clarity", Target: "Healer", Expiry: now + 600}}, now)
+	if got := m.dueAnnouncements([]gamestate.Timer{{Spell: "Clarity", Target: "Healer", Expiry: now + 5}}, now); len(got) != 1 {
+		t.Errorf("refresh should re-arm; got %v", got)
+	}
+	m2 := New(&session.SessionManager{}, nil, "X")
+	self := gamestate.Timer{Spell: "Bedlam", Target: "You", Expiry: now + 5}
+	if got := m2.dueAnnouncements([]gamestate.Timer{self}, now); len(got) != 1 || got[0] != "Bedlam low" {
+		t.Errorf("self phrase = %v, want [\"Bedlam low\"]", got)
 	}
 }
 

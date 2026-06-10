@@ -1,7 +1,7 @@
-// Package tui is the experimental Bubble Tea + Lipgloss UI for 99dps (see
-// docs/tui-migration.md). Phase 1: the full multi-panel layout — Now + Sessions
-// sidebar, a scrollable Damage panel, Spell Timers and Mob Tracker — themed and
-// reading live snapshots. Selected with `99dps -ui tui`.
+// Package tui is the Bubble Tea + Lipgloss UI for 99dps — the only UI (it
+// replaced the legacy gocui one). A single Model renders the banner, Sessions
+// sidebar, Damage meter + Specials/Avoidance, the class-aware panel, and the Mob
+// Tracker from lock-free session/tracker snapshots, themed and truecolor.
 package tui
 
 import (
@@ -212,30 +212,36 @@ func (m *Model) refresh() {
 	m.ensureSelVisible(sel)
 }
 
-// announceLowBuffs speaks a cue when a (non-charm) timer first drops below the
-// low threshold, once per timer, re-arming when refreshed or expired. Mirrors
-// the gocui App.dueAnnouncements.
+// announceLowBuffs speaks the cues due this tick (no-op when audio is off).
 func (m *Model) announceLowBuffs() {
 	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
 		return
 	}
-	const lowBuffSec = 15
 	now := time.Now().Unix()
-	live := map[string]bool{}
-	for _, tm := range m.tracker.Active(now) {
+	for _, p := range m.dueAnnouncements(m.tracker.Active(now), now) {
+		m.speaker.Say(p)
+	}
+}
+
+// dueAnnouncements returns the low-buff phrases to speak this tick and updates
+// the announced set: each (non-charm) timer fires once when it first drops below
+// the threshold, re-arming when it's refreshed or gone. Speaking is left to the
+// caller so this stays testable. (Charm breaks before its cap, so a countdown
+// "low" would cry wolf — it's skipped.)
+func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
+	const lowBuffSec = 15
+	var phrases []string
+	live := make(map[string]bool, len(active))
+	for _, tm := range active {
 		if tm.Charm {
-			continue // charm breaks before its cap — a countdown "low" would cry wolf
+			continue
 		}
 		k := tm.Spell + "\x00" + tm.Target
 		live[k] = true
 		if tm.Expiry-now <= lowBuffSec {
 			if !m.announced[k] {
 				m.announced[k] = true
-				phrase := tm.Spell + " low"
-				if tm.Target != "You" {
-					phrase = tm.Target + ", " + tm.Spell + " low"
-				}
-				m.speaker.Say(phrase)
+				phrases = append(phrases, lowBuffPhrase(tm))
 			}
 		} else {
 			delete(m.announced, k) // refreshed / still healthy → re-arm
@@ -246,6 +252,14 @@ func (m *Model) announceLowBuffs() {
 			delete(m.announced, k) // timer gone → re-arm for next cast
 		}
 	}
+	return phrases
+}
+
+func lowBuffPhrase(tm gamestate.Timer) string {
+	if tm.Target == "You" {
+		return tm.Spell + " low"
+	}
+	return tm.Target + ", " + tm.Spell + " low"
 }
 
 // rebuildInteractive re-renders the hover-aware panels (class + enchanter CC)

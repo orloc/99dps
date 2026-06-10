@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A terminal DPS meter for classic EverQuest (P99). It tails the active EQ log file, parses combat lines as they appear, and renders live per-dealer damage, accuracy/avoidance, crits, specials, spell estimates, and a damage-bar graph in a `gocui` TUI.
+A terminal DPS meter for classic EverQuest (P99). It tails the active EQ log file, parses combat lines as they appear, and renders live per-dealer damage, accuracy/avoidance, crits, specials, spell estimates, and a damage-bar graph in a **Bubble Tea + Lipgloss** TUI (truecolor, themed). The legacy `gocui` UI has been removed.
 
 Go 1.25. Tests live next to the code; run `go test ./...`.
 
-**Layout** (standard Go): `cmd/99dps/` holds `package main` (`main.go` + `cli.go` wiring); all library packages live under `internal/` (`combat` — combat DTOs; `eqclass` — class/category taxonomy; `loader`, `parser`, `session`, `gamestate`, `cli`) so they can't be imported externally. Import paths are `99dps/internal/<pkg>`. `parser` depends on the `Sink` and `SpellObserver` interfaces (not on `session`/`gamestate`); `gamestate` owns the zone-respawn data.
+**Layout** (standard Go): `cmd/99dps/` holds `package main` (`main.go` + `run.go` wiring); all library packages live under `internal/` (`combat` — combat DTOs; `eqclass` — class/category taxonomy; `loader`, `parser`, `session`, `gamestate`, `tts` — shared audio-cue engine, and `tui` — the Bubble Tea UI) so they can't be imported externally. Import paths are `99dps/internal/<pkg>`. `parser` depends on the `Sink` and `SpellObserver` interfaces (not on `session`/`gamestate`); `gamestate` owns the zone-respawn data; `tui` reads lock-free session/tracker snapshots and never imports the parser.
 
 ## Commands
 
@@ -22,23 +22,23 @@ Go 1.25. Tests live next to the code; run `go test ./...`.
 
 ## Cross-platform (Windows)
 
-The app is portable: pure-Go deps (no cgo), `gocui`→`termbox-go` which renders via the Win32 console API (so the ANSI SGR codes the renderer emits are interpreted by gocui, not the terminal — colors/mouse work in `conhost` or Windows Terminal), and CRLF is already stripped (`TrimRight(…, "\r\n")`). Platform-specific pieces are isolated by build tags:
+The app is portable: pure-Go deps (no cgo); Bubble Tea + Lipgloss render truecolor ANSI that Windows Terminal (and modern `conhost`) interpret, and CRLF is already stripped (`TrimRight(…, "\r\n")`). Platform-specific pieces are isolated by build tags:
 - **`internal/loader/defaultdir_{unix,windows}.go`** — `DefaultLogDir`. The EQ folder layout is identical on every OS, so once the log dir is known everything else (e.g. `spells_us.txt` at `<logdir>/../spells_us.txt`) is located relative to it.
 - **Log-dir resolution** (`resolveLogDir` in `cmd/99dps/main.go`, identical flow on every OS): `-logdir` flag (saved) → `EQ_LOG_DIR` → saved choice (`os.UserConfigDir()/99dps/logdir.txt`) → platform default if it already holds logs → **auto-detect + prompt** (the chosen dir is saved). Detection (`internal/loader/locate.go` cross-platform core; `scanForEQ`/`eqLogDirFrom`/`logDirFromChoice`) scans candidate roots one level deep for an EQ marker (`eqgame.exe`/`eqclient.ini`/`spells_us.txt` or `eqlog_*.txt`). The platform files supply the roots + prompt UX:
   - `locate_windows.go`: roots = `C:\P99`, Sony/Daybreak dirs, Desktop/Downloads/Games/My Games, the exe folder; prompt = **native Yes/No box** to confirm a find, else a **folder picker** (PowerShell WinForms).
   - `locate_unix.go`: roots = `~/Desktop|Downloads|Games|Documents`, `~/.wine/drive_c`, `/mnt`, `/opt`, the exe folder; prompt = **console** (list+confirm or type a path), since the app launches from a terminal.
   Both persist the pick to the same config file, so it's a one-time question. Saving is unified; only the candidate roots and prompt mechanism differ by OS.
-- **`internal/cli/speech_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
+- **`internal/tts/speaker_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
 The Linux-only log-rotation tooling (`scripts/`, systemd) has no Windows equivalent; on Windows logs just grow (or wire a Task Scheduler + PowerShell job).
 
 ## Data flow (three concurrent pieces)
 
-`launchCLI` (`cmd/99dps/cli.go`) wires these together and orchestrates graceful shutdown (stop the repaint loop → `App.Close()` the gui → `Tail.Stop()` to end the parser):
+`launchTUI` (`cmd/99dps/run.go`) wires these together and orchestrates graceful shutdown (the Bubble Tea program returns on quit → signal the watcher → `Tail.Stop()` to end the parser):
 
 1. **`loader.LoadFile(dir)`** — picks the most-recently-modified `eqlog_*.txt` under `dir` and follows it (`loader.Latest` finds it, `loader.Follow` opens the tail). Character is parsed from the filename.
 2. **`parser.DoParse(tail, sink, character)`** (goroutine) — for each line, `dispatch` runs a cheap `has*` screen, then one `parse*` regex, then forwards a typed event to a `Sink`. The parser depends on the `Sink` interface, **not** on the `session` package — `*session.SessionManager` satisfies it.
-3. **`App.Sync(stop)`** (goroutine) — once per second, `refresh()` snapshots all sessions, resolves the selected one, and repaints. `App.Loop()` runs the blocking gocui main loop on the main goroutine.
-4. **`logController.watch`** (goroutine, `cmd/99dps/cli.go`) — polls `loader.Latest` every few seconds; when a *different* eqlog becomes the most-recently-written (you switched characters in-game), it hot-swaps: opens the new tail from end-of-file, stops the old one (ending its parser goroutine), `Clear`s the manager + tracker, replays the new log into the tracker only (`parser.RebuildTrackerFromFile` — recovers active spell timers / class / zone, since the live tail starts at end-of-file), and calls `App.SetCharacter` (updates the panel title + flashes a banner). No restart needed.
+3. **`tui.Program.Run()`** (main goroutine, blocks) — the Bubble Tea model self-ticks once per second; each `tickMsg` calls `refresh()` to snapshot all sessions, resolve the selection, and re-render every panel from the snapshot (lock-free). `tui.New`/`NewProgram` build it; the model reads the shared `*session.SessionManager` + `*gamestate.Tracker`.
+4. **`logController.watch`** (goroutine, `cmd/99dps/run.go`) — polls `loader.Latest` every few seconds; when a *different* eqlog becomes the most-recently-written (you switched characters in-game), it hot-swaps: opens the new tail from end-of-file, stops the old one (ending its parser goroutine), `Clear`s the manager + tracker, replays the new log into the tracker only (`parser.RebuildTrackerFromFile` — recovers active spell timers / class / zone, since the live tail starts at end-of-file), and calls `Program.SwitchCharacter` (a `switchMsg` that updates the banner + flashes a status). No restart needed.
 
 ## Parsing model and the central limitation
 
@@ -65,12 +65,13 @@ Line categories in `dispatch` (order matters — see the `hasDamage` gotcha belo
 
 `SessionManager` owns a single `sync.RWMutex`. Every public method locks at its boundary (writers take `Lock`, `Current`/`All`/`Len` take `RLock`). Readers never touch live state: `Current()`/`All()` return **deep snapshots** (`CombatSession.snapshot()` `maps.Clone`s every map; all map values are pure value types, so a shallow clone is a full copy), so the UI and all `CombatSession` getters/`render*` functions operate lock-free on owned copies. When adding state to `CombatSession`, clone it in `snapshot()` (and keep its map values copy-safe — no pointers/slices that alias live state). `App` guards its own selection/scroll state with a separate `mu`.
 
-## Rendering layer
+## Rendering layer (`internal/tui`, Bubble Tea + Lipgloss)
 
-- **`internal/cli/render.go`** is the pure layer: free functions `data → string` (`renderDamage`, `renderSessions`, `renderAvoidance`, `renderBars`, formatters). No gui state, so they're unit-tested directly.
-- **`internal/cli/app.go`** holds the gui-coupled `App`: lifecycle and the thin `update*` wrappers that fetch panel width via `viewInnerWidth`, call a `render*` function, and push the result onto the gocui loop. **`internal/cli/input.go`** holds the keybinding/mouse handler methods (bound in `keys.go`) and the selection/scroll bookkeeping they drive.
-- Tables are **width-aware** — optional columns (Hit%, Crit%, the labelled avoidance table) only appear when they fit, because gocui doesn't wrap and would clip the right edge.
-- gocui `OutputNormal` only honours ANSI colors **30–37/40–47** plus bold(1)/underline(4)/reverse(7). Bright codes (90–97) are silently ignored — stay in range.
+The UI is a single Bubble Tea `Model` (Elm-style `Init`/`Update`/`View`) reading lock-free snapshots:
+- **`model.go`** — the root `Model`: state, `layout()` (panel rectangles for the window size), `Update` (keys/mouse/tick/resize/switch), `View` (composes the banner + Sessions sidebar + Damage meter / Specials-Avoidance / class panel / Mob Tracker + footer), and the damage-meter renderer. `NewProgram`/`Program` wrap `*tea.Program` so the host can `SwitchCharacter`.
+- **`panels.go`** — pure `data → string` panel renderers (`sessionsList`, `timersBody`, `ccBody`, `mobTracker`, `damageSpecials`, `damageAvoidance`, `card`). No program state, so they're unit-tested directly. **`class.go`** — the class-aware bottom panel (`classPanel`). **`theme.go`** — the 3 themes + gradient/`fg` helpers. **`format.go`** — number/time formatters.
+- Each overflowing panel renders into its own `bubbles/viewport` (independent scroll); the mouse wheel routes to whichever panel the cursor is over (`panelAt`), and clicks resolve via line→target maps (`classTargets`/`ccTargets`/`mobTargets`).
+- **Lipgloss wraps overlong lines** (it doesn't clip), which reads as "scrunched". So every line must fit its width: tables are **width-aware** (Hit%/Crit% gate on width; the share bar yields before the name; the countdown column is never dropped), free text is clipped with `truncate`/`MaxWidth`, and a degenerate early `WindowSizeMsg` (0×0) is ignored. `TestViewFitsWindow`/`TestDamageNoOverflow` guard this.
 
 ## Spell timers and live state (`gamestate` package)
 
@@ -114,10 +115,10 @@ differ.
 
 ## Views and input
 
-`internal/cli/view.go` defines the views (`status`, `sessions`, `dmg`, `graph`, `timers`, `cc`, `repops`, `shortcuts`) — the bottom-row split (Spell Timers | [Crowd Control] | Mob Tracker) is placed dynamically in `Layout`: enchanters get the dedicated `cc` column, everyone else gets two tiles and no `cc` view in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `internal/cli/view.go`, keeping the shared `combat`/`eqclass` packages free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `internal/cli/keys.go`.
+`Model.layout()` (`internal/tui/model.go`) computes panel rectangles for the window: a gold banner header, a full-height **Sessions** sidebar, a top-right **Damage meter** beside a **Specials · Avoidance** column, and a bottom row **class panel | [Crowd Control] | Mob Tracker** — enchanters get the dedicated CC column, everyone else two tiles; below a width threshold the meter takes the whole right side and the side columns drop. Input (all in `Update`): arrow keys / click select a fight, `End` jumps to live, the wheel scrolls the hovered panel, `t`/`tab` cycles theme, `a` toggles audio cues, `Backspace` clears sessions, clicking a buff target dismisses it (hover shows an ✕), clicking a repop row opens an inline editor (digits/`:`, Enter saves a per-(zone,mob) override). A transient status line in the footer shows switch/clear/edit feedback. `ctrl+c` always quits (even mid-edit).
 
 ## Gotchas
 
 - **Non-melee must be excluded from `hasDamage`.** Spell lines contain "points of damage", so they would otherwise be parsed by the melee regex into a bogus `"<X> was"` dealer. `hasDamage` filters out `non-melee` and `You have taken`; non-melee is routed to `hasMagic`.
 - The player's own crits and casts log under the **character name**, not "You" — the parser remaps the character name to "You" for attribution (hence `DoParse` takes `character`).
-- `go.mod` pins gocui 0.4.0 and hpcloud/tail; don't upgrade casually — the gocui API changed in later forks.
+- An AoE/PBAoE lands on several mobs from one cast, so `Tracker` keeps the `pending` cast alive across landing emotes (cleared by the cast window or the next cast) and times each affected mob. A `Your target resisted the X spell.` line is surfaced briefly via `Tracker.Resisted` (a red badge), not a timer.

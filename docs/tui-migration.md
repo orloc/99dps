@@ -1,5 +1,10 @@
 # Porting 99dps to Bubble Tea + Lipgloss
 
+> **Status: DONE (cutover complete).** The Bubble Tea + Lipgloss UI
+> (`internal/tui`) is now the only UI; the gocui `internal/cli` package and the
+> `gocui`/`termbox-go` deps were deleted, and the `-ui` flag is gone. This doc is
+> kept for historical context on the migration plan.
+
 A concrete, phased plan to replace the gocui UI with a Charm (Bubble Tea +
 Lipgloss + Bubbles) UI. Proven by the spike in `spike/bubbletea-damage/`
 (true-color themes, gradient bars, free-scrolling viewports).

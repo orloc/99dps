@@ -1,7 +1,6 @@
 package main
 
 import (
-	app "99dps/internal/cli"
 	"99dps/internal/gamestate"
 	"99dps/internal/loader"
 	"99dps/internal/parser"
@@ -60,51 +59,12 @@ func launchTUI(logDir, spellsPath string, tts bool) {
 	ctrl.shutdown()
 }
 
-func launchCLI(logDir, spellsPath string, tts bool) {
-	src := loader.LoadFile(logDir)
-	sm := &session.SessionManager{}
-	tracker, spellInfo := loadTracker(spellsPath, logDir)
-
-	a := app.New(sm, src.Character, tracker)
-	a.SetSources(logDir, spellInfo)
-	a.SetTTS(tts)
-
-	// stop signals the repaint loop and the switch poller to exit. We wait for
-	// BOTH (they're the only callers of gui.Update) before closing the gui, so
-	// nothing repaints a closed terminal.
-	stop := make(chan struct{})
-	var bg sync.WaitGroup
-
-	bg.Add(1)
-	go func() {
-		defer bg.Done()
-		a.Sync(stop)
-	}()
-
-	ctrl := &logController{dir: logDir, sm: sm, app: a, cur: src, tracker: tracker}
-	ctrl.startParse(src)
-	bg.Add(1)
-	go func() {
-		defer bg.Done()
-		ctrl.watch(stop)
-	}()
-
-	a.Loop() // blocks on the gocui main loop until the user quits
-
-	a.BeginShutdown() // stop repaints before the main loop's event drain ends
-	close(stop)
-	bg.Wait()
-	a.Close()
-	ctrl.shutdown()
-}
-
 // logController owns the currently-followed log source and hot-swaps it when a
 // different character's log becomes the most recently active.
 type logController struct {
 	dir     string
 	sm      *session.SessionManager
-	app     *app.App     // gocui UI (nil under the TUI)
-	tui     *tui.Program // Bubble Tea UI (nil under gocui)
+	tui     *tui.Program
 	tracker *gamestate.Tracker
 
 	mu      sync.Mutex
@@ -178,12 +138,7 @@ func (c *logController) switchTo(path string) {
 		// log (the live tail below only sees new lines from end-of-file).
 		parser.RebuildTrackerFromFile(next.Path, next.Character, c.tracker)
 	}
-	if c.app != nil {
-		c.app.SetCharacter(next.Character)
-	}
-	if c.tui != nil {
-		c.tui.SwitchCharacter(next.Character)
-	}
+	c.tui.SwitchCharacter(next.Character)
 	c.startParse(next)
 }
 
