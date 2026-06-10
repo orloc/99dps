@@ -1,4 +1,4 @@
-package common
+package eqclass
 
 import "strings"
 
@@ -54,7 +54,7 @@ func CategoryOf(c Class) Category {
 	return category[c] // ClassUnknown and any unmapped class → CatCaster (zero value)
 }
 
-// titleToClass maps an EQ /who level-title to its base class. /who prints a
+// titleToClass maps an EQ /who level-title to its base eqclass. /who prints a
 // level-based title ("[60 Warlord]"), not the class name, so detection needs
 // this lookup. Lower levels often print the base class name itself, so those
 // are included too. The mapping below is the high-confidence subset — base
@@ -106,7 +106,7 @@ var titleToClass = map[string]Class{
 }
 
 // ClassFromTitle resolves an EQ /who level-title (e.g. "Warlord", "Phantasmist")
-// to its class. Returns ClassUnknown for an unrecognised title.
+// to its eqclass. Returns ClassUnknown for an unrecognised title.
 func ClassFromTitle(title string) Class {
 	return titleToClass[strings.TrimSpace(title)]
 }

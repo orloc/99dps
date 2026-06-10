@@ -1,8 +1,9 @@
 package cli
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/eqclass"
 	"fmt"
+
 	"github.com/jroimartin/gocui"
 )
 
@@ -200,7 +201,7 @@ func (a *App) Layout(g *gocui.Gui) error {
 
 // enchanterLayout reports whether the dedicated Crowd Control column is shown.
 func (a *App) enchanterLayout() bool {
-	return a.tracker != nil && a.tracker.Class() == common.ClassEnchanter
+	return a.tracker != nil && a.tracker.Class() == eqclass.ClassEnchanter
 }
 
 // enchanterCols computes the bottom-row column boundaries for the enchanter
@@ -290,9 +291,9 @@ func (a *App) panelTitle() string {
 		return "Spell Timers"
 	}
 	switch a.tracker.Category() {
-	case common.CatMelee:
+	case eqclass.CatMelee:
 		return "Skills"
-	case common.CatHybrid:
+	case eqclass.CatHybrid:
 		return "Spells + Skills"
 	default:
 		return "Spell Timers"

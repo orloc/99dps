@@ -2,15 +2,17 @@ package cli
 
 import (
 	"99dps/internal/common"
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 	"fmt"
-	"github.com/jroimartin/gocui"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jroimartin/gocui"
 )
 
 // linesPerCard is how many terminal rows each session occupies in the side
@@ -186,8 +188,8 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	width := a.viewInnerWidth(viewTimers)
 	now := time.Now().Unix()
 
-	cat := common.CatCaster
-	var class common.Class
+	cat := eqclass.CatCaster
+	var class eqclass.Class
 	var level int
 	if a.tracker != nil {
 		cat = a.tracker.Category()
@@ -219,11 +221,11 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 
 // panelBody is the category-driven main content of the bottom-right panel, plus
 // the spell-timer click-to-dismiss line map (nil for the skills view).
-func (a *App) panelBody(cur *session.CombatSession, cat common.Category, class common.Class, level, width int) (string, map[int]string) {
+func (a *App) panelBody(cur *session.CombatSession, cat eqclass.Category, class eqclass.Class, level, width int) (string, map[int]string) {
 	switch cat {
-	case common.CatMelee:
+	case eqclass.CatMelee:
 		return renderSkills(cur, class, level, width), nil
-	case common.CatHybrid:
+	case eqclass.CatHybrid:
 		body, timerMap := a.timersStr(width)
 		if sum := skillsSummary(cur, class, level); sum != "" {
 			body += "\n" + sectionHeader("skills", width) + "  " + sum
@@ -547,7 +549,7 @@ func (a *App) updateStatus() {
 	char := a.character
 	a.mu.Unlock()
 
-	var class common.Class
+	var class eqclass.Class
 	var level, kills, perHour, deaths int
 	var zone string
 	if a.tracker != nil {

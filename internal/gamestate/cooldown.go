@@ -1,10 +1,9 @@
 package gamestate
 
 import (
+	"99dps/internal/eqclass"
 	"sort"
 	"strings"
-
-	"99dps/internal/common"
 )
 
 // Cooldown is a class skill with a fixed reuse timer, detected from a self log
@@ -12,7 +11,7 @@ import (
 // duration, and any attempt — success or failure — starts it.
 type Cooldown struct {
 	Name     string
-	Class    common.Class
+	Class    eqclass.Class
 	ReuseSec int64
 	matches  func(line string) bool
 }
@@ -24,7 +23,7 @@ type Cooldown struct {
 var cooldownRegistry = []Cooldown{
 	{
 		Name:     "Mend",
-		Class:    common.ClassMonk,
+		Class:    eqclass.ClassMonk,
 		ReuseSec: 360, // 6-minute reuse (confirmed)
 		matches: func(s string) bool {
 			// success: "You mend your wounds and heal some damage."
@@ -94,17 +93,17 @@ const feignReuseSec = 11
 
 // feignAttemptLocked records that the player initiated a feign and starts the FD
 // reuse countdown. Returns ClassMonk (the inferred class). Caller holds lock.
-func (c *cooldownTracker) feignAttemptLocked(at int64) common.Class {
+func (c *cooldownTracker) feignAttemptLocked(at int64) eqclass.Class {
 	c.feignAttemptAt = at
 	c.cooldowns["Feign Death"] = at + feignReuseSec
-	return common.ClassMonk
+	return eqclass.ClassMonk
 }
 
 // feignFailedLocked records the player's failed feign. Returns ClassMonk.
 // Caller holds lock.
-func (c *cooldownTracker) feignFailedLocked(at int64) common.Class {
+func (c *cooldownTracker) feignFailedLocked(at int64) eqclass.Class {
 	c.feignFailAt = at
-	return common.ClassMonk
+	return eqclass.ClassMonk
 }
 
 // feignStatusLocked reports the current feign banner state at `now`. Caller
@@ -126,14 +125,14 @@ func (c *cooldownTracker) feignStatusLocked(now int64) FeignState {
 // matchLocked starts (or restarts) a reuse timer when a line is an ability
 // activation, and returns the class that ability reveals (ClassUnknown if the
 // line matched nothing). Caller holds the lock.
-func (c *cooldownTracker) matchLocked(body string, at int64) common.Class {
+func (c *cooldownTracker) matchLocked(body string, at int64) eqclass.Class {
 	for _, cd := range cooldownRegistry {
 		if cd.matches(body) {
 			c.cooldowns[cd.Name] = at + cd.ReuseSec
 			return cd.Class
 		}
 	}
-	return common.ClassUnknown
+	return eqclass.ClassUnknown
 }
 
 // observeBindLocked tracks the bind-wound channel: "You begin to bandage" starts

@@ -1,9 +1,8 @@
 package gamestate
 
 import (
+	"99dps/internal/eqclass"
 	"testing"
-
-	"99dps/internal/common"
 )
 
 func TestMendCooldown(t *testing.T) {
@@ -16,7 +15,7 @@ func TestMendCooldown(t *testing.T) {
 
 	// a Mend attempt starts the 6-minute reuse and reveals the class as Monk
 	tr.Observe("You mend your wounds and heal some damage.", 1000)
-	if tr.Class() != common.ClassMonk {
+	if tr.Class() != eqclass.ClassMonk {
 		t.Errorf("Mend should infer class Monk, got %q", tr.Class())
 	}
 	cds := tr.Cooldowns(1000)
@@ -55,7 +54,7 @@ func TestFeignStatus(t *testing.T) {
 
 	// attempt via macro: pending during the grace window, then OK with no fail
 	tr.FeignAttempt(1000)
-	if tr.Class() != common.ClassMonk {
+	if tr.Class() != eqclass.ClassMonk {
 		t.Errorf("feign attempt should infer Monk, got %q", tr.Class())
 	}
 	// the attempt also starts the 11s FD reuse cooldown

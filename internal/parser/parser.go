@@ -2,14 +2,16 @@ package parser
 
 import (
 	"99dps/internal/common"
+	"99dps/internal/eqclass"
 	"bufio"
 	"fmt"
-	"github.com/hpcloud/tail"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hpcloud/tail"
 )
 
 // Sink receives the events parsed from the log. *session.SessionManager
@@ -32,7 +34,7 @@ type SpellObserver interface {
 	BeginCast(spellName string, at int64)
 	BreakMezOnTarget(target string)
 	SetLevel(level int)
-	SetClass(c common.Class)
+	SetClass(c eqclass.Class)
 	FeignAttempt(at int64)
 	FeignFailed(at int64)
 }
@@ -93,7 +95,7 @@ func RebuildTrackerFromFile(path, character string, tracker SpellObserver) {
 
 var (
 	// whoSelfRe captures level (1), level-title (2), and name (3) from a /who
-	// self line: "[60 Warlord] Stelzar (Troll)". The title maps to a class.
+	// self line: "[60 Warlord] Stelzar (Troll)". The title maps to a eqclass.
 	whoSelfRe  = regexp.MustCompile(`^\[(\d+) ([^\]]+)\] (\S+)`)
 	welcomeRe  = regexp.MustCompile(`Welcome to level (\d+)`)
 	castPrefix = "You begin casting "
@@ -162,20 +164,20 @@ func (p *DmgParser) isOwnFeignFail(body string) bool {
 // line naming the log owner (e.g. "[34 Wizard] Kelkix (Gnome)" → 34, Wizard) or
 // a level-up ("Welcome to level 43!" → 43, ClassUnknown — a level-up names no
 // class). The class is derived from the /who level-title.
-func (p *DmgParser) parseLevel(body string) (int, common.Class, bool) {
+func (p *DmgParser) parseLevel(body string) (int, eqclass.Class, bool) {
 	if strings.HasPrefix(body, "[") && p.character != "" {
 		if m := whoSelfRe.FindStringSubmatch(body); m != nil && m[3] == p.character {
 			n, _ := strconv.Atoi(m[1])
-			return n, common.ClassFromTitle(m[2]), true
+			return n, eqclass.ClassFromTitle(m[2]), true
 		}
 	}
 	if strings.Contains(body, "Welcome to level") {
 		if m := welcomeRe.FindStringSubmatch(body); m != nil {
 			n, _ := strconv.Atoi(m[1])
-			return n, common.ClassUnknown, true
+			return n, eqclass.ClassUnknown, true
 		}
 	}
-	return 0, common.ClassUnknown, false
+	return 0, eqclass.ClassUnknown, false
 }
 
 // dispatch routes a single log line to the matching parser and sink method.

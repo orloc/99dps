@@ -2,6 +2,7 @@ package parser
 
 import (
 	"99dps/internal/common"
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"os"
 	"path/filepath"
@@ -207,7 +208,7 @@ func TestRebuildTrackerFromFile(t *testing.T) {
 
 	RebuildTrackerFromFile(path, "Kelkix", tr)
 
-	if tr.Class() != common.ClassWarrior || tr.Level() != 60 {
+	if tr.Class() != eqclass.ClassWarrior || tr.Level() != 60 {
 		t.Errorf("class/level not recovered from file: %v L%d", tr.Class(), tr.Level())
 	}
 	if tr.Zone() != "Greater Faydark" {
@@ -245,19 +246,19 @@ func TestParseLevel(t *testing.T) {
 	p := &DmgParser{character: "Kelkix"}
 
 	// /who self: level + class from the title (here the base name "Wizard")
-	if lvl, cls, ok := p.parseLevel("[34 Wizard] Kelkix (Gnome) <Kingdom> ZONE: unrest"); !ok || lvl != 34 || cls != common.ClassWizard {
+	if lvl, cls, ok := p.parseLevel("[34 Wizard] Kelkix (Gnome) <Kingdom> ZONE: unrest"); !ok || lvl != 34 || cls != eqclass.ClassWizard {
 		t.Errorf("/who self = %d,%v,%v, want 34,Wizard,true", lvl, cls, ok)
 	}
 	// a level-title that isn't the base name still resolves the class
-	if lvl, cls, ok := p.parseLevel("[60 Warlord] Kelkix (Troll)"); !ok || lvl != 60 || cls != common.ClassWarrior {
+	if lvl, cls, ok := p.parseLevel("[60 Warlord] Kelkix (Troll)"); !ok || lvl != 60 || cls != eqclass.ClassWarrior {
 		t.Errorf("/who title = %d,%v,%v, want 60,Warrior,true", lvl, cls, ok)
 	}
 	// multi-word title
-	if lvl, cls, ok := p.parseLevel("[51 Grave Lord] Kelkix (Troll)"); !ok || lvl != 51 || cls != common.ClassShadowKnight {
+	if lvl, cls, ok := p.parseLevel("[51 Grave Lord] Kelkix (Troll)"); !ok || lvl != 51 || cls != eqclass.ClassShadowKnight {
 		t.Errorf("/who multi-word title = %d,%v,%v, want 51,Shadow Knight,true", lvl, cls, ok)
 	}
 	// level-up names no class
-	if lvl, cls, ok := p.parseLevel("You have gained a level! Welcome to level 43!"); !ok || lvl != 43 || cls != common.ClassUnknown {
+	if lvl, cls, ok := p.parseLevel("You have gained a level! Welcome to level 43!"); !ok || lvl != 43 || cls != eqclass.ClassUnknown {
 		t.Errorf("level-up = %d,%v,%v, want 43,Unknown,true", lvl, cls, ok)
 	}
 	// another player's /who line must not set our level

@@ -1,11 +1,10 @@
 package gamestate
 
 import (
+	"99dps/internal/eqclass"
 	"sort"
 	"strings"
 	"sync"
-
-	"99dps/internal/common"
 )
 
 // fallbackLevel is used to compute durations before we've seen the player's
@@ -35,7 +34,7 @@ type Tracker struct {
 
 	mu     sync.Mutex
 	level  int
-	class  common.Class
+	class  eqclass.Class
 	timers map[string]Timer // key: spell\x00target
 
 	cool cooldownTracker // activated-ability reuse, feign, bind (see cooldown.go)
@@ -59,8 +58,8 @@ func NewTracker(book *Book) *Tracker {
 
 // inferClassLocked adopts a class detected by a subsystem, but only when one
 // isn't already known (a /who title always wins). Caller holds the lock.
-func (t *Tracker) inferClassLocked(c common.Class) {
-	if c != common.ClassUnknown && t.class == common.ClassUnknown {
+func (t *Tracker) inferClassLocked(c eqclass.Class) {
+	if c != eqclass.ClassUnknown && t.class == eqclass.ClassUnknown {
 		t.class = c
 	}
 }
@@ -102,8 +101,8 @@ func (t *Tracker) SetLevel(level int) {
 
 // SetClass records the player's class (derived from a /who level-title). A nil
 // tracker or an unknown class is ignored, so callers needn't pre-check.
-func (t *Tracker) SetClass(c common.Class) {
-	if t == nil || c == common.ClassUnknown {
+func (t *Tracker) SetClass(c eqclass.Class) {
+	if t == nil || c == eqclass.ClassUnknown {
 		return
 	}
 	t.mu.Lock()
@@ -112,9 +111,9 @@ func (t *Tracker) SetClass(c common.Class) {
 }
 
 // Class returns the detected class, or ClassUnknown until a /who is seen.
-func (t *Tracker) Class() common.Class {
+func (t *Tracker) Class() eqclass.Class {
 	if t == nil {
-		return common.ClassUnknown
+		return eqclass.ClassUnknown
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -133,8 +132,8 @@ func (t *Tracker) Level() int {
 
 // Category returns the player's panel category, defaulting to CatCaster (spell
 // timers) until the class is known.
-func (t *Tracker) Category() common.Category {
-	return common.CategoryOf(t.Class())
+func (t *Tracker) Category() eqclass.Category {
+	return eqclass.CategoryOf(t.Class())
 }
 
 // BeginCast remembers that the player started casting a known, timed spell, so a
@@ -436,7 +435,7 @@ func (t *Tracker) Clear() {
 	t.canni.clear()
 	t.pending = nil
 	t.level = 0
-	t.class = common.ClassUnknown
+	t.class = eqclass.ClassUnknown
 	t.mu.Unlock()
 }
 

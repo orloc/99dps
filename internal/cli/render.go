@@ -2,6 +2,7 @@ package cli
 
 import (
 	"99dps/internal/common"
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 	"fmt"
@@ -172,7 +173,7 @@ func sectionHeader(label string, width int) string {
 
 // renderStatus is the top-left "Now" box: character, class/level, the current
 // zone (tinted bar), and the zone-wide xp-kill rate — the at-a-glance summary.
-func renderStatus(char string, class common.Class, level int, zone string, kills, perHour, deaths, width int) string {
+func renderStatus(char string, class eqclass.Class, level int, zone string, kills, perHour, deaths, width int) string {
 	var b strings.Builder
 	b.WriteString("\x1b[1m" + truncate(char, width) + "\x1b[0m\n")
 
@@ -180,7 +181,7 @@ func renderStatus(char string, class common.Class, level int, zone string, kills
 	if level > 0 {
 		cl = fmt.Sprintf("L%d ", level)
 	}
-	if class != common.ClassUnknown {
+	if class != eqclass.ClassUnknown {
 		cl += string(class)
 	}
 	if cl != "" {
@@ -501,7 +502,7 @@ func renderCooldowns(cooldowns []gamestate.CooldownTimer, width int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func renderSkills(cur *session.CombatSession, class common.Class, level, width int) string {
+func renderSkills(cur *session.CombatSession, class eqclass.Class, level, width int) string {
 	if cur == nil {
 		return "No fight selected.\n\nFight something!"
 	}
@@ -552,7 +553,7 @@ func renderSkills(cur *session.CombatSession, class common.Class, level, width i
 
 // skillsSummary is the one-line skill digest appended to the hybrid panel under
 // the spell timers, e.g. "Bash 220 · Crit 8% · Hit 71%". "" when there's nothing.
-func skillsSummary(cur *session.CombatSession, class common.Class, level int) string {
+func skillsSummary(cur *session.CombatSession, class eqclass.Class, level int) string {
 	if cur == nil {
 		return ""
 	}
@@ -690,19 +691,19 @@ func renderCooldownRow(cd gamestate.CooldownTimer, width int) string {
 // (Eagle Strike / Tiger Claw / Dragon Punch) to "strike", so this is a
 // display-only best guess: a 30+ monk's kick is almost always Flying Kick;
 // "Strike" can't be disambiguated further.
-func displaySkillName(generic string, class common.Class, level int) string {
-	if class == common.ClassMonk && generic == "Kick" && level >= 30 {
+func displaySkillName(generic string, class eqclass.Class, level int) string {
+	if class == eqclass.ClassMonk && generic == "Kick" && level >= 30 {
 		return "Flying Kick" // learned at level 30; a 30+ monk kicks with it
 	}
 	return generic
 }
 
-// skillRelevant reports whether a skill bucket should appear for the class. A
+// skillRelevant reports whether a skill bucket should appear for the eqclass. A
 // player's "strike" is a monk special; for any other class it shouldn't surface
 // as a skill (those classes don't produce it from auto-attacks either).
-func skillRelevant(generic string, class common.Class) bool {
+func skillRelevant(generic string, class eqclass.Class) bool {
 	if generic == "Strike" {
-		return class == common.ClassMonk
+		return class == eqclass.ClassMonk
 	}
 	return true
 }
@@ -720,7 +721,7 @@ func critPct(crits, hits int) int {
 }
 
 // topSkill returns the highest-damage class-relevant skill, or ("", zero).
-func topSkill(skills map[string]common.SkillStat, class common.Class) (string, common.SkillStat) {
+func topSkill(skills map[string]common.SkillStat, class eqclass.Class) (string, common.SkillStat) {
 	var name string
 	var best common.SkillStat
 	for n, s := range skills {
