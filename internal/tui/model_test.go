@@ -284,6 +284,112 @@ func TestSwitchCharacter(t *testing.T) {
 	}
 }
 
+// twoSessionManager forces two distinct fights (a big gap between them).
+func twoSessionManager() *session.SessionManager {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 1000, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 9000, Dealer: "You", Dmg: 2000, Target: "a bat"})
+	return sm
+}
+
+// mobSceneTracker has one of the player's kills and one of someone else's, in a
+// zone with a known respawn — so the Mob Tracker shows the separator + killer.
+func mobSceneTracker() *gamestate.Tracker {
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(50)
+	now := time.Now().Unix()
+	tr.Observe("You have entered east commonlands.", now-600)
+	tr.Observe("You have slain a young kodiak!", now-100)
+	tr.Observe("a fippy darkpaw has been slain by Sue!", now-100)
+	return tr
+}
+
+func TestClearSessions(t *testing.T) {
+	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
+	mm := m.(Model)
+	if len(mm.sessions) == 0 {
+		t.Fatal("expected sessions before clear")
+	}
+	m2, _ := mm.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if mm2 := m2.(Model); len(mm2.sessions) != 0 {
+		t.Errorf("backspace should clear sessions, got %d", len(mm2.sessions))
+	}
+}
+
+func TestSessionClickSelects(t *testing.T) {
+	var m tea.Model = New(twoSessionManager(), nil, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	if len(mm.sessions) < 2 {
+		t.Fatalf("want >=2 sessions, got %d", len(mm.sessions))
+	}
+	// row 0 of the Sessions panel: content starts at gridY(2)+border+title = 4
+	m2, _ := mm.Update(tea.MouseMsg{X: 3, Y: 4, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if mm2 := m2.(Model); mm2.selected != 0 || mm2.follow {
+		t.Errorf("clicking the first fight should pin it (selected=%d follow=%v)", mm2.selected, mm2.follow)
+	}
+}
+
+func TestMobTrackerSeparatorAndKiller(t *testing.T) {
+	out, targets := mobTracker(themes[0], mobSceneTracker(), 44, "")
+	if !strings.Contains(out, "killed by others") {
+		t.Error("expected a \"killed by others\" separator")
+	}
+	if !strings.Contains(out, "Sue") {
+		t.Error("expected the killer's name on others' kills")
+	}
+	if !containsValue(targets, "a young kodiak") {
+		t.Errorf("line→mob map missing the player's kill: %v", targets)
+	}
+}
+
+func TestRepopEditFlow(t *testing.T) {
+	var m tea.Model = New(sampleManager(), mobSceneTracker(), "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+
+	ld := mm.layout()
+	contentTop := 2 + ld.dmgH + 2
+	line, mob := -1, ""
+	for l, mb := range mm.mobTargets {
+		if line < 0 || l < line {
+			line, mob = l, mb
+		}
+	}
+	if line < 0 {
+		t.Fatal("no mob targets to click")
+	}
+	mobX := ld.leftW + 2 + ld.classW + 1
+	if ld.ench {
+		mobX += ld.ccW + 1
+	}
+	x, y := mobX+2, contentTop+(line-mm.vpMob.YOffset)
+	if got := mm.mobAt(x, y); got != mob {
+		t.Fatalf("mobAt(%d,%d) = %q, want %q", x, y, got, mob)
+	}
+
+	// click opens the editor for that mob
+	m2, _ := mm.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm = m2.(Model)
+	if !mm.editing || mm.editMob != mob {
+		t.Fatalf("click should open the editor for %q (editing=%v mob=%q)", mob, mm.editing, mm.editMob)
+	}
+	// type "5:00", then Enter saves and closes
+	for _, k := range []string{"5", ":", "0", "0"} {
+		m3, _ := mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		mm = m3.(Model)
+	}
+	if mm.editBuf != "5:00" {
+		t.Fatalf("editBuf = %q, want 5:00", mm.editBuf)
+	}
+	m4, _ := mm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if mm4 := m4.(Model); mm4.editing {
+		t.Error("Enter should close the repop editor")
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

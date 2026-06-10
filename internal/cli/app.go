@@ -4,6 +4,7 @@ import (
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
+	"99dps/internal/tts"
 	"fmt"
 	"log"
 	"sort"
@@ -57,7 +58,7 @@ type App struct {
 	// text-to-speech cues for low buffs. announced tracks which timers have
 	// already been spoken (keyed spell\x00target) so each fires once, re-arming
 	// when the buff is refreshed or expires.
-	speaker   *speaker
+	speaker   *tts.Speaker
 	ttsOn     bool
 	announced map[string]bool
 
@@ -98,7 +99,7 @@ func New(m *session.SessionManager, character string, tracker *gamestate.Tracker
 		tracker:   tracker,
 		character: character,
 		follow:    true,
-		speaker:   newSpeaker(),
+		speaker:   tts.New(),
 		announced: map[string]bool{},
 	}
 
@@ -385,7 +386,7 @@ func (a *App) updateCC() {
 // low threshold, once per timer, re-arming when it's refreshed or expires.
 func (a *App) announceLowBuffs(active []gamestate.Timer, now int64) {
 	for _, p := range a.dueAnnouncements(active, now) {
-		a.speaker.say(p)
+		a.speaker.Say(p)
 	}
 }
 
@@ -434,7 +435,7 @@ func lowBuffPhrase(tm gamestate.Timer) string {
 // SetTTS sets the initial audio-cue state (no-op if no TTS engine is present).
 func (a *App) SetTTS(on bool) {
 	a.mu.Lock()
-	a.ttsOn = on && a.speaker.available()
+	a.ttsOn = on && a.speaker.Available()
 	a.mu.Unlock()
 }
 
@@ -488,7 +489,7 @@ func (a *App) updateShortcuts() {
 	audio := "audio off"
 	if a.ttsOn {
 		audio = "♪ audio on"
-	} else if !a.speaker.available() {
+	} else if !a.speaker.Available() {
 		audio = "audio n/a"
 	}
 	a.mu.Unlock()

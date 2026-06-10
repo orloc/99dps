@@ -33,12 +33,12 @@ func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
 
 // launchTUI runs the Bubble Tea UI. It shares the parser pipeline and the
 // character hot-swap watcher with launchCLI, rendering via internal/tui.
-func launchTUI(logDir, spellsPath string) {
+func launchTUI(logDir, spellsPath string, tts bool) {
 	src := loader.LoadFile(logDir)
 	sm := &session.SessionManager{}
-	tracker, _ := loadTracker(spellsPath, logDir)
+	tracker, spellInfo := loadTracker(spellsPath, logDir)
 
-	prog := tui.NewProgram(sm, tracker, src.Character)
+	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, tts)
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
 	ctrl.startParse(src)
 

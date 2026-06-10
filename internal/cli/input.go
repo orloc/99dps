@@ -17,17 +17,17 @@ import (
 // toggleTTS flips audio cues on/off at runtime (bound to a key).
 func (a *App) toggleTTS(gui *gocui.Gui, view *gocui.View) error {
 	a.mu.Lock()
-	if a.speaker.available() {
+	if a.speaker.Available() {
 		a.ttsOn = !a.ttsOn
 	}
-	on, has := a.ttsOn, a.speaker.available()
+	on, has := a.ttsOn, a.speaker.Available()
 	a.mu.Unlock()
 
 	switch {
 	case !has:
 		a.flashStatus("no TTS engine found (install spd-say or espeak)")
 	case on:
-		a.speaker.say("audio cues on")
+		a.speaker.Say("audio cues on")
 		a.flashStatus("♪ audio cues ON")
 	default:
 		a.flashStatus("♪ audio cues off")

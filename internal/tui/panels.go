@@ -441,14 +441,17 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// mobTracker: the zone-aware repop list, the player's kills first.
-func mobTracker(th theme, tr *gamestate.Tracker, w int) string {
+// mobTracker is the zone-aware repop list: the player's kills first, then a
+// "killed by others" separator and others' kills (with the killer's name). A
+// clicked mob (editMob) is marked. Returns a content-line→mob map for click
+// resolution (separator lines have no entry).
+func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string, map[int]string) {
 	if tr == nil {
-		return th.fg(th.dim).Render("—")
+		return th.fg(th.dim).Render("—"), nil
 	}
 	rs := tr.Respawns(time.Now().Unix())
 	if len(rs) == 0 {
-		return th.fg(th.dim).Render("No kills tracked yet.")
+		return th.fg(th.dim).Render("No kills tracked yet."), nil
 	}
 	// size the time column to the widest entry ("UP" or m:ss / h:mm:ss) so long
 	// repop timers aren't clipped; the mob name yields, the time always shows.
@@ -460,21 +463,39 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int) string {
 			}
 		}
 	}
-	mobW := max(w-timeW-1, 1)
+	nameW := max(w-timeW-1, 1)
+
 	var lines []string
-	for _, r := range rs {
+	targets := map[int]string{}
+	for i, r := range rs {
+		if i > 0 && rs[i-1].Mine && !r.Mine {
+			sep := "── killed by others "
+			sep += strings.Repeat("─", max(w-lipgloss.Width(sep), 0))
+			lines = append(lines, th.fg(th.dim).Render(truncate(sep, w)))
+		}
 		when := mmss(r.Remaining)
 		if r.Remaining <= 0 {
 			when = "UP"
 		}
-		// names as bright as the spell-timer buff names; the player's own kills
-		// bolded for a subtle ownership cue.
+		marker := "  "
+		if editMob != "" && r.Mob == editMob {
+			marker = "▸ "
+		}
+		// names as bright as the buff names; the player's own kills bolded. Others'
+		// kills name the killer.
+		label := marker + r.Mob
 		nameStyle := th.fg(th.text)
 		if r.Mine {
 			nameStyle = nameStyle.Bold(true)
+		} else {
+			nameStyle = th.fg(th.dim)
+			if r.Killer != "" {
+				label += " «" + r.Killer
+			}
 		}
-		lines = append(lines, nameStyle.Width(mobW).Render(truncate(r.Mob, mobW))+" "+
+		targets[len(lines)] = r.Mob
+		lines = append(lines, nameStyle.Width(nameW).Render(truncate(label, nameW))+" "+
 			rightCell(when, timeW, mobUrgencyColor(th, r.Remaining)))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), targets
 }

@@ -22,7 +22,7 @@ func main() {
 	}
 
 	if *ui == "tui" {
-		launchTUI(dir, spellsPath)
+		launchTUI(dir, spellsPath, *tts)
 		return
 	}
 	launchCLI(dir, spellsPath, *tts)

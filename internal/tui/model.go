@@ -7,6 +7,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
+	"99dps/internal/tts"
 )
 
 type tickMsg time.Time
@@ -58,16 +60,62 @@ type Model struct {
 	ccTargets    map[int]string
 	hover        string
 
+	// TTS audio cues for low buffs; announced re-arms per spell\x00target so each
+	// fires once until refreshed/expired.
+	speaker   *tts.Speaker
+	ttsOn     bool
+	announced map[string]bool
+
+	// transient status banner (character switch, action feedback, edit prompt),
+	// shown in the footer for a few seconds.
+	status   string
+	statusAt int64
+
+	// repop respawn editing: click a Mob Tracker row (mobTargets maps a content
+	// line → mob) to open an inline editor that writes a per-(zone,mob) override.
+	mobTargets map[int]string
+	editing    bool
+	editBuf    string
+	editMob    string
+
+	spellInfo string // data-source summary for the footer
+
 	w, h  int
 	ready bool
 }
 
 // New builds the model over a live session manager + (optional) tracker.
 func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
-	return Model{sm: sm, tracker: tracker, character: character, follow: true}
+	return Model{
+		sm: sm, tracker: tracker, character: character, follow: true,
+		speaker: tts.New(), announced: map[string]bool{},
+	}
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
+
+// flash shows a transient status message in the footer for a few seconds.
+func (m *Model) flash(msg string) { m.status, m.statusAt = msg, time.Now().Unix() }
+
+// statusGraceSec is how long a flashed status stays visible.
+const statusGraceSec = 5
+
+// parseRespawn reads "h:mm:ss", "m:ss", or plain seconds into total seconds.
+func parseRespawn(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	total := 0
+	for _, p := range strings.Split(s, ":") {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		total = total*60 + n
+	}
+	return total, total > 0
+}
 
 // layout holds the computed panel rectangles for the current window size. The
 // bottom row splits differently for enchanters (a dedicated Crowd Control
@@ -157,8 +205,47 @@ func (m *Model) refresh() {
 	m.vpExtras.SetContent(m.extrasContent(cur, m.vpExtras.Width))
 	m.vpSessions.SetContent(sessionsList(th, m.sessions, sel, m.vpSessions.Width))
 	m.rebuildInteractive(cur)
-	m.vpMob.SetContent(mobTracker(th, m.tracker, m.vpMob.Width))
+	mobStr, mobT := mobTracker(th, m.tracker, m.vpMob.Width, m.editMob)
+	m.vpMob.SetContent(mobStr)
+	m.mobTargets = mobT
+	m.announceLowBuffs()
 	m.ensureSelVisible(sel)
+}
+
+// announceLowBuffs speaks a cue when a (non-charm) timer first drops below the
+// low threshold, once per timer, re-arming when refreshed or expired. Mirrors
+// the gocui App.dueAnnouncements.
+func (m *Model) announceLowBuffs() {
+	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
+		return
+	}
+	const lowBuffSec = 15
+	now := time.Now().Unix()
+	live := map[string]bool{}
+	for _, tm := range m.tracker.Active(now) {
+		if tm.Charm {
+			continue // charm breaks before its cap — a countdown "low" would cry wolf
+		}
+		k := tm.Spell + "\x00" + tm.Target
+		live[k] = true
+		if tm.Expiry-now <= lowBuffSec {
+			if !m.announced[k] {
+				m.announced[k] = true
+				phrase := tm.Spell + " low"
+				if tm.Target != "You" {
+					phrase = tm.Target + ", " + tm.Spell + " low"
+				}
+				m.speaker.Say(phrase)
+			}
+		} else {
+			delete(m.announced, k) // refreshed / still healthy → re-arm
+		}
+	}
+	for k := range m.announced {
+		if !live[k] {
+			delete(m.announced, k) // timer gone → re-arm for next cast
+		}
+	}
 }
 
 // rebuildInteractive re-renders the hover-aware panels (class + enchanter CC)
@@ -197,11 +284,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// the repop editor captures keys while open (digits/colon, Enter, Esc).
+		if m.editing {
+			m.editKey(msg)
+			return m, tea.Batch(cmds...)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "t", "tab":
 			m.theme = (m.theme + 1) % len(themes)
+		case "a":
+			m.toggleTTS()
+		case "backspace":
+			m.sm.Clear()
+			m.selected, m.follow, m.hover = 0, true, ""
+			m.flash("cleared sessions")
+			m.refresh()
 		case "up", "k":
 			cur := m.effectiveSel()
 			if cur > 0 {
@@ -238,14 +337,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
-		// left-click on a hovered buff target → dismiss its timers.
-		tgt := m.hoverTargetAt(msg.X, msg.Y)
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && tgt != "" {
-			m.tracker.DismissTarget(tgt)
-			m.hover = ""
-			m.refresh()
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// click a buff target → dismiss; a session → select; a repop → edit it.
+			if tgt := m.hoverTargetAt(msg.X, msg.Y); tgt != "" {
+				m.tracker.DismissTarget(tgt)
+				m.hover = ""
+				m.refresh()
+				return m, tea.Batch(cmds...)
+			}
+			if i := m.sessionAt(msg.X, msg.Y); i >= 0 {
+				m.selected, m.follow = i, i == len(m.sessions)-1
+				m.refresh()
+				return m, tea.Batch(cmds...)
+			}
+			if mob := m.mobAt(msg.X, msg.Y); mob != "" {
+				m.editing, m.editMob, m.editBuf = true, mob, ""
+				m.refresh()
+				return m, tea.Batch(cmds...)
+			}
 			return m, tea.Batch(cmds...)
 		}
+		tgt := m.hoverTargetAt(msg.X, msg.Y)
 		// motion → update the hover highlight only when the target changes.
 		if tgt != m.hover {
 			m.hover = tgt
@@ -259,6 +371,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchMsg:
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
+		m.editing, m.editMob = false, ""
+		m.flash("▶ now tracking " + msg.character)
 		m.refresh()
 	case tickMsg:
 		m.refresh()
@@ -362,6 +476,86 @@ func (m *Model) hoverTargetAt(x, y int) string {
 	return ""
 }
 
+// sessionAt returns the session index under screen cell (x,y) in the Sessions
+// panel (2 lines per fight), or -1.
+func (m *Model) sessionAt(x, y int) int {
+	ld := m.layout()
+	if x < 1 || x >= 1+ld.leftW {
+		return -1
+	}
+	contentTop := 2 + 2 // gridY + border + title
+	if y < contentTop || y >= 2+ld.sessH-1 {
+		return -1
+	}
+	idx := ((y - contentTop) + m.vpSessions.YOffset) / 2
+	if idx < 0 || idx >= len(m.sessions) {
+		return -1
+	}
+	return idx
+}
+
+// mobAt returns the repop mob under screen cell (x,y) in the Mob Tracker, or "".
+func (m *Model) mobAt(x, y int) string {
+	ld := m.layout()
+	rightX := ld.leftW + 2
+	botY := 2 + ld.dmgH
+	contentTop := botY + 2
+	if y < contentTop || y >= botY+ld.botH-1 {
+		return ""
+	}
+	mobX := rightX + ld.classW + 1
+	if ld.ench {
+		mobX += ld.ccW + 1
+	}
+	if x < mobX || x >= mobX+ld.mobW {
+		return ""
+	}
+	return m.mobTargets[(y-contentTop)+m.vpMob.YOffset]
+}
+
+// editKey feeds a keypress to the open repop editor: digits/colon build the time,
+// Enter saves a per-(zone,mob) override, Esc cancels, Backspace deletes.
+func (m *Model) editKey(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "enter":
+		if sec, ok := parseRespawn(m.editBuf); ok && m.tracker != nil {
+			m.tracker.SetOverride(m.editMob, sec)
+			m.flash(fmt.Sprintf("%s → %s repop", m.editMob, mmss(int64(sec))))
+		}
+		m.editing, m.editBuf, m.editMob = false, "", ""
+		m.refresh()
+	case "esc":
+		m.editing, m.editBuf, m.editMob = false, "", ""
+		m.refresh()
+	case "backspace":
+		if len(m.editBuf) > 0 {
+			m.editBuf = m.editBuf[:len(m.editBuf)-1]
+		}
+	default:
+		if s := msg.String(); len(s) == 1 && len(m.editBuf) < 8 {
+			if (s[0] >= '0' && s[0] <= '9') || s[0] == ':' {
+				m.editBuf += s
+			}
+		}
+	}
+}
+
+// toggleTTS flips audio cues at runtime, flashing feedback (no-op without an
+// engine).
+func (m *Model) toggleTTS() {
+	if m.speaker == nil || !m.speaker.Available() {
+		m.flash("no TTS engine (install spd-say or espeak)")
+		return
+	}
+	m.ttsOn = !m.ttsOn
+	if m.ttsOn {
+		m.speaker.Say("audio cues on")
+		m.flash("♪ audio cues on")
+	} else {
+		m.flash("audio cues off")
+	}
+}
+
 // banner is the full-width header plaque (dark text on muted gold, like the EQ
 // zone plaques) so it clearly reads as the header: app · character · class-level
 // · zone on the left, with the zone kills/hr pushed to the right.
@@ -378,8 +572,18 @@ func (m Model) banner(th theme, w int) string {
 		if z := m.tracker.Zone(); z != "" {
 			bits = append(bits, bar.Bold(true).Render("◆ "+z))
 		}
-		if k, ph, _ := m.tracker.ZoneKillStats(time.Now().Unix()); k > 0 {
-			right = bar.Bold(true).Render(fmt.Sprintf("%d kills · %d/hr", k, ph))
+		if k, ph, d := m.tracker.ZoneKillStats(time.Now().Unix()); k > 0 || d > 0 {
+			r := ""
+			if k > 0 {
+				r = fmt.Sprintf("%d kills · %d/hr", k, ph)
+			}
+			if d > 0 {
+				if r != "" {
+					r += " · "
+				}
+				r += fmt.Sprintf("%d deaths", d)
+			}
+			right = bar.Bold(true).Render(r)
 		}
 	}
 	left := " " + strings.Join(bits, sep)
@@ -435,11 +639,32 @@ func (m Model) View() string {
 	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-	footer := th.fg(th.dim).Render(truncate("[t] theme   [↑↓] select fight   [wheel] scroll panel   [end] live   [q] quit", innerW))
-
-	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, footer)
+	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, m.footer(th, innerW))
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 		Width(m.w).Height(m.h).Padding(1, 1).Render(full)
+}
+
+// footer is the bottom line: the open repop editor's prompt, else a transient
+// status flash, else the keybinding help + audio/data-source state.
+func (m Model) footer(th theme, w int) string {
+	switch {
+	case m.editing:
+		return th.fg(th.accent).Bold(true).Render(truncate(
+			fmt.Sprintf("set repop for %s (m:ss): %s_   [enter] save   [esc] cancel", m.editMob, m.editBuf), w))
+	case m.status != "" && time.Now().Unix()-m.statusAt <= statusGraceSec:
+		return th.fg(th.accent).Bold(true).Render(truncate(m.status, w))
+	}
+	audio := "audio off"
+	if m.ttsOn {
+		audio = "♪ audio on"
+	} else if m.speaker == nil || !m.speaker.Available() {
+		audio = "audio n/a"
+	}
+	keys := "[t] theme  [a] " + audio + "  [↑↓/click] fight  [end] live  [wheel] scroll  [bksp] clear  [click repop] set timer  [q] quit"
+	if m.spellInfo != "" {
+		keys = m.spellInfo + "  ·  " + keys
+	}
+	return th.fg(th.dim).Render(truncate(keys, w))
 }
 
 // damageContent is the scrollable damage breakdown for the selected fight: an
@@ -617,10 +842,13 @@ func (m Model) extrasContent(cur *session.CombatSession, width int) string {
 // switch (detected by the log watcher) while the UI is running.
 type Program struct{ p *tea.Program }
 
-// NewProgram builds the program over the shared manager + tracker.
-func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character string) *Program {
-	return &Program{p: tea.NewProgram(New(sm, tracker, character),
-		tea.WithAltScreen(), tea.WithMouseCellMotion())}
+// NewProgram builds the program over the shared manager + tracker. spellInfo is
+// the data-source summary for the footer; tts enables audio cues at startup.
+func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo string, ttsOn bool) *Program {
+	m := New(sm, tracker, character)
+	m.spellInfo = spellInfo
+	m.ttsOn = ttsOn && m.speaker.Available()
+	return &Program{p: tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())}
 }
 
 // Run launches the UI; blocks until the user quits.
