@@ -361,12 +361,18 @@ func damageSpecials(th theme, cur *session.CombatSession, stats []combat.DamageS
 		if len(sp) == 0 {
 			continue
 		}
+		// full table fits a wide column; a narrow side column drops Share+Hits and
+		// keeps the essentials (kind · dmg · hit-rate). Lines are clipped to w too.
+		full := w >= 34
 		if b.Len() == 0 {
 			b.WriteString(sectionHead(th, "Specials · backstab/bash/kick", w) + "\n")
-			// Dmg = the kind's damage; Share = % of the dealer's total; Hits = landed;
-			// Hit% = landed / (landed + missed).
-			b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-10s %7s %5s %5s %5s",
-				"Skill", "Dmg", "Share", "Hits", "Hit%")) + "\n")
+			var hdr string
+			if full { // Dmg = kind dmg; Share = % of dealer total; Hits = landed; Hit% = landed/(hit+miss)
+				hdr = fmt.Sprintf("  %-8s %6s %5s %4s %5s", "Skill", "Dmg", "Share", "Hits", "Hit%")
+			} else {
+				hdr = fmt.Sprintf("  %-8s %6s %5s", "Skill", "Dmg", "Hit%")
+			}
+			b.WriteString(th.fg(th.dim).Render(truncate(hdr, w)) + "\n")
 		}
 		nameStyle := th.fg(th.text).Bold(true)
 		if strings.EqualFold(v.Dealer, "you") {
@@ -379,8 +385,13 @@ func damageSpecials(th theme, cur *session.CombatSession, stats []combat.DamageS
 			if r := s.HitRate(); r >= 0 {
 				hr = fmt.Sprintf("%d%%", r)
 			}
-			b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-10s %7s %4d%% %5d %5s",
-				kind, humanize(s.Total), pct(s.Total, v.Total), s.Hits, hr)) + "\n")
+			var line string
+			if full {
+				line = fmt.Sprintf("  %-8s %6s %4d%% %4d %5s", kind, humanize(s.Total), pct(s.Total, v.Total), s.Hits, hr)
+			} else {
+				line = fmt.Sprintf("  %-8s %6s %5s", kind, humanize(s.Total), hr)
+			}
+			b.WriteString(th.fg(th.text).Render(truncate(line, w)) + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -416,8 +427,10 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 	var b strings.Builder
 	b.WriteString(sectionHead(th, "Avoidance", w) + "\n")
 	if full {
-		b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-12s %5s %5s %5s %5s %5s %5s",
-			"Defender", "Faced", "Avoid", "Miss", "Dodge", "Parry", "Block")) + "\n")
+		b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %5s %5s %5s %5s %5s %5s",
+			"Defender", "Faced", "Avoid", "Miss", "Dodge", "Parry", "Block"), w)) + "\n")
+	} else {
+		b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %5s %5s", "Defender", "Avoid", "Faced"), w)) + "\n")
 	}
 	rows := 0
 	for _, d := range defs {
@@ -436,14 +449,13 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 				pct(s.Avoided(), faced), pct(s.Misses, faced), pct(s.Dodges, faced),
 				pct(s.Parries, faced), pct(s.Blocks, faced))
 		} else {
-			line = fmt.Sprintf("  %-12s %3d%% avoid · %d faced",
-				truncate(displayName(d.Name), 12), pct(s.Avoided(), faced), faced)
+			line = fmt.Sprintf("  %-12s %4d%% %5d", truncate(displayName(d.Name), 12), pct(s.Avoided(), faced), faced)
 		}
 		st := th.fg(th.text)
 		if strings.EqualFold(d.Name, "you") {
 			st = st.Bold(true)
 		}
-		b.WriteString(st.Render(line) + "\n")
+		b.WriteString(st.Render(truncate(line, w)) + "\n")
 		rows++
 	}
 	return strings.TrimRight(b.String(), "\n")

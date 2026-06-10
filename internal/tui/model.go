@@ -40,6 +40,7 @@ type Model struct {
 	// per-panel scroll). The mouse wheel scrolls whichever panel it's over.
 	vpSessions viewport.Model
 	vpDamage   viewport.Model
+	vpExtras   viewport.Model // Specials / Avoidance, beside the damage meter
 	vpClass    viewport.Model // spell timers / skills (class-aware bottom panel)
 	vpMob      viewport.Model
 	vpCC       viewport.Model // enchanter-only Crowd Control column
@@ -69,6 +70,7 @@ type layout struct {
 	leftW, rightW     int
 	nowH, sessH       int
 	dmgH, botH        int
+	dmgW, extrasW     int // top-right split: dealer meter | Specials/Avoidance
 	classW, ccW, mobW int // bottom row: class panel | [CC] | mob tracker
 	ench              bool
 	areaH             int
@@ -96,6 +98,14 @@ func (m Model) layout() layout {
 	ld := layout{
 		leftW: leftW, rightW: rightW, nowH: nowH, sessH: sessH,
 		dmgH: dmgH, botH: botH, areaH: areaH, ench: m.isEnchanter(),
+	}
+	// top-right splits into the dealer meter (left, the bulk) and a Specials /
+	// Avoidance side column, so the meter uses its full height for dealers.
+	ld.extrasW = min(max(rightW*38/100, 20), 46)
+	ld.dmgW = rightW - ld.extrasW - 1
+	if ld.dmgW < 24 { // very narrow: shrink the side column before the meter
+		ld.dmgW = 24
+		ld.extrasW = rightW - ld.dmgW - 1
 	}
 	if ld.ench {
 		ld.classW = rightW * 38 / 100
@@ -138,6 +148,7 @@ func (m *Model) refresh() {
 	th := themes[m.theme]
 
 	m.vpDamage.SetContent(m.damageContent(cur, live, m.vpDamage.Width))
+	m.vpExtras.SetContent(m.extrasContent(cur, m.vpExtras.Width))
 	m.vpSessions.SetContent(sessionsList(th, m.sessions, sel, m.vpSessions.Width))
 	m.rebuildInteractive(cur)
 	m.vpMob.SetContent(mobTracker(th, m.tracker, m.vpMob.Width))
@@ -256,7 +267,8 @@ func (m *Model) resizeViewports() {
 		}
 	}
 	set(&m.vpSessions, ld.leftW, ld.sessH)
-	set(&m.vpDamage, ld.rightW, ld.dmgH)
+	set(&m.vpDamage, ld.dmgW, ld.dmgH)
+	set(&m.vpExtras, ld.extrasW, ld.dmgH)
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
 	set(&m.vpCC, ld.ccW, ld.botH)
@@ -276,8 +288,10 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 	switch {
 	case in(1, ld.leftW, gridY+ld.nowH, ld.sessH):
 		return &m.vpSessions
-	case in(rightX, ld.rightW, gridY, ld.dmgH):
+	case in(rightX, ld.dmgW, gridY, ld.dmgH):
 		return &m.vpDamage
+	case in(rightX+ld.dmgW+1, ld.extrasW, gridY, ld.dmgH):
+		return &m.vpExtras
 	case in(rightX, ld.classW, botY, ld.botH):
 		return &m.vpClass
 	}
@@ -371,9 +385,11 @@ func (m Model) View() string {
 			card(th, ld.classW, ld.botH, classPanelTitle(m.tracker), m.vpClass.View()), " ",
 			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
 	}
-	right := lipgloss.JoinVertical(lipgloss.Left,
-		card(th, ld.rightW, ld.dmgH, dmgTitle, m.vpDamage.View()),
-		bottom)
+	// top-right: the dealer meter beside its Specials / Avoidance side column.
+	topRight := lipgloss.JoinHorizontal(lipgloss.Top,
+		card(th, ld.dmgW, ld.dmgH, dmgTitle, m.vpDamage.View()), " ",
+		card(th, ld.extrasW, ld.dmgH, "Specials · Avoidance", m.vpExtras.View()))
+	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 	footer := th.fg(th.dim).Render("[t] theme   [↑↓] select fight   [wheel] scroll panel   [end] live   [q] quit")
@@ -410,47 +426,77 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		maxTotal = 1
 	}
 
-	// encounter summary: duration · total · dps · live/ended
-	status := th.fg("#5fd37a").Render("● live")
+	// encounter summary: duration · total · dps · live/ended. Colored when it
+	// fits; clipped (plain) on a very narrow panel so it never overflows.
+	lead := fmt.Sprintf("%s · %s · %s/s", fmtDuration(cur.Duration()), humanize(encTotal), humanize(int(int64(encTotal)/span)))
+	statusText := "● live"
+	statusColor := "#5fd37a"
 	if !live {
-		status = th.fg(th.dim).Render("○ ended " + cur.EndTime().Format("15:04:05"))
+		statusText, statusColor = "○ ended "+cur.EndTime().Format("15:04:05"), th.dim
 	}
-	summary := th.fg(th.dim).Render(fmt.Sprintf("%s · %s · %s/s   ",
-		fmtDuration(cur.Duration()), humanize(encTotal), humanize(int(int64(encTotal)/span)))) + status
-
-	// optional accuracy columns appear only when the panel is wide enough.
-	const rankW, nameW, pctW, totW, dpsW = 2, 12, 4, 7, 7
-	showHit := width >= 58
-	showCrit := width >= 66
-	rightCols := pctW + 1 + totW + 1 + dpsW
-	if showHit {
-		rightCols += 1 + 5
-	}
-	if showCrit {
-		rightCols += 1 + 5
-	}
-	// the share bar takes the leftover space; on a narrow panel it's dropped
-	// (rather than forced to a minimum that would overflow the row).
-	barCells := width - (rankW + 1) - (nameW + 1) - 1 - rightCols
-	showBar := barCells >= 4
-	barGap := ""
-	if showBar {
-		barGap = strings.Repeat(" ", barCells+1)
+	summary := th.fg(th.dim).Render(lead+"   ") + th.fg(statusColor).Render(statusText)
+	if lipgloss.Width(lead)+3+lipgloss.Width(statusText) > width {
+		summary = th.fg(th.dim).Render(truncate(lead+"  "+statusText, width))
 	}
 
-	// column header aligned to the numeric columns on the right
-	hdr := strings.Repeat(" ", rankW+1+nameW+1) + barGap +
-		rightCell("%", pctW, th.dim) + " " + rightCell("Total", totW, th.dim) + " " + rightCell("DPS", dpsW, th.dim)
+	// Columns flex with width: Total+DPS are always shown; %, Hit%, Crit% are
+	// added as room allows; the name takes the rest, and a share bar fills any
+	// slack beyond the name — so a row is always exactly the panel width.
+	const rankW, nameMax, pctW, totW, dpsW = 2, 14, 4, 7, 7
+	showPct := width >= 34
+	showHit := width >= 60
+	showCrit := width >= 70
+
+	num := totW + 1 + dpsW // the right-aligned numeric block width
+	if showPct {
+		num += pctW + 1
+	}
 	if showHit {
-		hdr += " " + rightCell("Hit", 5, th.dim)
+		num += 1 + 5
 	}
 	if showCrit {
-		hdr += " " + rightCell("Crit", 5, th.dim)
+		num += 1 + 5
+	}
+	nameW := width - num - 1 - rankW - 1 // rank + gaps + name fill the left
+	barCells, showBar := 0, false
+	if nameW > nameMax {
+		if barCells = nameW - nameMax - 1; barCells >= 4 {
+			nameW, showBar = nameMax, true
+		} else {
+			barCells = 0
+		}
+	}
+	nameW = max(nameW, 1)
+
+	// numBlock right-aligns the numeric columns into exactly `num` cells.
+	numBlock := func(pctv, total, dps int, hit, crit, col string) string {
+		s := ""
+		if showPct {
+			s += rightCell(fmt.Sprintf("%d%%", pctv), pctW, col) + " "
+		}
+		s += rightCell(humanize(total), totW, col) + " " + rightCell(humanize(dps), dpsW, th.dim)
+		if showHit {
+			s += " " + rightCell(hit, 5, th.dim)
+		}
+		if showCrit {
+			s += " " + rightCell(crit, 5, th.dim)
+		}
+		return s
 	}
 
 	var b strings.Builder
 	b.WriteString(summary + "\n")
-	b.WriteString(hdr + "\n")
+	b.WriteString(strings.Repeat(" ", max(width-num, 0)) +
+		numBlockLabels(th, showPct, showHit, showCrit, pctW, totW, dpsW) + "\n")
+
+	row := func(rankStr string, nameCell, hit, crit string, frac float64, from, to, col string, total, dps, pctv int) string {
+		mid := ""
+		if showBar {
+			mid = gradientBar(frac, barCells, from, to, th.track) + " "
+		}
+		return rightCell(rankStr, rankW, th.dim) + " " + nameCell + " " + mid +
+			numBlock(pctv, total, dps, hit, crit, col)
+	}
 
 	for i, d := range stats {
 		from, to := th.barFrom, th.barTo
@@ -458,58 +504,70 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			from, to = th.accent, th.accentLo
 		}
 		nameStyle := th.fg(th.text)
+		col := th.text
 		if strings.EqualFold(d.Dealer, "you") {
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
-		bar := ""
-		if showBar {
-			bar = gradientBar(float64(d.Total)/float64(maxTotal), barCells, from, to, th.track) + " "
+		hit := "-"
+		if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
+			hit = fmt.Sprintf("%d%%", hr)
 		}
-		row := rightCell(fmt.Sprintf("%d", i+1), rankW, th.dim) + " " +
-			nameStyle.Width(nameW).Render(truncate(d.Dealer, nameW)) + " " + bar +
-			rightCell(fmt.Sprintf("%d%%", pct(d.Total, encTotal)), pctW, th.text) + " " +
-			rightCell(humanize(d.Total), totW, th.text) + " " +
-			rightCell(humanize(d.Total/int(span)), dpsW, th.dim)
-		if showHit {
-			hit := "-"
-			if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
-				hit = fmt.Sprintf("%d%%", hr)
-			}
-			row += " " + rightCell(hit, 5, th.dim)
+		crit := "-"
+		if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
+			crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
 		}
-		if showCrit {
-			crit := "-"
-			if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
-				crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
-			}
-			row += " " + rightCell(crit, 5, th.dim)
-		}
-		b.WriteString(row + "\n")
+		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(d.Dealer, nameW)),
+			hit, crit, float64(d.Total)/float64(maxTotal), from, to, col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
 	}
 
 	// unattributed spell/proc/DoT damage — EQ names no caster, so it's its own
 	// (n/a) line folded into the encounter total.
 	if magic > 0 {
-		bar := ""
-		if showBar {
-			bar = gradientBar(float64(magic)/float64(maxTotal), barCells, th.dim, th.dim, th.track) + " "
-		}
-		row := strings.Repeat(" ", rankW) + " " +
-			th.fg(th.dim).Width(nameW).Render("spells n/a") + " " + bar +
-			rightCell(fmt.Sprintf("%d%%", pct(magic, encTotal)), pctW, th.dim) + " " +
-			rightCell(humanize(magic), totW, th.dim) + " " +
-			rightCell(humanize(magic/int(span)), dpsW, th.dim)
-		b.WriteString(row + "\n")
+		b.WriteString(row(strings.Repeat(" ", rankW), th.fg(th.dim).Width(nameW).Render(truncate("spells n/a", nameW)),
+			"-", "-", float64(magic)/float64(maxTotal), th.dim, th.dim, th.dim, magic, magic/int(span), pct(magic, encTotal)) + "\n")
 	}
 
-	body := strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// numBlockLabels renders the damage table's right-aligned column header to match
+// numBlock's column set and width.
+func numBlockLabels(th theme, showPct, showHit, showCrit bool, pctW, totW, dpsW int) string {
+	s := ""
+	if showPct {
+		s += rightCell("%", pctW, th.dim) + " "
+	}
+	s += rightCell("Total", totW, th.dim) + " " + rightCell("DPS", dpsW, th.dim)
+	if showHit {
+		s += " " + rightCell("Hit", 5, th.dim)
+	}
+	if showCrit {
+		s += " " + rightCell("Crit", 5, th.dim)
+	}
+	return s
+}
+
+// extrasContent is the side column beside the damage meter: the per-dealer,
+// per-kind Specials breakdown and the Avoidance table, stacked and scrollable.
+func (m Model) extrasContent(cur *session.CombatSession, width int) string {
+	th := themes[m.theme]
+	if cur == nil {
+		return th.fg(th.dim).Render("—")
+	}
+	stats := cur.GetAggressors()
+	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+
+	var parts []string
 	if sp := damageSpecials(th, cur, stats, width); sp != "" {
-		body += "\n\n" + sp
+		parts = append(parts, sp)
 	}
 	if av := damageAvoidance(th, cur, width); av != "" {
-		body += "\n\n" + av
+		parts = append(parts, av)
 	}
-	return body
+	if len(parts) == 0 {
+		return th.fg(th.dim).Render("No specials or\navoidance yet.")
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // Run launches the Bubble Tea program; blocks until the user quits.

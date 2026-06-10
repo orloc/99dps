@@ -205,10 +205,15 @@ func TestDamageNoOverflow(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	cur := mm.sessions[mm.effectiveSel()]
-	for _, w := range []int{40, 56, 64, 90, 120} {
+	for _, w := range []int{20, 28, 34, 40, 56, 64, 90, 120} {
 		for i, line := range strings.Split(mm.damageContent(cur, true, w), "\n") {
 			if lw := lipgloss.Width(line); lw > w {
-				t.Errorf("w=%d line %d overflows (%d): %q", w, i, lw, line)
+				t.Errorf("damage w=%d line %d overflows (%d): %q", w, i, lw, line)
+			}
+		}
+		for i, line := range strings.Split(mm.extrasContent(cur, w), "\n") {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("extras w=%d line %d overflows (%d): %q", w, i, lw, line)
 			}
 		}
 	}
