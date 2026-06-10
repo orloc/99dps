@@ -11,6 +11,7 @@ func main() {
 	logDir := flag.String("logdir", "", "directory containing eqlog_*.txt files (default: saved choice, EQ_LOG_DIR, or auto-detect)")
 	spells := flag.String("spells", "", "path to spells_us.txt (default: <logdir>/../spells_us.txt)")
 	tts := flag.Bool("tts", false, "speak audio cues when your buffs get low (toggle in-app with 'a')")
+	ui := flag.String("ui", "gocui", "UI backend: gocui (default) or tui (experimental Bubble Tea, themed)")
 	flag.Parse()
 
 	dir := resolveLogDir(*logDir)
@@ -20,6 +21,10 @@ func main() {
 		spellsPath = filepath.Join(filepath.Dir(dir), "spells_us.txt")
 	}
 
+	if *ui == "tui" {
+		launchTUI(dir, spellsPath)
+		return
+	}
 	launchCLI(dir, spellsPath, *tts)
 }
 

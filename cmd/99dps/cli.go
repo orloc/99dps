@@ -6,7 +6,9 @@ import (
 	"99dps/internal/loader"
 	"99dps/internal/parser"
 	"99dps/internal/session"
+	"99dps/internal/tui"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sync"
 	"time"
@@ -16,20 +18,40 @@ import (
 // recently written (i.e. which character is being actively played).
 const switchPollInterval = 4 * time.Second
 
+// loadTracker builds the optional spell-timer tracker, disabled gracefully when
+// spells_us.txt is missing. Returns the tracker (or nil) and a one-line summary.
+func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
+	book, err := gamestate.Load(spellsPath)
+	if err != nil {
+		return nil, "spell timers off (no spells_us.txt)"
+	}
+	tracker := gamestate.NewTracker(book)
+	// user respawn overrides live next to the logs so they're easy to find
+	tracker.UseOverrides(gamestate.LoadOverrides(filepath.Join(logDir, "99dps-overrides.json")))
+	return tracker, fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
+}
+
+// launchTUI runs the experimental Bubble Tea UI (Phase 0: live Damage panel).
+// It shares the parser pipeline with launchCLI but renders via internal/tui.
+// Hot-swap on character switch is deferred to a later phase, so no watcher here.
+func launchTUI(logDir, spellsPath string) {
+	src := loader.LoadFile(logDir)
+	sm := &session.SessionManager{}
+	tracker, _ := loadTracker(spellsPath, logDir)
+
+	ctrl := &logController{dir: logDir, sm: sm, cur: src, tracker: tracker}
+	ctrl.startParse(src)
+
+	if err := tui.Run(sm, tracker, src.Character); err != nil {
+		log.Print(err)
+	}
+	ctrl.shutdown()
+}
+
 func launchCLI(logDir, spellsPath string, tts bool) {
 	src := loader.LoadFile(logDir)
 	sm := &session.SessionManager{}
-
-	// optional spell-timer tracker — disabled gracefully if spells_us.txt is
-	// missing or unreadable.
-	var tracker *gamestate.Tracker
-	spellInfo := "spell timers off (no spells_us.txt)"
-	if book, err := gamestate.Load(spellsPath); err == nil {
-		tracker = gamestate.NewTracker(book)
-		// user respawn overrides live next to the logs so they're easy to find
-		tracker.UseOverrides(gamestate.LoadOverrides(filepath.Join(logDir, "99dps-overrides.json")))
-		spellInfo = fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
-	}
+	tracker, spellInfo := loadTracker(spellsPath, logDir)
 
 	a := app.New(sm, src.Character, tracker)
 	a.SetSources(logDir, spellInfo)
