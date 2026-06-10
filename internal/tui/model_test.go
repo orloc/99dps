@@ -219,6 +219,39 @@ func TestDamageNoOverflow(t *testing.T) {
 	}
 }
 
+// TestViewFitsWindow guards against the "scrunched on first open" bug: the
+// rendered frame must fit the window exactly — no line wider than the width
+// (which would wrap), and no more lines than the height. Also checks a
+// degenerate early size is ignored.
+func TestViewFitsWindow(t *testing.T) {
+	sizes := [][2]int{{60, 20}, {70, 24}, {73, 24}, {80, 24}, {100, 30}, {120, 40}, {160, 50}}
+	smv, trv := monkScene() // a populated scene (class + zone in the banner)
+	for _, sz := range sizes {
+		w, h := sz[0], sz[1]
+		var m tea.Model = New(smv, trv, "Kelkix")
+		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+		mm := m.(Model)
+		mm.refresh()
+		out := mm.View()
+		lines := strings.Split(out, "\n")
+		if len(lines) > h {
+			t.Errorf("%dx%d: %d lines > height %d (content wrapped)", w, h, len(lines), h)
+		}
+		for i, line := range lines {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("%dx%d: line %d width %d > %d: %q", w, h, i, lw, w, line)
+			}
+		}
+	}
+
+	// a degenerate early size must not flip the model into rendering (stay "starting…")
+	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 0, Height: 0})
+	if mm := m.(Model); mm.ready {
+		t.Error("a 0x0 size should be ignored, not mark the model ready")
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

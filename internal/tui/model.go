@@ -100,12 +100,13 @@ func (m Model) layout() layout {
 		dmgH: dmgH, botH: botH, areaH: areaH, ench: m.isEnchanter(),
 	}
 	// top-right splits into the dealer meter (left, the bulk) and a Specials /
-	// Avoidance side column, so the meter uses its full height for dealers.
-	ld.extrasW = min(max(rightW*38/100, 20), 46)
-	ld.dmgW = rightW - ld.extrasW - 1
-	if ld.dmgW < 24 { // very narrow: shrink the side column before the meter
-		ld.dmgW = 24
-		ld.extrasW = rightW - ld.dmgW - 1
+	// Avoidance side column, so the meter uses its full height for dealers. Below
+	// a threshold there's no room to split, so the meter takes the whole width.
+	if rightW < 46 {
+		ld.dmgW, ld.extrasW = rightW, 0
+	} else {
+		ld.extrasW = min(rightW*38/100, 46)
+		ld.dmgW = rightW - ld.extrasW - 1
 	}
 	if ld.ench {
 		ld.classW = rightW * 38 / 100
@@ -216,6 +217,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 		}
 	case tea.WindowSizeMsg:
+		if msg.Width <= 0 || msg.Height <= 0 {
+			return m, tea.Batch(cmds...) // ignore a degenerate early size — stay "starting…"
+		}
 		m.w, m.h = msg.Width, msg.Height
 		m.resizeViewports()
 		m.refresh()
@@ -271,8 +275,9 @@ func (m *Model) resizeViewports() {
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
 	set(&m.vpCC, ld.ccW, ld.botH)
-	// the extras card is title-less, so its body gets one more row (h-2, not h-3)
-	if ew, eh := ld.extrasW-4, ld.dmgH-2; !m.ready {
+	// the extras card is title-less, so its body gets one more row (h-2, not h-3);
+	// clamp to 0 when there's no side column (narrow terminal).
+	if ew, eh := max(ld.extrasW-4, 0), max(ld.dmgH-2, 0); !m.ready {
 		m.vpExtras = viewport.New(ew, eh)
 	} else {
 		m.vpExtras.Width, m.vpExtras.Height = ew, eh
@@ -365,7 +370,10 @@ func (m Model) View() string {
 			bannerBits = append(bannerBits, th.fg(th.accent).Render("◆ "+z))
 		}
 	}
-	banner := strings.Join(bannerBits, th.fg(th.dim).Render("  ·  "))
+	innerW := m.w - 2 // content width inside the outer Padding(1,1)
+	// clip to width so a long banner can't wrap (lipgloss wraps, not clips, which
+	// looks "scrunched") — MaxWidth truncates ANSI-safely.
+	banner := lipgloss.NewStyle().MaxWidth(innerW).Render(strings.Join(bannerBits, th.fg(th.dim).Render("  ·  ")))
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		card(th, ld.leftW, ld.nowH, "Now", nowBox(th, m.character, m.tracker, ld.leftW-4)),
@@ -391,14 +399,17 @@ func (m Model) View() string {
 			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
 	}
 	// top-right: the dealer meter beside its Specials / Avoidance side column.
-	// The side card has no title — its SPECIALS / AVOIDANCE section headers label it.
-	topRight := lipgloss.JoinHorizontal(lipgloss.Top,
-		card(th, ld.dmgW, ld.dmgH, dmgTitle, m.vpDamage.View()), " ",
-		card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))
+	// The side card has no title — its SPECIALS / AVOIDANCE section headers label
+	// it. On a narrow terminal there's no side column; the meter takes the width.
+	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle, m.vpDamage.View())
+	if ld.extrasW > 0 {
+		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
+			topRight, " ", card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))
+	}
 	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-	footer := th.fg(th.dim).Render("[t] theme   [↑↓] select fight   [wheel] scroll panel   [end] live   [q] quit")
+	footer := th.fg(th.dim).Render(truncate("[t] theme   [↑↓] select fight   [wheel] scroll panel   [end] live   [q] quit", innerW))
 
 	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, footer)
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
