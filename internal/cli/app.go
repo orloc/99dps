@@ -209,7 +209,9 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	}
 
 	a.mu.Lock()
-	a.timerScrollY = clampScroll(a.timerScrollY, strings.Count(str, "\n"), a.viewInnerHeight(viewTimers))
+	// line count = newlines + 1 (stackPanel joins without a trailing newline, so
+	// counting only "\n" is one short and clips the last buff from the scroll range).
+	a.timerScrollY = clampScroll(a.timerScrollY, strings.Count(str, "\n")+1, a.viewInnerHeight(viewTimers))
 	sy := a.timerScrollY
 	a.mu.Unlock()
 
