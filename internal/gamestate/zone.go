@@ -3,8 +3,6 @@ package gamestate
 import (
 	"sort"
 	"strings"
-
-	"99dps/internal/common"
 )
 
 // respawnKeepUpSec keeps a repopped mob listed (shown as "up") this long after
@@ -59,7 +57,7 @@ func (z *zoneTracker) observeLocked(body string, at int64) {
 		zn = strings.TrimSuffix(zn, ".")
 		if zn != z.name {
 			z.name = zn
-			z.respawnSec, _ = common.ZoneRespawn(zn)
+			z.respawnSec, _ = ZoneRespawn(zn)
 			z.respawns = nil // left the zone — old repops are moot
 			z.xpKills, z.deaths, z.firstKillAt = 0, 0, 0
 		}
