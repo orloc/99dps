@@ -64,7 +64,7 @@ func (s *Spell) DurationSeconds(level int) int {
 	case 5:
 		ticks = dc
 		if ticks == 0 {
-			ticks = 3
+			ticks = 1
 		}
 	case 7:
 		ticks = min(level, dc)
@@ -87,7 +87,14 @@ func (s *Spell) DurationSeconds(level int) int {
 	default:
 		ticks = dc
 	}
-	return ticks * 6
+	if ticks <= 0 {
+		return 0
+	}
+	// EQ grants a buff the remainder of the server tick it's cast in, so the
+	// in-game duration runs one tick longer than the raw formula — e.g. a cap-14
+	// debuff like Curse of the Spirits lasts 15 ticks (1:30), not 14 (1:24). Add
+	// that tick so the countdown matches the in-game buff window.
+	return (ticks + 1) * 6
 }
 
 func ceilDiv(a, b int) int { return (a + b - 1) / b }

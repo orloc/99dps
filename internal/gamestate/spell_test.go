@@ -47,13 +47,14 @@ func TestDecodeAndDuration(t *testing.T) {
 	if s.CastTimeMs != 6100 || s.DurFormula != 1 || s.DurCap != 7 || !s.Detrimental {
 		t.Fatalf("decoded wrong: %+v", s)
 	}
-	// formula 1: min(ceil(level/2), cap=7) ticks * 6s. At level 43: ceil(21.5)=22 -> capped 7 -> 42s.
-	if got := s.DurationSeconds(43); got != 42 {
-		t.Errorf("duration@43 = %d, want 42", got)
+	// formula 1: (min(ceil(level/2), cap=7) + 1 cast-tick) * 6s. At level 43:
+	// ceil(21.5)=22 -> capped 7 -> +1 -> 8 ticks -> 48s.
+	if got := s.DurationSeconds(43); got != 48 {
+		t.Errorf("duration@43 = %d, want 48", got)
 	}
-	// at a low level the formula (not the cap) governs: level 8 -> ceil(4)=4 -> 24s.
-	if got := s.DurationSeconds(8); got != 24 {
-		t.Errorf("duration@8 = %d, want 24", got)
+	// at a low level the formula (not the cap) governs: level 8 -> ceil(4)=4 -> +1 -> 5 ticks -> 30s.
+	if got := s.DurationSeconds(8); got != 30 {
+		t.Errorf("duration@8 = %d, want 30", got)
 	}
 }
 
@@ -72,8 +73,8 @@ func TestTracker_LandThenExpireOnSlain(t *testing.T) {
 	if act[0].Spell != "Envenomed Bolt" || act[0].Target != "a sand giant" {
 		t.Errorf("timer = %+v", act[0])
 	}
-	if act[0].Expiry != 1008+42 {
-		t.Errorf("expiry = %d, want %d", act[0].Expiry, 1008+42)
+	if act[0].Expiry != 1008+48 {
+		t.Errorf("expiry = %d, want %d", act[0].Expiry, 1008+48)
 	}
 
 	// the mob dies -> debuff timer drops
@@ -126,24 +127,31 @@ func TestTracker_DoubledPeriodEmoteMatches(t *testing.T) {
 // Duration formula spot-checks against known EQ values (Bedlam-style formula 8,
 // Snare-style formula 2, Spirit-of-Wolf-style formula 3).
 func TestDurationFormulas(t *testing.T) {
+	// each = (min(formula, cap) + 1 cast-tick) * 6s
 	f8 := &Spell{DurFormula: 8, DurCap: 75} // Bedlam
-	if got := f8.DurationSeconds(60); got != 420 {
-		t.Errorf("formula 8 @60 = %d, want 420 (min(70,75)*6)", got)
+	if got := f8.DurationSeconds(60); got != 426 {
+		t.Errorf("formula 8 @60 = %d, want 426 ((min(70,75)+1)*6)", got)
 	}
-	if got := f8.DurationSeconds(30); got != 240 {
-		t.Errorf("formula 8 @30 = %d, want 240 (min(40,75)*6)", got)
+	if got := f8.DurationSeconds(30); got != 246 {
+		t.Errorf("formula 8 @30 = %d, want 246 ((min(40,75)+1)*6)", got)
 	}
 	f2 := &Spell{DurFormula: 2, DurCap: 39} // Snare
-	if got := f2.DurationSeconds(50); got != 180 {
-		t.Errorf("formula 2 @50 = %d, want 180 (min(ceil(30),39)*6)", got)
+	if got := f2.DurationSeconds(50); got != 186 {
+		t.Errorf("formula 2 @50 = %d, want 186 ((min(ceil(30),39)+1)*6)", got)
 	}
 	f3 := &Spell{DurFormula: 3, DurCap: 360} // Spirit of Wolf
-	if got := f3.DurationSeconds(50); got != 2160 {
-		t.Errorf("formula 3 @50 = %d, want 2160 (min(1500,360)*6)", got)
+	if got := f3.DurationSeconds(50); got != 2166 {
+		t.Errorf("formula 3 @50 = %d, want 2166 ((min(1500,360)+1)*6)", got)
 	}
-	f0 := &Spell{DurFormula: 0} // nuke — no timer
+	f0 := &Spell{DurFormula: 0} // nuke — no timer (no cast-tick added)
 	if got := f0.DurationSeconds(60); got != 0 {
 		t.Errorf("formula 0 = %d, want 0", got)
+	}
+	// Curse of the Spirits (formula 1, cap 14): observed in game as 1:30 = 90s =
+	// 15 ticks at any level >= 28 — the cast-tick is what makes it 15, not 14.
+	curse := &Spell{DurFormula: 1, DurCap: 14}
+	if got := curse.DurationSeconds(60); got != 90 {
+		t.Errorf("Curse of the Spirits @60 = %d, want 90 (1:30)", got)
 	}
 }
 
@@ -159,17 +167,17 @@ func TestTracker_SetLevelRecomputesTimers(t *testing.T) {
 		fGoodEffect: "1",
 	})))
 
-	// no SetLevel yet → fallback level 60 → 70 ticks = 420s
+	// no SetLevel yet → fallback level 60 → min(70,75)=70 +1 cast-tick = 71 ticks = 426s
 	tr.BeginCast("Mind Buff", 1000)
 	tr.Observe("You feel sharper.", 1004)
-	if act := tr.Active(1010); len(act) != 1 || act[0].Expiry != 1004+420 {
-		t.Fatalf("fallback expiry = %+v, want %d", act, 1004+420)
+	if act := tr.Active(1010); len(act) != 1 || act[0].Expiry != 1004+426 {
+		t.Fatalf("fallback expiry = %+v, want %d", act, 1004+426)
 	}
 
-	// /who reveals level 30 → recompute: min(40,75)=40 ticks = 240s
+	// /who reveals level 30 → recompute: min(40,75)=40 +1 = 41 ticks = 246s
 	tr.SetLevel(30)
-	if act := tr.Active(1010); len(act) != 1 || act[0].Expiry != 1004+240 {
-		t.Errorf("after SetLevel(30) expiry = %+v, want %d", act, 1004+240)
+	if act := tr.Active(1010); len(act) != 1 || act[0].Expiry != 1004+246 {
+		t.Errorf("after SetLevel(30) expiry = %+v, want %d", act, 1004+246)
 	}
 }
 
@@ -251,12 +259,12 @@ func TestTracker_ExpiresOnTimeout(t *testing.T) {
 	tr := NewTracker(loadBook(t, envenomedBolt()))
 	tr.SetLevel(43)
 	tr.BeginCast("Envenomed Bolt", 1000)
-	tr.Observe("a sand giant's body convulses with the poison.", 1008) // expiry 1050
-	if act := tr.Active(1049); len(act) != 1 {
-		t.Errorf("should still be active at 1049, got %d", len(act))
+	tr.Observe("a sand giant's body convulses with the poison.", 1008) // 8 ticks → expiry 1056
+	if act := tr.Active(1055); len(act) != 1 {
+		t.Errorf("should still be active at 1055, got %d", len(act))
 	}
-	if act := tr.Active(1051); len(act) != 0 {
-		t.Errorf("should be expired at 1051, got %d", len(act))
+	if act := tr.Active(1057); len(act) != 0 {
+		t.Errorf("should be expired at 1057, got %d", len(act))
 	}
 }
 
@@ -278,8 +286,8 @@ func TestSelfClickyTimer(t *testing.T) {
 	if len(act) != 1 || act[0].Spell != "JourneymanBoots" || act[0].Target != "You" {
 		t.Fatalf("clicky should start a self timer, got %+v", act)
 	}
-	if rem := act[0].Expiry - 1000; rem != 1080 { // formula 3 capped at 180 ticks = 18 min
-		t.Errorf("duration = %d, want 1080", rem)
+	if rem := act[0].Expiry - 1000; rem != 1086 { // formula 3 capped at 180 +1 cast-tick = 181 ticks
+		t.Errorf("duration = %d, want 1086", rem)
 	}
 
 	tr.Observe("Your feet slow down.", 1100)
