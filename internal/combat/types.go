@@ -45,6 +45,27 @@ type SkillStat struct {
 	Hits  int
 }
 
+// SpecialStat tallies one dealer's use of one special-attack kind
+// (backstab/bash/kick): the damage it dealt, how many landed, and how many
+// missed — enough for a per-kind damage, share, and hit-rate breakdown. Only
+// outright misses count against accuracy (dodge/parry/block are the defender's
+// doing, matching SwingStats/offense semantics).
+type SpecialStat struct {
+	Total  int
+	Hits   int
+	Misses int
+}
+
+// HitRate is landed specials as a percentage of hit+miss attempts, or -1 when
+// no accuracy-bearing attempt was seen.
+func (s SpecialStat) HitRate() int {
+	a := s.Hits + s.Misses
+	if a == 0 {
+		return -1
+	}
+	return s.Hits * 100 / a
+}
+
 // EventKind classifies a non-damage combat event used for session bookkeeping.
 type EventKind int
 
@@ -93,6 +114,7 @@ type Swing struct {
 	ActionTime int64
 	Attacker   string
 	Defender   string
+	Verb       string // the attempted verb (e.g. "backstab"), for per-skill accuracy
 	Outcome    SwingOutcome
 }
 

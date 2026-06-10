@@ -350,26 +350,56 @@ func pct(n, total int) int {
 	return n * 100 / total
 }
 
-// damageSpecials lists dealers who landed activated skills (backstab/bash/kick):
-// that damage, its share of their total, and the hit count. A labelled header
-// row explains the columns. "" when nobody used a special.
-func damageSpecials(th theme, stats []combat.DamageStat, w int) string {
+// damageSpecials breaks activated skills (backstab/bash/kick) out per dealer and
+// then per kind: each kind's damage, its share of that dealer's total, the hit
+// count, and the hit rate. A labelled header explains the columns. "" when
+// nobody used a special.
+func damageSpecials(th theme, cur *session.CombatSession, stats []combat.DamageStat, w int) string {
 	var b strings.Builder
 	for _, v := range stats {
-		if v.SpecialHits == 0 {
+		sp := cur.SpecialsFor(v.Dealer)
+		if len(sp) == 0 {
 			continue
 		}
 		if b.Len() == 0 {
 			b.WriteString(sectionHead(th, "Specials · backstab/bash/kick", w) + "\n")
-			// Dmg = special damage; Share = its % of that dealer's total; Hits = count
-			b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-14s %7s %5s %5s",
-				"Dealer", "Dmg", "Share", "Hits")) + "\n")
+			// Dmg = the kind's damage; Share = % of the dealer's total; Hits = landed;
+			// Hit% = landed / (landed + missed).
+			b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-10s %7s %5s %5s %5s",
+				"Skill", "Dmg", "Share", "Hits", "Hit%")) + "\n")
 		}
-		b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-14s %7s %4d%% %5d",
-			truncate(displayName(v.Dealer), 14), humanize(v.SpecialTotal),
-			pct(v.SpecialTotal, v.Total), v.SpecialHits)) + "\n")
+		nameStyle := th.fg(th.text).Bold(true)
+		if strings.EqualFold(v.Dealer, "you") {
+			nameStyle = nameStyle.Foreground(lipgloss.Color(th.accent))
+		}
+		b.WriteString(nameStyle.Render(truncate(displayName(v.Dealer), w)) + "\n")
+		for _, kind := range specialKindsByDamage(sp) {
+			s := sp[kind]
+			hr := "-"
+			if r := s.HitRate(); r >= 0 {
+				hr = fmt.Sprintf("%d%%", r)
+			}
+			b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-10s %7s %4d%% %5d %5s",
+				kind, humanize(s.Total), pct(s.Total, v.Total), s.Hits, hr)) + "\n")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// specialKindsByDamage orders a dealer's special kinds by damage, descending
+// (name as a stable tiebreak).
+func specialKindsByDamage(sp map[string]combat.SpecialStat) []string {
+	kinds := make([]string, 0, len(sp))
+	for k := range sp {
+		kinds = append(kinds, k)
+	}
+	sort.SliceStable(kinds, func(i, j int) bool {
+		if sp[kinds[i]].Total != sp[kinds[j]].Total {
+			return sp[kinds[i]].Total > sp[kinds[j]].Total
+		}
+		return kinds[i] < kinds[j]
+	})
+	return kinds
 }
 
 // damageAvoidance is the per-combatant defensive table: a fully-labelled form

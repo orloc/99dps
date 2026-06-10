@@ -30,8 +30,12 @@ func sampleManager() *session.SessionManager {
 	for _, r := range rows {
 		sm.Apply(&combat.DamageSet{ActionTime: r.at, Dealer: r.dealer, Dmg: r.dmg, Target: "a sand giant"})
 	}
-	// a backstab so the Specials section has content (and its overflow is tested)
+	// specials so the Specials breakdown has content (per dealer, per kind, with a
+	// hit rate) — also exercised by the overflow guard.
 	sm.Apply(&combat.DamageSet{ActionTime: 1040, Dealer: "Borric", Dmg: 5_000, Target: "a sand giant", Verb: "backstab"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1041, Dealer: "You", Dmg: 1_400, Target: "a sand giant", Verb: "kick"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1042, Dealer: "You", Dmg: 1_200, Target: "a sand giant", Verb: "kick"})
+	sm.ApplySwing(&combat.Swing{ActionTime: 1043, Attacker: "You", Defender: "a sand giant", Verb: "kick", Outcome: combat.OutcomeMiss})
 	return sm
 }
 
@@ -294,6 +298,14 @@ func TestWriteShots(t *testing.T) {
 	trMob.Observe("You have slain a young kodiak!", now-382)             // ~18s → red
 	trMob.Observe("a fippy darkpaw has been slain by Sue!", now-410)     // UP → green
 	if err := os.WriteFile("/tmp/tui-mob.ansi", []byte(renderAtTr(sampleManager(), trMob, 0, 108, 34)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// plain-text dump of just the damage panel content, to eyeball the columns
+	var dm tea.Model = New(sampleManager(), nil, "Kelkix")
+	dm, _ = dm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	dmm := dm.(Model)
+	if err := os.WriteFile("/tmp/tui-damage.txt", []byte(dmm.damageContent(dmm.sessions[dmm.effectiveSel()], true, 80)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

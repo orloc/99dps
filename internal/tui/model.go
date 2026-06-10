@@ -503,7 +503,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	}
 
 	body := strings.TrimRight(b.String(), "\n")
-	if sp := damageSpecials(th, stats, width); sp != "" {
+	if sp := damageSpecials(th, cur, stats, width); sp != "" {
 		body += "\n\n" + sp
 	}
 	if av := damageAvoidance(th, cur, width); av != "" {

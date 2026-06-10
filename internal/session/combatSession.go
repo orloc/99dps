@@ -32,6 +32,12 @@ type CombatSession struct {
 	// player's skills are tracked (it's their own breakdown).
 	skills map[string]combat.SkillStat
 
+	// specials breaks every combatant's activated skills out per kind:
+	// specials[dealer][kind] (dealer = raw name; kind = Backstab/Bash/Kick). Landed
+	// hits + damage come from damage lines, misses from swing lines, so the Damage
+	// panel can show a per-dealer, per-kind damage / share / hit-rate breakdown.
+	specials map[string]map[string]combat.SpecialStat
+
 	// session bookkeeping from kill / xp / death lines.
 	kills   int // your killing blows
 	xpGains int // mobs you were credited xp for
@@ -74,9 +80,13 @@ func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 	val.Total += set.Dmg
 	val.LastTime = set.ActionTime
 	val.Hits++
-	if isSpecialVerb(set.Verb) {
+	if kind := specialKind(set.Verb); kind != "" {
 		val.SpecialTotal += set.Dmg
 		val.SpecialHits++
+		cs.addSpecialLocked(set.Dealer, kind, func(s *combat.SpecialStat) {
+			s.Total += set.Dmg
+			s.Hits++
+		})
 	}
 	// the player's own skill breakdown feeds the skills panel
 	if strings.EqualFold(set.Dealer, "You") {
@@ -93,14 +103,34 @@ func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 	cs.aggressors[indxRef] = val
 }
 
-// isSpecialVerb reports whether a verb is a universally-activated melee skill
-// (backstab/bash/kick) rather than an auto-attack — these feed the per-dealer
-// Specials tally for every combatant.
-func isSpecialVerb(verb string) bool {
-	v := strings.ToLower(verb)
-	return strings.HasPrefix(v, "backstab") ||
-		strings.HasPrefix(v, "bash") ||
-		strings.HasPrefix(v, "kick")
+// specialKind maps a verb to its canonical activated-skill kind
+// (Backstab/Bash/Kick) for any combatant, or "" for an auto-attack. These feed
+// the per-dealer Specials tally. (Unlike playerSkill, "strike"/"punch" aren't
+// universal specials, so they're not bucketed here.)
+func specialKind(verb string) string {
+	switch v := strings.ToLower(verb); {
+	case strings.HasPrefix(v, "backstab"):
+		return "Backstab"
+	case strings.HasPrefix(v, "bash"):
+		return "Bash"
+	case strings.HasPrefix(v, "kick"):
+		return "Kick"
+	}
+	return ""
+}
+
+// addSpecialLocked mutates the per-dealer, per-kind special tally in place,
+// lazily allocating the nested maps. Caller holds the write lock.
+func (cs *CombatSession) addSpecialLocked(dealer, kind string, fn func(*combat.SpecialStat)) {
+	if cs.specials == nil {
+		cs.specials = make(map[string]map[string]combat.SpecialStat)
+	}
+	if cs.specials[dealer] == nil {
+		cs.specials[dealer] = make(map[string]combat.SpecialStat)
+	}
+	s := cs.specials[dealer][kind]
+	fn(&s)
+	cs.specials[dealer][kind] = s
 }
 
 // playerSkill returns the skill bucket for one of the *player's* damage lines,
@@ -223,6 +253,13 @@ func (cs *CombatSession) Deaths() int {
 // Caller holds the write lock.
 func (cs *CombatSession) applySwingLocked(sw *combat.Swing) {
 	cs.recordOutcome(sw.Attacker, sw.Defender, sw.Outcome)
+	// a missed special counts against that kind's hit rate (only outright misses,
+	// matching offense accuracy — dodge/parry/block are the defender's doing).
+	if sw.Outcome == combat.OutcomeMiss && sw.Attacker != "" {
+		if kind := specialKind(sw.Verb); kind != "" {
+			cs.addSpecialLocked(sw.Attacker, kind, func(s *combat.SpecialStat) { s.Misses++ })
+		}
+	}
 }
 
 // recordOutcome tallies one swing. The defender faces every outcome; the
@@ -428,5 +465,28 @@ func (cs *CombatSession) snapshot() *CombatSession {
 		offense:    maps.Clone(cs.offense),
 		defense:    maps.Clone(cs.defense),
 		crits:      maps.Clone(cs.crits),
+		specials:   cloneSpecials(cs.specials),
 	}
+}
+
+// cloneSpecials deep-clones the nested specials map so a snapshot doesn't alias
+// the live inner maps (maps.Clone is shallow — the per-dealer maps would alias).
+func cloneSpecials(m map[string]map[string]combat.SpecialStat) map[string]map[string]combat.SpecialStat {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]map[string]combat.SpecialStat, len(m))
+	for dealer, kinds := range m {
+		out[dealer] = maps.Clone(kinds)
+	}
+	return out
+}
+
+// SpecialsFor returns a dealer's per-kind special-attack tallies (keyed by
+// Backstab/Bash/Kick), or nil. Safe to call on a snapshot (deep-cloned).
+func (cs *CombatSession) SpecialsFor(dealer string) map[string]combat.SpecialStat {
+	if cs == nil {
+		return nil
+	}
+	return cs.specials[dealer]
 }

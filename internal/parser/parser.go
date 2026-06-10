@@ -220,7 +220,7 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 // "You" uses "try to" instead of "tries to", hence the optional branch. The
 // verb itself is irrelevant here — the defender is whatever sits between the
 // verb and the comma, and the outcome is the tail.
-var swingPattern = regexp.MustCompile(`^(.+?) tr(?:y|ies) to \S+ (.+?), but (.+)$`)
+var swingPattern = regexp.MustCompile(`^(.+?) tr(?:y|ies) to (\S+) (.+?), but (.+)$`)
 
 // hasSwing is a cheap screen for swing-attempt lines before the regex runs.
 func (p *DmgParser) hasSwing(input string) bool {
@@ -243,15 +243,16 @@ func (p *DmgParser) parseSwing(input string) (*combat.Swing, error) {
 		return nil, fmt.Errorf("not a swing line: %q", input)
 	}
 
-	outcome, ok := classifyOutcome(m[3])
+	outcome, ok := classifyOutcome(m[4])
 	if !ok {
-		return nil, fmt.Errorf("unrecognised swing outcome: %q", m[3])
+		return nil, fmt.Errorf("unrecognised swing outcome: %q", m[4])
 	}
 
 	return &combat.Swing{
 		ActionTime: ts,
 		Attacker:   strings.TrimSpace(m[1]),
-		Defender:   normalizeName(strings.TrimSpace(m[2])),
+		Verb:       m[2],
+		Defender:   normalizeName(strings.TrimSpace(m[3])),
 		Outcome:    outcome,
 	}, nil
 }
