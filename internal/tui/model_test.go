@@ -177,6 +177,20 @@ func containsValue(m map[int]string, v string) bool {
 	return false
 }
 
+// TestTimerTimeNotClipped guards the fix for hour-plus timers: the countdown
+// must render in full (h:mm:ss) at a normal width and still survive a narrow
+// panel, where the bar and name yield but the time stays.
+func TestTimerTimeNotClipped(t *testing.T) {
+	now := int64(1000)
+	tm := gamestate.Timer{Spell: "Resist Magic", Target: "You", Start: now, Expiry: now + 3*3600 + 5} // 3:00:05
+	for _, w := range []int{40, 18, 10} {
+		line := timerLine(themes[0], tm, now, w, 7)
+		if !strings.Contains(line, "3:00:05") {
+			t.Errorf("w=%d: full time clipped: %q", w, line)
+		}
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

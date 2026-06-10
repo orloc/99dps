@@ -98,6 +98,25 @@ func bySoonest(ts []gamestate.Timer) {
 	sort.SliceStable(ts, func(i, j int) bool { return ts[i].Expiry < ts[j].Expiry })
 }
 
+// timeColW returns the width a right-aligned countdown column needs: the widest
+// remaining time among ts (floored at min), so an h:mm:ss entry over an hour
+// isn't clipped and all rows in the panel align.
+func timeColW(now int64, min int, tss ...[]gamestate.Timer) int {
+	w := min
+	for _, ts := range tss {
+		for _, tm := range ts {
+			rem := tm.Expiry - now
+			if rem < 0 {
+				rem = 0
+			}
+			if v := lipgloss.Width(mmss(rem)); v > w {
+				w = v
+			}
+		}
+	}
+	return w
+}
+
 // groupByTargetTimers buckets timers by who they're on, ordering the targets by
 // their soonest-to-expire timer (so the group about to drop floats up).
 func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []string) {
@@ -134,43 +153,50 @@ func urgencyColor(th theme, frac float64) string {
 }
 
 // timerLine is one buff/debuff: name + urgency-tinted countdown bar + remaining.
-func timerLine(th theme, tm gamestate.Timer, now int64, w int) string {
-	const nameW, timeW = 13, 6
-	barCells := w - nameW - timeW - 4
-	if barCells < 4 {
-		barCells = 4
-	}
+// The time column (width tw, sized by the caller to the panel's longest time) is
+// guaranteed to render in full even when the panel is narrow — the bar is
+// dropped first, then the name truncates, so the countdown is never clipped.
+func timerLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
 	total, rem := tm.Expiry-tm.Start, tm.Expiry-now
 	if rem < 0 {
 		rem = 0
+	}
+	timeStr := mmss(rem)
+	if v := lipgloss.Width(timeStr); v > tw {
+		tw = v
 	}
 	frac := 1.0
 	if total > 0 {
 		frac = float64(rem) / float64(total)
 	}
 	col := urgencyColor(th, frac)
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW)), " ",
-		gradientBar(frac, barCells, col, col, th.track), " ",
-		rightCell(mmss(rem), timeW, th.dim))
+
+	const nameMax = 13
+	body := w - tw - 1 // room left of the time and its leading space
+	if body < 1 {
+		return rightCell(timeStr, w, th.dim) // too narrow for anything but the time
+	}
+	nameW := min(nameMax, body)
+	barCells := body - nameW - 1
+	name := th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW))
+	mid := strings.Repeat(" ", body-nameW) // no bar: pad so the time stays aligned
+	if barCells >= 4 {
+		mid = " " + gradientBar(frac, barCells, col, col, th.track)
+	}
+	return name + mid + " " + rightCell(timeStr, tw, th.dim)
 }
 
 // ccLine is one crowd-control entry: mez (M, breaks on damage) or charm (⊗).
 // When hovered it reserves room for a trailing ✕ and tints the name, signalling
 // it's clickable to dismiss.
-func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool) string {
-	const nameW, timeW = 12, 6
-	reserve := 0
-	if hovered {
-		reserve = 2 // " ✕"
-	}
-	barCells := w - nameW - timeW - 6 - reserve
-	if barCells < 4 {
-		barCells = 4
-	}
+func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool, tw int) string {
 	rem := tm.Expiry - now
 	if rem < 0 {
 		rem = 0
+	}
+	timeStr := mmss(rem)
+	if v := lipgloss.Width(timeStr); v > tw {
+		tw = v
 	}
 	label, col := "M", "#e0564e"
 	if tm.Charm {
@@ -185,15 +211,29 @@ func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool) string
 	if hovered {
 		nameStyle = th.fg(th.accent).Bold(true)
 	}
-	row := lipgloss.JoinHorizontal(lipgloss.Top,
-		th.fg(col).Bold(true).Render(label), " ",
-		nameStyle.Width(nameW).Render(truncate(displayName(tm.Target), nameW)), " ",
-		gradientBar(frac, barCells, col, col, th.track), " ",
-		rightCell(mmss(rem), timeW, th.dim))
+	xtra := 0
 	if hovered {
-		row += th.fg("#e0564e").Bold(true).Render(" ✕")
+		xtra = 2 // trailing " ✕"
 	}
-	return row
+	prefix := th.fg(col).Bold(true).Render(label) + " "
+	suffix := ""
+	if hovered {
+		suffix = th.fg("#e0564e").Bold(true).Render(" ✕")
+	}
+
+	const nameMax = 12
+	body := w - 2 - 1 - tw - xtra // minus label+space, the time's leading space, time, ✕
+	if body < 1 {
+		return prefix + rightCell(timeStr, max(w-2, 1), th.dim) + suffix
+	}
+	nameW := min(nameMax, body)
+	barCells := body - nameW - 1
+	name := nameStyle.Width(nameW).Render(truncate(displayName(tm.Target), nameW))
+	mid := strings.Repeat(" ", body-nameW)
+	if barCells >= 4 {
+		mid = " " + gradientBar(frac, barCells, col, col, th.track)
+	}
+	return prefix + name + mid + " " + rightCell(timeStr, tw, th.dim) + suffix
 }
 
 // targetHeader renders a buff/debuff group's target name. When hovered it
@@ -228,6 +268,8 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 	if !ccInline {
 		cc = nil
 	}
+	// size the time column to the panel's longest remaining time (covers h:mm:ss)
+	tw := timeColW(now, 4, cc, rest)
 	var lines []string
 	targets := map[int]string{}
 	if len(cc) > 0 {
@@ -235,7 +277,7 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
 		for _, tm := range cc {
 			targets[len(lines)] = tm.Target
-			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover))
+			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 		}
 		if len(rest) > 0 {
 			lines = append(lines, "")
@@ -258,7 +300,7 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 		bySoonest(g)
 		for _, tm := range g {
 			targets[len(lines)] = tgt
-			lines = append(lines, "  "+timerLine(th, tm, now, w-2))
+			lines = append(lines, "  "+timerLine(th, tm, now, w-2, tw))
 		}
 	}
 	return strings.Join(lines, "\n"), targets
@@ -276,11 +318,12 @@ func ccBody(th theme, tr *gamestate.Tracker, w int, hover string) (string, map[i
 		return th.fg(th.dim).Render("No crowd control."), nil
 	}
 	bySoonest(cc)
+	tw := timeColW(now, 4, cc)
 	var lines []string
 	targets := map[int]string{}
 	for _, tm := range cc {
 		targets[len(lines)] = tm.Target
-		lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover))
+		lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 	}
 	return strings.Join(lines, "\n"), targets
 }
@@ -294,8 +337,17 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int) string {
 	if len(rs) == 0 {
 		return th.fg(th.dim).Render("No kills tracked yet.")
 	}
-	const timeW = 6
-	mobW := w - timeW - 1
+	// size the time column to the widest entry ("UP" or m:ss / h:mm:ss) so long
+	// repop timers aren't clipped; the mob name yields, the time always shows.
+	timeW := 2 // "UP"
+	for _, r := range rs {
+		if r.Remaining > 0 {
+			if v := lipgloss.Width(mmss(r.Remaining)); v > timeW {
+				timeW = v
+			}
+		}
+	}
+	mobW := max(w-timeW-1, 1)
 	var lines []string
 	for _, r := range rs {
 		when, whenCol := mmss(r.Remaining), th.dim
@@ -306,9 +358,8 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int) string {
 		if !r.Mine {
 			nameCol = th.dim
 		}
-		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top,
-			th.fg(nameCol).Width(mobW).Render(truncate(r.Mob, mobW)), " ",
-			rightCell(when, timeW, whenCol)))
+		lines = append(lines, th.fg(nameCol).Width(mobW).Render(truncate(r.Mob, mobW))+" "+
+			rightCell(when, timeW, whenCol))
 	}
 	return strings.Join(lines, "\n")
 }
