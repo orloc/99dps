@@ -47,7 +47,7 @@ func renderDamage(cur *session.CombatSession, live bool, width int) string {
 
 	// session-span seconds, shared by every dealer's DPS so the rows are
 	// comparable contributions to the same fight
-	span := cur.LastTime - cur.StartTime().Unix()
+	span := cur.LastUnix() - cur.StartTime().Unix()
 	if span < 1 {
 		span = 1
 	}

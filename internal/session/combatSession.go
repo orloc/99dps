@@ -11,7 +11,7 @@ import (
 type CombatSession struct {
 	start      time.Time
 	end        time.Time
-	LastTime   int64
+	lastTime   int64
 	aggressors map[string]common.DamageStat
 	// offense is keyed by attacker (raw name, matching DamageSet.Dealer) and
 	// only counts hits and misses — an attacker's accuracy. Defensive outcomes
@@ -52,7 +52,7 @@ type Defender struct {
 // adjustDamageLocked applies one event. Caller must hold the SessionManager
 // write lock.
 func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
-	cs.LastTime = set.ActionTime
+	cs.lastTime = set.ActionTime
 
 	// a landed damage line is also a connecting swing
 	cs.recordOutcome(set.Dealer, set.Target, common.OutcomeHit)
@@ -158,7 +158,7 @@ func (cs *CombatSession) applyMagicLocked(m *common.Magic) {
 		return // incoming spell damage on the player isn't enemy magic
 	}
 	cs.magicTotal += m.Dmg
-	cs.LastTime = m.ActionTime // spell damage counts toward the DPS span
+	cs.lastTime = m.ActionTime // spell damage counts toward the DPS span
 
 	// fold the target in so Name() can title a pure-spell fight (a wizard nuke or
 	// DoT-only kill) by the mob taking the damage, not fall through to "Solo".
@@ -351,12 +351,22 @@ func (cs *CombatSession) EndTime() time.Time {
 	return cs.end
 }
 
-// Duration is the elapsed time from the session's first to last recorded hit.
-func (cs *CombatSession) Duration() time.Duration {
-	if cs == nil || cs.LastTime == 0 {
+// LastUnix is the ActionTime (unix seconds) of the most recent recorded
+// exchange, or 0 if none. Replaces the formerly-exported LastTime field so
+// readers go through a method like every other CombatSession accessor.
+func (cs *CombatSession) LastUnix() int64 {
+	if cs == nil {
 		return 0
 	}
-	d := time.Unix(cs.LastTime, 0).Sub(cs.start)
+	return cs.lastTime
+}
+
+// Duration is the elapsed time from the session's first to last recorded hit.
+func (cs *CombatSession) Duration() time.Duration {
+	if cs == nil || cs.lastTime == 0 {
+		return 0
+	}
+	d := time.Unix(cs.lastTime, 0).Sub(cs.start)
 	if d < 0 {
 		return 0
 	}
@@ -407,7 +417,7 @@ func (cs *CombatSession) snapshot() *CombatSession {
 	return &CombatSession{
 		start:      cs.start,
 		end:        cs.end,
-		LastTime:   cs.LastTime,
+		lastTime:   cs.lastTime,
 		kills:      cs.kills,
 		xpGains:    cs.xpGains,
 		deaths:     cs.deaths,

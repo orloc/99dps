@@ -28,7 +28,7 @@ const (
 )
 
 type SessionManager struct {
-	Sessions      []*CombatSession
+	sessions      []*CombatSession
 	activeSession int
 	mu            sync.RWMutex
 
@@ -59,7 +59,7 @@ func (sm *SessionManager) ApplySwing(sw *common.Swing) {
 // rolling to a fresh one when combat has been quiet past the adaptive
 // threshold. Caller holds the write lock.
 func (sm *SessionManager) activeForLocked(actionTime int64) *CombatSession {
-	if len(sm.Sessions) == 0 {
+	if len(sm.sessions) == 0 {
 		return sm.openSessionLocked(actionTime)
 	}
 
@@ -69,7 +69,7 @@ func (sm *SessionManager) activeForLocked(actionTime int64) *CombatSession {
 		return sm.openSessionLocked(actionTime)
 	}
 
-	active := sm.Sessions[sm.activeSession]
+	active := sm.sessions[sm.activeSession]
 	gap := actionTime - sm.lastActivity
 	if gap < 0 {
 		gap = 0 // out-of-order or duplicate log timestamps
@@ -103,11 +103,11 @@ func (sm *SessionManager) closeThresholdLocked() int64 {
 func (sm *SessionManager) openSessionLocked(actionTime int64) *CombatSession {
 	cs := &CombatSession{
 		start:      time.Unix(actionTime, 0),
-		LastTime:   actionTime,
+		lastTime:   actionTime,
 		aggressors: make(map[string]common.DamageStat),
 	}
-	sm.Sessions = append(sm.Sessions, cs)
-	sm.activeSession = len(sm.Sessions) - 1
+	sm.sessions = append(sm.sessions, cs)
+	sm.activeSession = len(sm.sessions) - 1
 	sm.lastActivity = actionTime
 	sm.pulse = segPulseSeed
 	return cs
@@ -118,10 +118,10 @@ func (sm *SessionManager) ApplyCrit(cr *common.Crit) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if len(sm.Sessions) == 0 {
+	if len(sm.sessions) == 0 {
 		return
 	}
-	sm.Sessions[sm.activeSession].applyCritLocked(cr)
+	sm.sessions[sm.activeSession].applyCritLocked(cr)
 }
 
 // ApplyEvent folds a kill / xp line into the active session. Death, zoning, and
@@ -131,10 +131,10 @@ func (sm *SessionManager) ApplyEvent(e *common.Event) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if len(sm.Sessions) == 0 {
+	if len(sm.sessions) == 0 {
 		return
 	}
-	sm.Sessions[sm.activeSession].applyEventLocked(e)
+	sm.sessions[sm.activeSession].applyEventLocked(e)
 	if e.Kind == common.EventDeath || e.Kind == common.EventZone {
 		sm.endSessionLocked(e.ActionTime)
 	}
@@ -143,7 +143,7 @@ func (sm *SessionManager) ApplyEvent(e *common.Event) {
 // endSessionLocked marks the active fight ended (at the last activity) and
 // arms forceRoll so the next exchange opens a new session.
 func (sm *SessionManager) endSessionLocked(at int64) {
-	s := sm.Sessions[sm.activeSession]
+	s := sm.sessions[sm.activeSession]
 	if s.end.IsZero() {
 		end := sm.lastActivity
 		if end == 0 {
@@ -168,21 +168,21 @@ func (sm *SessionManager) ApplyMagic(m *common.Magic) {
 func (sm *SessionManager) Current() *CombatSession {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	if len(sm.Sessions) == 0 {
+	if len(sm.sessions) == 0 {
 		return nil
 	}
-	return sm.Sessions[sm.activeSession].snapshot()
+	return sm.sessions[sm.activeSession].snapshot()
 }
 
 // All returns deep snapshots of every session.
 func (sm *SessionManager) All() []*CombatSession {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	if len(sm.Sessions) == 0 {
+	if len(sm.sessions) == 0 {
 		return nil
 	}
-	out := make([]*CombatSession, len(sm.Sessions))
-	for i, s := range sm.Sessions {
+	out := make([]*CombatSession, len(sm.sessions))
+	for i, s := range sm.sessions {
 		out[i] = s.snapshot()
 	}
 	return out
@@ -192,13 +192,13 @@ func (sm *SessionManager) All() []*CombatSession {
 func (sm *SessionManager) Len() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return len(sm.Sessions)
+	return len(sm.sessions)
 }
 
 func (sm *SessionManager) Clear() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	sm.Sessions = nil
+	sm.sessions = nil
 	sm.activeSession = 0
 	sm.lastActivity = 0
 	sm.pulse = 0

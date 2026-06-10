@@ -40,7 +40,11 @@ func resolveLogDir(flagVal string) string {
 		return flagVal
 	}
 	if env := os.Getenv("EQ_LOG_DIR"); env != "" {
-		return env
+		if _, err := os.Stat(env); err == nil {
+			return env
+		}
+		// a stale/typo'd EQ_LOG_DIR falls through to detection rather than
+		// hard-exiting later when the directory can't be opened.
 	}
 	if saved := loader.SavedLogDir(); saved != "" {
 		if _, err := os.Stat(saved); err == nil {

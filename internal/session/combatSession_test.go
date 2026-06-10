@@ -59,7 +59,7 @@ func TestTopDealer(t *testing.T) {
 
 // Duration spans first to last hit; a zero/negative span clamps to 0.
 func TestDuration(t *testing.T) {
-	cs := &CombatSession{start: time.Unix(100, 0), LastTime: 130}
+	cs := &CombatSession{start: time.Unix(100, 0), lastTime: 130}
 	if d := cs.Duration(); d != 30*time.Second {
 		t.Errorf("Duration = %v, want 30s", d)
 	}
@@ -68,7 +68,7 @@ func TestDuration(t *testing.T) {
 		t.Errorf("unstarted Duration = %v, want 0", d)
 	}
 	// out-of-order timestamps must not yield a negative duration
-	neg := &CombatSession{start: time.Unix(200, 0), LastTime: 100}
+	neg := &CombatSession{start: time.Unix(200, 0), lastTime: 100}
 	if d := neg.Duration(); d != 0 {
 		t.Errorf("negative-span Duration = %v, want 0", d)
 	}

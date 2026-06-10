@@ -192,7 +192,7 @@ func TestApply_FirstHitDoesNotRollSession(t *testing.T) {
 	}
 	sm.Apply(set)
 
-	if got, want := len(sm.Sessions), 1; got != want {
+	if got, want := len(sm.sessions), 1; got != want {
 		t.Fatalf("expected %d session after first hit, got %d", want, got)
 	}
 
@@ -212,12 +212,12 @@ func TestApply_ThresholdRollsSessions(t *testing.T) {
 
 	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_000, Dealer: "Foo", Dmg: 1})
 	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_005, Dealer: "Foo", Dmg: 1}) // +5s, same session
-	if got := len(sm.Sessions); got != 1 {
+	if got := len(sm.sessions); got != 1 {
 		t.Fatalf("within-threshold hit opened a new session: got %d sessions", got)
 	}
 
 	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_100, Dealer: "Foo", Dmg: 1}) // +95s, new session
-	if got := len(sm.Sessions); got != 2 {
+	if got := len(sm.sessions); got != 2 {
 		t.Fatalf("past-threshold hit didn't roll: got %d sessions", got)
 	}
 }

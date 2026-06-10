@@ -521,9 +521,13 @@ func (a *App) initGui() {
 	// set layout
 	a.gui.SetManagerFunc(a.Layout)
 
-	// set keybindings — a failure here (bad key, duplicate binding) would leave
-	// a silently dead control, so treat it as fatal at startup like NewGui.
-	common.CheckErr(a.setKeybindings())
+	// set keybindings — a failure here (bad key, duplicate binding) is a
+	// programming error, fatal at startup. The gui already exists by now, so close
+	// it first to restore the terminal before exiting.
+	if err := a.setKeybindings(); err != nil {
+		a.gui.Close()
+		common.CheckErr(err)
+	}
 }
 
 // updateDamage / updateSessions / updateGraph are the gui-coupled wrappers: each
