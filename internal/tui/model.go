@@ -284,6 +284,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit // always quits, even mid-edit
+		}
 		// the repop editor captures keys while open (digits/colon, Enter, Esc).
 		if m.editing {
 			m.editKey(msg)
