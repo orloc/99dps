@@ -21,8 +21,14 @@ type Clicky struct {
 
 // clickyRegistry maps each class to the insta-clicky items its players use whose
 // landing isn't otherwise tracked. ADD YOUR ITEMS HERE (or at runtime with
-// RegisterClicky). The Message identifies the effect, so the match isn't gated
-// on the detected class — Class keying is just for organization.
+// RegisterClicky).
+//
+// The match is GATED ON THE DETECTED CLASS: only entries under the player's
+// current class are considered, so an ambiguous emote can resolve to a
+// different item per class. Entries under eqclass.ClassUnknown are the
+// "universal" bucket — class-agnostic items, checked for every class. (A
+// class-specific entry therefore only resolves once a /who reveals the class;
+// universal entries always work.)
 //
 // Example (verify the exact Message against your own log before trusting it):
 //
@@ -31,6 +37,9 @@ type Clicky struct {
 //	},
 //	eqclass.ClassShadowKnight: {
 //	    {Item: "Reaper of the Dead", Effect: "Lifedraw", Message: "...", Seconds: 90},
+//	},
+//	eqclass.ClassUnknown: { // usable by anyone, regardless of detected class
+//	    {Item: "Some Universal Clicky", Effect: "Some Buff", Message: "..."},
 //	},
 var clickyRegistry = map[eqclass.Class][]Clicky{}
 
@@ -41,33 +50,44 @@ func RegisterClicky(class eqclass.Class, c Clicky) {
 }
 
 // matchClickyLocked starts a self-buff timer when a registered clicky's message
-// appears. Caller holds the lock; only called when no cast was pending (a clicky
-// produces no "begin casting" line).
+// appears, gated on the detected class (class-specific entries first, then the
+// universal eqclass.ClassUnknown bucket). Caller holds the lock; only called
+// when no cast was pending (a clicky produces no "begin casting" line).
 func (t *Tracker) matchClickyLocked(body string, at int64) {
-	for _, list := range clickyRegistry {
-		for _, c := range list {
-			if c.Message == "" || body != c.Message {
-				continue
-			}
-			dur := c.Seconds
-			detrimental := false
-			if s, ok := t.book.ByName(c.Effect); ok {
-				if d := s.DurationSeconds(t.levelOrDefault()); d > 0 {
-					dur = d
-				}
-				detrimental = s.Detrimental
-			}
-			if dur <= 0 {
-				return // nothing to time (unknown effect, no fallback)
-			}
-			t.timers[key(c.Effect, "You")] = Timer{
-				Spell:       c.Effect,
-				Target:      "You",
-				Start:       at,
-				Expiry:      at + int64(dur),
-				Detrimental: detrimental,
-			}
-			return
-		}
+	if t.tryClickiesLocked(clickyRegistry[t.class], body, at) {
+		return
 	}
+	if t.class != eqclass.ClassUnknown {
+		t.tryClickiesLocked(clickyRegistry[eqclass.ClassUnknown], body, at)
+	}
+}
+
+// tryClickiesLocked starts the first clicky in list whose Message matches body;
+// reports whether one did.
+func (t *Tracker) tryClickiesLocked(list []Clicky, body string, at int64) bool {
+	for _, c := range list {
+		if c.Message == "" || body != c.Message {
+			continue
+		}
+		dur := c.Seconds
+		detrimental := false
+		if s, ok := t.book.ByName(c.Effect); ok {
+			if d := s.DurationSeconds(t.levelOrDefault()); d > 0 {
+				dur = d
+			}
+			detrimental = s.Detrimental
+		}
+		if dur <= 0 {
+			return false // nothing to time (unknown effect, no fallback)
+		}
+		t.timers[key(c.Effect, "You")] = Timer{
+			Spell:       c.Effect,
+			Target:      "You",
+			Start:       at,
+			Expiry:      at + int64(dur),
+			Detrimental: detrimental,
+		}
+		return true
+	}
+	return false
 }
