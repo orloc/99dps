@@ -263,6 +263,27 @@ func TestResistBadgeRendered(t *testing.T) {
 	}
 }
 
+// TestSwitchCharacter verifies a hot-swap message updates the banner name and
+// resets the selection (the watcher clears the shared manager/tracker).
+func TestSwitchCharacter(t *testing.T) {
+	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
+	mm := m.(Model)
+	mm.selected, mm.follow = 1, false // pretend the user pinned an old fight
+
+	m2, _ := mm.Update(switchMsg{character: "Kelkas"})
+	mm2 := m2.(Model)
+	if mm2.character != "Kelkas" {
+		t.Errorf("character = %q, want Kelkas", mm2.character)
+	}
+	if !mm2.follow || mm2.selected != 0 {
+		t.Errorf("switch should reset selection (follow=%v selected=%d)", mm2.follow, mm2.selected)
+	}
+	if !strings.Contains(mm2.View(), "Kelkas") {
+		t.Error("banner should show the new character after a switch")
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

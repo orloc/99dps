@@ -20,6 +20,12 @@ import (
 
 type tickMsg time.Time
 
+// switchMsg tells the UI a different character's log is now active (sent by the
+// log watcher when you switch characters in-game). The session manager and
+// tracker are shared pointers already cleared/rebuilt by the watcher, so the
+// model only needs the new name and to reset its selection.
+type switchMsg struct{ character string }
+
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
@@ -250,6 +256,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildInteractive(cur)
 		}
 		return m, tea.Batch(cmds...)
+	case switchMsg:
+		m.character = msg.character
+		m.selected, m.follow, m.hover = 0, true, ""
+		m.refresh()
 	case tickMsg:
 		m.refresh()
 		cmds = append(cmds, tick())
@@ -603,9 +613,24 @@ func (m Model) extrasContent(cur *session.CombatSession, width int) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// Run launches the Bubble Tea program; blocks until the user quits.
-func Run(sm *session.SessionManager, tracker *gamestate.Tracker, character string) error {
-	_, err := tea.NewProgram(New(sm, tracker, character),
-		tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+// Program wraps the Bubble Tea program so the host can push in a character
+// switch (detected by the log watcher) while the UI is running.
+type Program struct{ p *tea.Program }
+
+// NewProgram builds the program over the shared manager + tracker.
+func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character string) *Program {
+	return &Program{p: tea.NewProgram(New(sm, tracker, character),
+		tea.WithAltScreen(), tea.WithMouseCellMotion())}
+}
+
+// Run launches the UI; blocks until the user quits.
+func (pr *Program) Run() error {
+	_, err := pr.p.Run()
 	return err
+}
+
+// SwitchCharacter notifies the running UI that a different character's log is now
+// active. Safe to call from another goroutine. No-op once the program has quit.
+func (pr *Program) SwitchCharacter(name string) {
+	pr.p.Send(switchMsg{character: name})
 }

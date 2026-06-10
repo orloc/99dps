@@ -31,20 +31,32 @@ func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
 	return tracker, fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
 }
 
-// launchTUI runs the experimental Bubble Tea UI (Phase 0: live Damage panel).
-// It shares the parser pipeline with launchCLI but renders via internal/tui.
-// Hot-swap on character switch is deferred to a later phase, so no watcher here.
+// launchTUI runs the Bubble Tea UI. It shares the parser pipeline and the
+// character hot-swap watcher with launchCLI, rendering via internal/tui.
 func launchTUI(logDir, spellsPath string) {
 	src := loader.LoadFile(logDir)
 	sm := &session.SessionManager{}
 	tracker, _ := loadTracker(spellsPath, logDir)
 
-	ctrl := &logController{dir: logDir, sm: sm, cur: src, tracker: tracker}
+	prog := tui.NewProgram(sm, tracker, src.Character)
+	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
 	ctrl.startParse(src)
 
-	if err := tui.Run(sm, tracker, src.Character); err != nil {
+	// watch for the active eqlog changing (a character switch in-game) and
+	// hot-swap, just like launchCLI.
+	stop := make(chan struct{})
+	var bg sync.WaitGroup
+	bg.Add(1)
+	go func() {
+		defer bg.Done()
+		ctrl.watch(stop)
+	}()
+
+	if err := prog.Run(); err != nil { // blocks until the user quits
 		log.Print(err)
 	}
+	close(stop)
+	bg.Wait()
 	ctrl.shutdown()
 }
 
@@ -91,7 +103,8 @@ func launchCLI(logDir, spellsPath string, tts bool) {
 type logController struct {
 	dir     string
 	sm      *session.SessionManager
-	app     *app.App
+	app     *app.App     // gocui UI (nil under the TUI)
+	tui     *tui.Program // Bubble Tea UI (nil under gocui)
 	tracker *gamestate.Tracker
 
 	mu      sync.Mutex
@@ -165,7 +178,12 @@ func (c *logController) switchTo(path string) {
 		// log (the live tail below only sees new lines from end-of-file).
 		parser.RebuildTrackerFromFile(next.Path, next.Character, c.tracker)
 	}
-	c.app.SetCharacter(next.Character)
+	if c.app != nil {
+		c.app.SetCharacter(next.Character)
+	}
+	if c.tui != nil {
+		c.tui.SwitchCharacter(next.Character)
+	}
 	c.startParse(next)
 }
 
