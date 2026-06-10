@@ -44,6 +44,13 @@ type Model struct {
 	vpMob      viewport.Model
 	vpCC       viewport.Model // enchanter-only Crowd Control column
 
+	// hover/click-to-dismiss: classTargets/ccTargets map a panel content line to
+	// the buff target on it; hover is the target currently under the cursor (its
+	// group is highlighted with an ✕). A left-click dismisses that target's timers.
+	classTargets map[int]string
+	ccTargets    map[int]string
+	hover        string
+
 	w, h  int
 	ready bool
 }
@@ -132,12 +139,24 @@ func (m *Model) refresh() {
 
 	m.vpDamage.SetContent(m.damageContent(cur, live, m.vpDamage.Width))
 	m.vpSessions.SetContent(sessionsList(th, m.sessions, sel, m.vpSessions.Width))
-	m.vpClass.SetContent(m.classPanel(cur, m.vpClass.Width))
+	m.rebuildInteractive(cur)
 	m.vpMob.SetContent(mobTracker(th, m.tracker, m.vpMob.Width))
-	if m.isEnchanter() {
-		m.vpCC.SetContent(ccBody(th, m.tracker, m.vpCC.Width))
-	}
 	m.ensureSelVisible(sel)
+}
+
+// rebuildInteractive re-renders the hover-aware panels (class + enchanter CC)
+// and refreshes their line→target maps. Cheap enough to call on every mouse
+// move so the highlight tracks the cursor without a full snapshot pass.
+func (m *Model) rebuildInteractive(cur *session.CombatSession) {
+	th := themes[m.theme]
+	classStr, classT := m.classPanel(cur, m.vpClass.Width, m.hover)
+	m.vpClass.SetContent(classStr)
+	m.classTargets = classT
+	if m.isEnchanter() {
+		ccStr, ccT := ccBody(th, m.tracker, m.vpCC.Width, m.hover)
+		m.vpCC.SetContent(ccStr)
+		m.ccTargets = ccT
+	}
 }
 
 // ensureSelVisible scrolls the Sessions viewport so the selected fight (2 lines
@@ -190,11 +209,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewports()
 		m.refresh()
 	case tea.MouseMsg:
-		// route the wheel to whichever panel the cursor is over (gocui parity).
-		if vp := m.panelAt(msg.X, msg.Y); vp != nil {
-			var cmd tea.Cmd
-			*vp, cmd = vp.Update(msg)
-			cmds = append(cmds, cmd)
+		// wheel → scroll whichever panel the cursor is over (gocui parity).
+		if isWheel(msg.Button) {
+			if vp := m.panelAt(msg.X, msg.Y); vp != nil {
+				var cmd tea.Cmd
+				*vp, cmd = vp.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+		// left-click on a hovered buff target → dismiss its timers.
+		tgt := m.hoverTargetAt(msg.X, msg.Y)
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && tgt != "" {
+			m.tracker.DismissTarget(tgt)
+			m.hover = ""
+			m.refresh()
+			return m, tea.Batch(cmds...)
+		}
+		// motion → update the hover highlight only when the target changes.
+		if tgt != m.hover {
+			m.hover = tgt
+			var cur *session.CombatSession
+			if sel := m.effectiveSel(); sel >= 0 {
+				cur = m.sessions[sel]
+			}
+			m.rebuildInteractive(cur)
 		}
 		return m, tea.Batch(cmds...)
 	case tickMsg:
@@ -255,6 +294,39 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 		return &m.vpMob
 	}
 	return nil
+}
+
+// isWheel reports whether a mouse button is a scroll-wheel direction.
+func isWheel(b tea.MouseButton) bool {
+	return b == tea.MouseButtonWheelUp || b == tea.MouseButtonWheelDown ||
+		b == tea.MouseButtonWheelLeft || b == tea.MouseButtonWheelRight
+}
+
+// hoverTargetAt resolves the buff target under screen cell (x,y) in the
+// class-aware or CC panel, or "" if the cursor isn't over a dismissable name.
+// Content begins 2 rows below the card top (border + title); the panel's scroll
+// offset is added back so the lookup matches the rendered line.
+func (m *Model) hoverTargetAt(x, y int) string {
+	ld := m.layout()
+	gridY := 2
+	rightX := ld.leftW + 2
+	botY := gridY + ld.dmgH
+	contentTop := botY + 2           // border (1) + title (1)
+	contentBot := botY + ld.botH - 1 // inside the bottom border
+	if y < contentTop || y >= contentBot {
+		return ""
+	}
+	// class panel body (inside its border + padding)
+	if x > rightX && x < rightX+ld.classW-1 {
+		return m.classTargets[(y-contentTop)+m.vpClass.YOffset]
+	}
+	if ld.ench {
+		ccX := rightX + ld.classW + 1
+		if x > ccX && x < ccX+ld.ccW-1 {
+			return m.ccTargets[(y-contentTop)+m.vpCC.YOffset]
+		}
+	}
+	return ""
 }
 
 func (m Model) View() string {

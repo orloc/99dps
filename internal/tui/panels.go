@@ -156,9 +156,15 @@ func timerLine(th theme, tm gamestate.Timer, now int64, w int) string {
 }
 
 // ccLine is one crowd-control entry: mez (M, breaks on damage) or charm (⊗).
-func ccLine(th theme, tm gamestate.Timer, now int64, w int) string {
+// When hovered it reserves room for a trailing ✕ and tints the name, signalling
+// it's clickable to dismiss.
+func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool) string {
 	const nameW, timeW = 12, 6
-	barCells := w - nameW - timeW - 6
+	reserve := 0
+	if hovered {
+		reserve = 2 // " ✕"
+	}
+	barCells := w - nameW - timeW - 6 - reserve
 	if barCells < 4 {
 		barCells = 4
 	}
@@ -175,18 +181,47 @@ func ccLine(th theme, tm gamestate.Timer, now int64, w int) string {
 	if total > 0 {
 		frac = float64(rem) / float64(total)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
+	nameStyle := th.fg(th.text)
+	if hovered {
+		nameStyle = th.fg(th.accent).Bold(true)
+	}
+	row := lipgloss.JoinHorizontal(lipgloss.Top,
 		th.fg(col).Bold(true).Render(label), " ",
-		th.fg(th.text).Width(nameW).Render(truncate(tm.Target, nameW)), " ",
+		nameStyle.Width(nameW).Render(truncate(displayName(tm.Target), nameW)), " ",
 		gradientBar(frac, barCells, col, col, th.track), " ",
 		rightCell(mmss(rem), timeW, th.dim))
+	if hovered {
+		row += th.fg("#e0564e").Bold(true).Render(" ✕")
+	}
+	return row
+}
+
+// targetHeader renders a buff/debuff group's target name. When hovered it
+// becomes a full-width accent plaque with a trailing ✕ — the click-to-dismiss
+// affordance (terminals can't switch the OS cursor to a pointer, so this is how
+// we telegraph that the name is interactive).
+func targetHeader(th theme, target string, w int, hovered bool) string {
+	name := displayName(target)
+	if !hovered {
+		return th.fg(th.text).Bold(true).Render(truncate(name, w))
+	}
+	name = truncate(name, w-2)
+	pad := w - lipgloss.Width(name) - 1
+	if pad < 1 {
+		pad = 1
+	}
+	line := name + strings.Repeat(" ", pad) + "✕"
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(th.bg)).
+		Background(lipgloss.Color(th.accent)).Bold(true).Render(truncate(line, w))
 }
 
 // timersBody renders the spell-timer panel: crowd control pinned at the top when
-// ccInline, then buffs/debuffs. (Enchanters move CC to their own column.)
-func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool) string {
+// ccInline, then buffs/debuffs grouped by target. (Enchanters move CC to their
+// own column.) It returns a line→target map for hover/click-to-dismiss; hover is
+// the target whose group is highlighted (with an ✕ affordance).
+func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover string) (string, map[int]string) {
 	if tr == nil {
-		return th.fg(th.dim).Render("spell timers off\n(no spells_us.txt)")
+		return th.fg(th.dim).Render("spell timers off\n(no spells_us.txt)"), nil
 	}
 	now := time.Now().Unix()
 	cc, rest := splitCCtimers(tr.Active(now))
@@ -194,11 +229,13 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool) string {
 		cc = nil
 	}
 	var lines []string
+	targets := map[int]string{}
 	if len(cc) > 0 {
 		bySoonest(cc)
 		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
 		for _, tm := range cc {
-			lines = append(lines, ccLine(th, tm, now, w))
+			targets[len(lines)] = tm.Target
+			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover))
 		}
 		if len(rest) > 0 {
 			lines = append(lines, "")
@@ -206,40 +243,46 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool) string {
 	}
 	if len(rest) == 0 {
 		if len(cc) == 0 {
-			return th.fg(th.dim).Render("No active spells.")
+			return th.fg(th.dim).Render("No active spells."), nil
 		}
-		return strings.Join(lines, "\n")
+		return strings.Join(lines, "\n"), targets
 	}
 	// buffs/debuffs grouped by who they're on — a bold target header, then that
 	// target's spells indented beneath it (matches the gocui renderTimers layout).
+	// Hovering any row of a group highlights its header so a click dismisses it.
 	groups, order := groupByTargetTimers(rest)
 	for _, tgt := range order {
-		lines = append(lines, th.fg(th.text).Bold(true).Render(truncate(displayName(tgt), w)))
+		targets[len(lines)] = tgt
+		lines = append(lines, targetHeader(th, tgt, w, tgt == hover))
 		g := groups[tgt]
 		bySoonest(g)
 		for _, tm := range g {
+			targets[len(lines)] = tgt
 			lines = append(lines, "  "+timerLine(th, tm, now, w-2))
 		}
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), targets
 }
 
-// ccBody renders the enchanter's dedicated Crowd Control column (mez + charm).
-func ccBody(th theme, tr *gamestate.Tracker, w int) string {
+// ccBody renders the enchanter's dedicated Crowd Control column (mez + charm),
+// returning a line→target map for hover/click-to-dismiss.
+func ccBody(th theme, tr *gamestate.Tracker, w int, hover string) (string, map[int]string) {
 	if tr == nil {
-		return th.fg(th.dim).Render("—")
+		return th.fg(th.dim).Render("—"), nil
 	}
 	now := time.Now().Unix()
 	cc, _ := splitCCtimers(tr.Active(now))
 	if len(cc) == 0 {
-		return th.fg(th.dim).Render("No crowd control.")
+		return th.fg(th.dim).Render("No crowd control."), nil
 	}
 	bySoonest(cc)
 	var lines []string
+	targets := map[int]string{}
 	for _, tm := range cc {
-		lines = append(lines, ccLine(th, tm, now, w))
+		targets[len(lines)] = tm.Target
+		lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), targets
 }
 
 // mobTracker: the zone-aware repop list, the player's kills first.

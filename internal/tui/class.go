@@ -36,45 +36,63 @@ func (m Model) isEnchanter() bool {
 // classPanel is the class-aware bottom panel: independently-gated indicator
 // sections (canni / feign / bind / cooldowns) stacked above a category-driven
 // body — caster→timers, melee→skills, hybrid→both. Mirrors the gocui updatePanel.
-func (m Model) classPanel(cur *session.CombatSession, w int) string {
+// It returns the panel text plus a line→target map (shifted past the stacked
+// sections) so the model can resolve hover/click-to-dismiss; hover is the
+// highlighted target.
+func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (string, map[int]string) {
 	th := themes[m.theme]
 	tr := m.tracker
 	if tr == nil {
-		return timersBody(th, nil, w, true)
+		return timersBody(th, nil, w, true, hover)
 	}
 	now := time.Now().Unix()
 
-	var parts []string
+	// gated indicator sections stack above the body; count their lines so the
+	// body's line→target map can be shifted down to match (cf. gocui stackPanel).
+	var sections []string
 	if cm := canniMeter(th, tr.CanniStats(now), w); cm != "" {
-		parts = append(parts, cm)
+		sections = append(sections, cm)
 	}
 	switch tr.FeignStatus(now) {
 	case gamestate.FeignFailed:
-		parts = append(parts, badge(th, "#e0564e", "⚠ FEIGN FAILED — mobs still on you", w))
+		sections = append(sections, badge(th, "#e0564e", "⚠ FEIGN FAILED — mobs still on you", w))
 	case gamestate.FeignOK:
-		parts = append(parts, badge(th, "#5fd37a", "✓ feigned", w))
+		sections = append(sections, badge(th, "#5fd37a", "✓ feigned", w))
 	}
 	if rem, ok := tr.BindRemaining(now); ok {
-		parts = append(parts, badge(th, th.accent, fmt.Sprintf("⏳ bandaging… %s", mmss(int64(rem))), w))
+		sections = append(sections, badge(th, th.accent, fmt.Sprintf("⏳ bandaging… %s", mmss(int64(rem))), w))
 	}
 	if cds := tr.Cooldowns(now); len(cds) > 0 {
-		parts = append(parts, cooldownRows(th, cds, w))
+		sections = append(sections, cooldownRows(th, cds, w))
 	}
 
+	var body string
+	var bodyMap map[int]string
 	class, level := tr.Class(), tr.Level()
 	switch tr.Category() {
 	case eqclass.CatMelee:
-		parts = append(parts, skillsBody(th, cur, class, level, w))
+		body = skillsBody(th, cur, class, level, w)
 	case eqclass.CatHybrid:
-		body := timersBody(th, tr, w, true)
+		body, bodyMap = timersBody(th, tr, w, true, hover)
 		if sum := skillsSummaryLine(cur, class, level); sum != "" {
 			body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + th.fg(th.dim).Render(truncate(sum, w))
 		}
-		parts = append(parts, body)
 	default: // caster — enchanters keep CC in their own column
-		parts = append(parts, timersBody(th, tr, w, !m.isEnchanter()))
+		body, bodyMap = timersBody(th, tr, w, !m.isEnchanter(), hover)
 	}
-	return strings.Join(parts, "\n")
+
+	prefix := 0
+	for _, s := range sections {
+		prefix += strings.Count(s, "\n") + 1
+	}
+	shifted := bodyMap
+	if prefix > 0 && len(bodyMap) > 0 {
+		shifted = make(map[int]string, len(bodyMap))
+		for k, v := range bodyMap {
+			shifted[k+prefix] = v
+		}
+	}
+	return strings.Join(append(sections, body), "\n"), shifted
 }
 
 // badge is a full-width filled pill bar (dark text on an accent fill).

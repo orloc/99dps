@@ -61,6 +61,122 @@ func monkScene() (*session.SessionManager, *gamestate.Tracker) {
 	return sm, tr
 }
 
+// buffRow builds a minimal 217-field spells_us.txt line for a beneficial buff
+// with the given cast-on-other landing emote (the prefix of which is the
+// target). Field indices mirror internal/gamestate/book.go.
+func buffRow(name, emote string) string {
+	f := make([]string, 217)
+	for i := range f {
+		f[i] = "0"
+	}
+	f[1] = name    // fName
+	f[7] = emote   // fCastOnOther
+	f[13] = "3000" // fCastTime (ms)
+	f[16] = "1"    // fDurFormula
+	f[17] = "30"   // fDurCap (ticks) → ~3 min at L60, outlasts the test
+	f[83] = "1"    // fGoodEffect (beneficial)
+	return strings.Join(f, "^")
+}
+
+// casterScene buffs two group members so the spell-timer panel groups by target
+// (Aragorn carries two buffs, Legolas one). Timers are anchored at wall-clock so
+// they're still active when the renderer reads time.Now().
+func casterScene() (*session.SessionManager, *gamestate.Tracker) {
+	sm := sampleManager()
+	book, _ := gamestate.LoadReader(strings.NewReader(strings.Join([]string{
+		buffRow("Aegolism", "'s skin turns to stone."),
+		buffRow("Haste", "'s feet move faster."),
+	}, "\n")))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	// cast 5s ago so the 3s cast has completed by the landing emote (the tracker
+	// gates a landing on cast-completion); timers then run ~3 min from now.
+	now := time.Now().Unix()
+	tr.BeginCast("Aegolism", now-5)
+	tr.Observe("Aragorn's skin turns to stone.", now)
+	tr.BeginCast("Haste", now-5)
+	tr.Observe("Aragorn's feet move faster.", now)
+	tr.BeginCast("Aegolism", now-5)
+	tr.Observe("Legolas's skin turns to stone.", now)
+	return sm, tr
+}
+
+// TestTimersGroupedByTarget verifies buffs are bucketed under a per-target header
+// and that hovering a target adds the ✕ dismiss affordance.
+func TestTimersGroupedByTarget(t *testing.T) {
+	_, tr := casterScene()
+	body, targets := timersBody(themes[0], tr, 40, true, "")
+	for _, want := range []string{"Aragorn", "Legolas", "Aegolism", "Haste"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("grouped timers missing %q", want)
+		}
+	}
+	if !containsValue(targets, "Aragorn") || !containsValue(targets, "Legolas") {
+		t.Errorf("line→target map missing a target: %v", targets)
+	}
+	// hovering Aragorn surfaces the ✕ affordance; the others stay plain.
+	if hovered, _ := timersBody(themes[0], tr, 40, true, "Aragorn"); !strings.Contains(hovered, "✕") {
+		t.Error("hovered target should render an ✕ dismiss affordance")
+	}
+}
+
+// TestHoverDismiss drives the model: a mouse-move over a target's row sets the
+// hover highlight, and a left-click there dismisses that target's timers.
+func TestHoverDismiss(t *testing.T) {
+	sm, tr := casterScene()
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	mm.refresh()
+
+	// screen cell over Aragorn's group in the class (bottom-left) panel
+	ld := mm.layout()
+	contentTop := 2 + ld.dmgH + 2 // outer pad + banner + dmg card + border + title
+	rightX := ld.leftW + 2
+	line := -1
+	for l, tgt := range mm.classTargets {
+		if tgt == "Aragorn" && (line < 0 || l < line) {
+			line = l
+		}
+	}
+	if line < 0 {
+		t.Fatal("Aragorn not present in classTargets")
+	}
+	x, y := rightX+3, contentTop+(line-mm.vpClass.YOffset)
+	if got := mm.hoverTargetAt(x, y); got != "Aragorn" {
+		t.Fatalf("hoverTargetAt(%d,%d) = %q, want Aragorn", x, y, got)
+	}
+
+	// motion → hover highlight + ✕
+	m2, _ := mm.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionMotion})
+	mm2 := m2.(Model)
+	if mm2.hover != "Aragorn" {
+		t.Fatalf("hover = %q, want Aragorn", mm2.hover)
+	}
+	if !strings.Contains(mm2.View(), "✕") {
+		t.Error("hovered view should show the ✕ affordance")
+	}
+
+	// click → Aragorn's timers dismissed, Legolas untouched
+	m3, _ := mm2.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm3 := m3.(Model)
+	if containsValue(mm3.classTargets, "Aragorn") {
+		t.Error("Aragorn should be dismissed after the click")
+	}
+	if !containsValue(mm3.classTargets, "Legolas") {
+		t.Error("Legolas should remain after dismissing Aragorn")
+	}
+}
+
+func containsValue(m map[int]string, v string) bool {
+	for _, x := range m {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
@@ -113,6 +229,23 @@ func TestWriteShots(t *testing.T) {
 	}
 	smMonk, trMonk := monkScene()
 	if err := os.WriteFile("/tmp/tui-monk.ansi", []byte(renderAtTr(smMonk, trMonk, 0, 108, 34)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// caster scene with the cursor hovering a buff target, to show the ✕ affordance
+	smC, trC := casterScene()
+	var m tea.Model = New(smC, trC, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 108, Height: 34})
+	mc := m.(Model)
+	mc.refresh()
+	ld := mc.layout()
+	for l, tgt := range mc.classTargets {
+		if tgt == "Aragorn" {
+			mc2, _ := mc.Update(tea.MouseMsg{X: ld.leftW + 5, Y: 2 + ld.dmgH + 2 + l, Action: tea.MouseActionMotion})
+			mc = mc2.(Model)
+			break
+		}
+	}
+	if err := os.WriteFile("/tmp/tui-caster.ansi", []byte(mc.View()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
