@@ -389,7 +389,14 @@ func (t *Tracker) expireOnSlainLocked(body string) {
 	case strings.HasPrefix(body, "You have slain "):
 		victim = strings.TrimSuffix(strings.TrimPrefix(body, "You have slain "), "!")
 	case strings.Contains(body, " has been slain by "):
-		victim = body[:strings.Index(body, " has been slain by ")]
+		// "<victim> has been slain by <killer>!" — require a non-empty victim
+		// before the phrase (matching the kill path), so a relayed chat line that
+		// merely contains the words can't yield an empty/garbage victim.
+		if i := strings.Index(body, " has been slain by "); i > 0 {
+			victim = body[:i]
+		} else {
+			return
+		}
 	default:
 		return
 	}

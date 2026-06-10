@@ -159,6 +159,15 @@ func (cs *CombatSession) applyMagicLocked(m *common.Magic) {
 	}
 	cs.magicTotal += m.Dmg
 	cs.LastTime = m.ActionTime // spell damage counts toward the DPS span
+
+	// fold the target in so Name() can title a pure-spell fight (a wizard nuke or
+	// DoT-only kill) by the mob taking the damage, not fall through to "Solo".
+	if m.Target != "" {
+		if cs.targets == nil {
+			cs.targets = make(map[string]int)
+		}
+		cs.targets[m.Target] += m.Dmg
+	}
 }
 
 // MagicTotal is the unattributed non-melee damage dealt to enemies this fight.
@@ -226,8 +235,10 @@ func (cs *CombatSession) recordOutcome(attacker, defender string, o common.Swing
 	if cs.defense == nil {
 		cs.defense = make(map[string]common.SwingStats)
 	}
-	cs.defense[defender] = cs.defense[defender].Add(o)
-	if o == common.OutcomeHit || o == common.OutcomeMiss {
+	if defender != "" {
+		cs.defense[defender] = cs.defense[defender].Add(o)
+	}
+	if (o == common.OutcomeHit || o == common.OutcomeMiss) && attacker != "" {
 		cs.offense[attacker] = cs.offense[attacker].Add(o)
 	}
 }

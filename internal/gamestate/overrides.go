@@ -49,6 +49,7 @@ func (o *Overrides) Set(zone, mob string, sec int) error {
 		return nil
 	}
 	o.mu.Lock()
+	defer o.mu.Unlock()
 	if sec <= 0 {
 		delete(o.data[zone], mob)
 	} else {
@@ -57,12 +58,18 @@ func (o *Overrides) Set(zone, mob string, sec int) error {
 		}
 		o.data[zone][mob] = sec
 	}
-	b, _ := json.MarshalIndent(o.data, "", "  ")
-	path := o.path
-	o.mu.Unlock()
-
-	if path == "" {
+	if o.path == "" {
 		return nil
 	}
-	return os.WriteFile(path, b, 0o644)
+	b, err := json.MarshalIndent(o.data, "", "  ")
+	if err != nil {
+		return err
+	}
+	// write under the lock (so concurrent Sets can't reorder on disk) and via a
+	// temp file + rename, so a crash mid-write can't leave a truncated JSON file.
+	tmp := o.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, o.path)
 }

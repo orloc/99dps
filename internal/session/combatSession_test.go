@@ -138,3 +138,13 @@ func TestSnapshotIsIndependent(t *testing.T) {
 		t.Errorf("snapshot Total = %d, want 10 (must not see later hits)", snap.Total())
 	}
 }
+
+func TestMagicOnlyFightNamesTheTarget(t *testing.T) {
+	sm := &SessionManager{}
+	// a pure non-melee kill (wizard nuke / DoT): only ApplyMagic, no melee.
+	sm.ApplyMagic(&common.Magic{ActionTime: 100, Target: "a sand giant", Dmg: 800})
+	sm.ApplyMagic(&common.Magic{ActionTime: 101, Target: "a sand giant", Dmg: 600})
+	if got := sm.Current().Name(); got != "a sand giant" {
+		t.Errorf("magic-only fight name = %q, want %q (must not fall through to Solo)", got, "a sand giant")
+	}
+}
