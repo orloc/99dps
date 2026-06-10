@@ -30,6 +30,8 @@ func sampleManager() *session.SessionManager {
 	for _, r := range rows {
 		sm.Apply(&combat.DamageSet{ActionTime: r.at, Dealer: r.dealer, Dmg: r.dmg, Target: "a sand giant"})
 	}
+	// a backstab so the Specials section has content (and its overflow is tested)
+	sm.Apply(&combat.DamageSet{ActionTime: 1040, Dealer: "Borric", Dmg: 5_000, Target: "a sand giant", Verb: "backstab"})
 	return sm
 }
 

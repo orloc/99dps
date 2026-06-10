@@ -351,7 +351,8 @@ func pct(n, total int) int {
 }
 
 // damageSpecials lists dealers who landed activated skills (backstab/bash/kick):
-// that damage, its share of their total, and the hit count. "" when nobody did.
+// that damage, its share of their total, and the hit count. A labelled header
+// row explains the columns. "" when nobody used a special.
 func damageSpecials(th theme, stats []combat.DamageStat, w int) string {
 	var b strings.Builder
 	for _, v := range stats {
@@ -360,8 +361,11 @@ func damageSpecials(th theme, stats []combat.DamageStat, w int) string {
 		}
 		if b.Len() == 0 {
 			b.WriteString(sectionHead(th, "Specials · backstab/bash/kick", w) + "\n")
+			// Dmg = special damage; Share = its % of that dealer's total; Hits = count
+			b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-14s %7s %5s %5s",
+				"Dealer", "Dmg", "Share", "Hits")) + "\n")
 		}
-		b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-14s %7s %3d%%  %d hits",
+		b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-14s %7s %4d%% %5d",
 			truncate(displayName(v.Dealer), 14), humanize(v.SpecialTotal),
 			pct(v.SpecialTotal, v.Total), v.SpecialHits)) + "\n")
 	}
