@@ -259,6 +259,9 @@ func (t *Tracker) Observe(body string, at int64) {
 	// nothing was pending, so a normal cast's landing isn't double-counted.
 	if !hadPending {
 		t.matchSelfClickyLocked(body, at)
+		// registered insta-clickies whose effect emote isn't in spells_us (or that
+		// emit no spell message at all) — matched by their item-specific line.
+		t.matchClickyLocked(body, at)
 	}
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
