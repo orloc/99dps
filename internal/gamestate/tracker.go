@@ -42,10 +42,20 @@ type Tracker struct {
 
 	canni canniMeter // shaman "canni dance" gamification (see canni.go)
 
-	// pending cast awaiting its landing emote
+	// pending cast awaiting its landing emote. Kept alive across landings (not
+	// cleared on the first) so an AoE/PBAoE that lands on several mobs starts a
+	// timer on each; the cast window (landWindowSec) expires it.
 	pending   *Spell
 	pendingAt int64
+
+	// the most recent "Your target resisted the X spell." — surfaced briefly so
+	// the UI can flag a cast that didn't land.
+	resistSpell string
+	resistAt    int64
 }
+
+// resistGraceSec is how long a resist notice stays shown after it lands.
+const resistGraceSec = 5
 
 // NewTracker builds a tracker over a loaded spell book.
 func NewTracker(book *Book) *Tracker {
@@ -173,6 +183,20 @@ func (t *Tracker) BreakMezOnTarget(target string) {
 	t.mu.Unlock()
 }
 
+// Resisted returns the spell name of the most recent target-resisted cast and
+// whether it's recent enough to still surface (within resistGraceSec).
+func (t *Tracker) Resisted(now int64) (string, bool) {
+	if t == nil {
+		return "", false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.resistSpell != "" && now-t.resistAt >= 0 && now-t.resistAt <= resistGraceSec {
+		return t.resistSpell, true
+	}
+	return "", false
+}
+
 // normalizeMobName lowercases and strips a leading article so a mez-landing name
 // and a damage-line name for the same mob compare equal.
 func normalizeMobName(s string) string {
@@ -210,11 +234,17 @@ func (t *Tracker) Observe(body string, at int64) {
 	// collapse a doubled trailing period so log lines match stored emotes
 	body = NormEmote(body)
 
-	// a resisted, fizzled, or interrupted cast never lands
-	if t.pending != nil && (strings.Contains(body, "resisted") ||
-		(strings.HasPrefix(body, "Your ") &&
-			(strings.Contains(body, "fizzle") || strings.Contains(body, "interrupt")))) {
+	// a fizzled or interrupted cast never happened — drop the pending cast.
+	if t.pending != nil && strings.HasPrefix(body, "Your ") &&
+		(strings.Contains(body, "fizzle") || strings.Contains(body, "interrupt")) {
 		t.pending = nil
+	}
+	// "Your target resisted the X spell." — the cast didn't land on that mob.
+	// Recorded (not cleared) so the rest of an AoE can still land on others.
+	if s, ok := strings.CutPrefix(body, "Your target resisted the "); ok {
+		if name, ok := strings.CutSuffix(s, " spell."); ok {
+			t.resistSpell, t.resistAt = name, at
+		}
 	}
 
 	// One line can matter to several subsystems at once (a kill both expires the
@@ -307,7 +337,9 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		Detrimental: t.pending.Detrimental,
 		Mez:         t.pending.Mez,
 	}
-	t.pending = nil
+	// pending is left set on purpose: an AoE lands on several mobs, each with its
+	// own emote line, so we keep matching until the cast window (landWindowSec)
+	// expires the pending cast or a new cast supersedes it.
 }
 
 // startCharmLocked begins (or replaces) the single charm timer. Its expiry is

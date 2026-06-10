@@ -62,6 +62,9 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (stri
 	if rem, ok := tr.BindRemaining(now); ok {
 		sections = append(sections, badge(th, th.accent, fmt.Sprintf("⏳ bandaging… %s", mmss(int64(rem))), w))
 	}
+	if sp, ok := tr.Resisted(now); ok {
+		sections = append(sections, badge(th, "#e0564e", truncate("✦ "+sp+" resisted", w), w))
+	}
 	if cds := tr.Cooldowns(now); len(cds) > 0 {
 		sections = append(sections, cooldownRows(th, cds, w))
 	}

@@ -243,15 +243,41 @@ func TestTracker_Charm(t *testing.T) {
 	}
 }
 
-func TestTracker_ResistClearsPending(t *testing.T) {
+func TestTracker_ResistRecorded(t *testing.T) {
 	tr := NewTracker(loadBook(t, envenomedBolt()))
 	tr.SetLevel(43)
 	tr.BeginCast("Envenomed Bolt", 1000)
 	tr.Observe("Your target resisted the Envenomed Bolt spell.", 1007)
-	// the landing emote arrives but the cast was already resisted away
-	tr.Observe("a sand giant's body convulses with the poison.", 1008)
+	// a resist surfaces briefly and, with no landing emote, starts no timer
+	if sp, ok := tr.Resisted(1008); !ok || sp != "Envenomed Bolt" {
+		t.Errorf("Resisted = %q,%v; want \"Envenomed Bolt\",true", sp, ok)
+	}
 	if act := tr.Active(1010); len(act) != 0 {
-		t.Errorf("resisted spell should not start a timer, got %d", len(act))
+		t.Errorf("a resisted cast with no landing emote should have no timer, got %d", len(act))
+	}
+	if _, ok := tr.Resisted(1007 + resistGraceSec + 1); ok {
+		t.Error("resist notice should expire after the grace window")
+	}
+}
+
+// TestTracker_AoEMultipleTargets: one cast whose landing emote appears for
+// several mobs (an AoE/PBAoE) starts a timer on each.
+func TestTracker_AoEMultipleTargets(t *testing.T) {
+	tr := NewTracker(loadBook(t, envenomedBolt()))
+	tr.SetLevel(43)
+	tr.BeginCast("Envenomed Bolt", 1000)
+	tr.Observe("a sand giant's body convulses with the poison.", 1008)
+	tr.Observe("a cliff golem's body convulses with the poison.", 1008)
+	act := tr.Active(1010)
+	if len(act) != 2 {
+		t.Fatalf("AoE should time each affected mob, got %d", len(act))
+	}
+	got := map[string]bool{}
+	for _, a := range act {
+		got[a.Target] = true
+	}
+	if !got["a sand giant"] || !got["a cliff golem"] {
+		t.Errorf("missing an AoE target: %+v", act)
 	}
 }
 
