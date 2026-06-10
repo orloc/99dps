@@ -42,15 +42,20 @@ func renderAt(sm *session.SessionManager, themeIdx, w, h int) string {
 	return mm.View()
 }
 
-func TestDamagePanelRendersLiveData(t *testing.T) {
-	out := renderAt(sampleManager(), 0, 92, 30)
-	for _, want := range []string{"a sand giant", "You", "Gabnador", "dps", "99dps", "Kunark Gold"} {
+func TestPanelsRenderLiveData(t *testing.T) {
+	out := renderAt(sampleManager(), 0, 100, 32)
+	for _, want := range []string{
+		"99dps",           // banner
+		"a sand giant",    // sessions list + damage title
+		"You", "Gabnador", // damage rows
+		"Now", "Sessions", "Spell Timers", "Mob Tracker", // panel titles
+	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("rendered Damage panel missing %q", want)
+			t.Errorf("rendered layout missing %q", want)
 		}
 	}
-	// a nil/empty manager must not panic and should show the placeholder
-	if out := renderAt(&session.SessionManager{}, 0, 80, 24); !strings.Contains(out, "No fight") {
+	// an empty manager must not panic and should show a placeholder
+	if out := renderAt(&session.SessionManager{}, 0, 90, 28); !strings.Contains(out, "No fight") {
 		t.Errorf("empty manager should render a placeholder, got:\n%s", out)
 	}
 }
@@ -66,7 +71,7 @@ func TestWriteShots(t *testing.T) {
 	for i := range themes {
 		_ = time.Now()
 		path := fmt.Sprintf("/tmp/tui%d.ansi", i)
-		if err := os.WriteFile(path, []byte(renderAt(sm, i, 92, 30)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(renderAt(sm, i, 108, 34)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

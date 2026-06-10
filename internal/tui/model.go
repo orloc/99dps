@@ -1,6 +1,7 @@
 // Package tui is the experimental Bubble Tea + Lipgloss UI for 99dps (see
-// docs/tui-migration.md). Phase 0: a live, themed, scrollable Damage panel
-// reading real session snapshots. Selected with `99dps -ui tui`.
+// docs/tui-migration.md). Phase 1: the full multi-panel layout — Now + Sessions
+// sidebar, a scrollable Damage panel, Spell Timers and Mob Tracker — themed and
+// reading live snapshots. Selected with `99dps -ui tui`.
 package tui
 
 import (
@@ -23,45 +24,89 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-// Model is the root Bubble Tea model. It reads the session snapshot once per
-// tick — the parser goroutine feeds the manager exactly as under gocui.
+// Model is the root Bubble Tea model. It reads session snapshots once per tick —
+// the parser goroutine feeds the manager exactly as under gocui.
 type Model struct {
 	sm        *session.SessionManager
 	tracker   *gamestate.Tracker
 	character string
 	theme     int
 
-	vp    viewport.Model // the scrollable dealer list (free scrolling, no manual clamp)
+	sessions []*session.CombatSession // last snapshot (for the sidebar)
+	selected int                      // pinned session index
+	follow   bool                     // glue selection to the live fight
+
+	vp    viewport.Model // the scrollable Damage panel
 	w, h  int
 	ready bool
 }
 
 // New builds the model over a live session manager + (optional) tracker.
 func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
-	return Model{sm: sm, tracker: tracker, character: character}
+	return Model{sm: sm, tracker: tracker, character: character, follow: true}
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
 
-// dims returns the card's inner content width and the scrollable body height.
-func (m Model) dims() (int, int) {
-	cardW := m.w - 4
-	if cardW > 84 {
-		cardW = 84
+// layout holds the computed panel rectangles for the current window size.
+type layout struct {
+	leftW, rightW        int
+	nowH, sessH          int
+	dmgH, botH           int
+	timersW, mobW        int
+	dmgInnerW, dmgInnerH int // the Damage card's body area (the viewport)
+	areaH                int
+}
+
+func (m Model) layout() layout {
+	innerW := m.w - 2
+	areaH := m.h - 4 // banner + footer + outer padding
+	if areaH < 6 {
+		areaH = 6
 	}
-	if cardW < 32 {
-		cardW = 32
+	leftW := 26
+	if leftW > innerW/3 {
+		leftW = innerW / 3
 	}
-	innerW := cardW - 4 // border(2) + padding(2)
-	bodyH := m.h - 9    // banner + gaps + title + meta + border + footer
-	if bodyH < 3 {
-		bodyH = 3
+	rightW := innerW - leftW - 1
+	nowH := 6
+	sessH := areaH - nowH - 1
+	dmgH := areaH * 52 / 100
+	if dmgH < 5 {
+		dmgH = 5
 	}
-	return innerW, bodyH
+	botH := areaH - dmgH - 1
+	timersW := rightW / 2
+	mobW := rightW - timersW - 1
+	return layout{
+		leftW: leftW, rightW: rightW, nowH: nowH, sessH: sessH,
+		dmgH: dmgH, botH: botH, timersW: timersW, mobW: mobW, areaH: areaH,
+		dmgInnerW: rightW - 4, dmgInnerH: dmgH - 3, // card body inside border+title
+	}
+}
+
+// effectiveSel resolves the selection against the current session count.
+func (m Model) effectiveSel() int {
+	n := len(m.sessions)
+	if n == 0 {
+		return -1
+	}
+	if m.follow || m.selected >= n {
+		return n - 1
+	}
+	if m.selected < 0 {
+		return 0
+	}
+	return m.selected
 }
 
 func (m *Model) refresh() {
-	cur := m.sm.Current()
+	m.sessions = m.sm.All()
+	sel := m.effectiveSel()
+	var cur *session.CombatSession
+	if sel >= 0 {
+		cur = m.sessions[sel]
+	}
 	live := cur != nil && cur.EndTime().IsZero()
 	m.vp.SetContent(m.damageContent(cur, live, m.vp.Width))
 }
@@ -71,20 +116,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "t", "tab":
 			m.theme = (m.theme + 1) % len(themes)
+		case "up", "k":
+			cur := m.effectiveSel()
+			if cur > 0 {
+				m.selected, m.follow = cur-1, false
+			}
+			m.refresh()
+		case "down", "j":
+			cur := m.effectiveSel()
+			if cur >= 0 && cur < len(m.sessions)-1 {
+				m.selected = cur + 1
+			}
+			if m.selected >= len(m.sessions)-1 {
+				m.follow = true
+			}
+			m.refresh()
+		case "end":
+			m.follow = true
 			m.refresh()
 		}
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		iw, bh := m.dims()
+		ld := m.layout()
 		if !m.ready {
-			m.vp = viewport.New(iw, bh)
+			m.vp = viewport.New(ld.dmgInnerW, ld.dmgInnerH)
 			m.ready = true
 		} else {
-			m.vp.Width, m.vp.Height = iw, bh
+			m.vp.Width, m.vp.Height = ld.dmgInnerW, ld.dmgInnerH
 		}
 		m.refresh()
 	case tickMsg:
@@ -92,7 +154,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, tick())
 	}
 	var cmd tea.Cmd
-	m.vp, cmd = m.vp.Update(msg) // viewport handles wheel + arrows
+	m.vp, cmd = m.vp.Update(msg) // viewport handles wheel + arrows over the Damage panel
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
@@ -102,52 +164,45 @@ func (m Model) View() string {
 		return "starting…"
 	}
 	th := themes[m.theme]
-	innerW := m.vp.Width
+	ld := m.layout()
 
-	cur := m.sm.Current()
-	live := cur != nil && cur.EndTime().IsZero()
-
-	name := "No fight yet"
-	meta := "fight something!"
-	if cur != nil {
-		enc := cur.Total() + cur.MagicTotal()
-		span := cur.LastUnix() - cur.StartTime().Unix()
-		if span < 1 {
-			span = 1
+	// header banner: app · character · class/level · zone
+	bannerBits := []string{th.fg(th.accent).Bold(true).Render("✦ 99dps"), th.fg(th.dim).Render(m.character)}
+	if m.tracker != nil {
+		if lv := m.tracker.Level(); lv > 0 {
+			bannerBits = append(bannerBits, th.fg(th.dim).Render(fmt.Sprintf("L%d %s", lv, m.tracker.Class())))
 		}
-		name = cur.Name()
-		meta = fmt.Sprintf("%s  ·  group %s  ·  %s dps",
-			fmtDuration(cur.Duration()), humanize(enc), humanize(enc/int(span)))
+		if z := m.tracker.Zone(); z != "" {
+			bannerBits = append(bannerBits, th.fg(th.accent).Render("◆ "+z))
+		}
 	}
+	banner := strings.Join(bannerBits, th.fg(th.dim).Render("  ·  "))
 
-	pillBG, pillTxt := "#5fd37a", "● LIVE"
-	if !live {
-		pillBG, pillTxt = th.accentLo, "○ ended"
+	left := lipgloss.JoinVertical(lipgloss.Left,
+		card(th, ld.leftW, ld.nowH, "Now", nowBox(th, m.character, m.tracker, ld.leftW-4)),
+		card(th, ld.leftW, ld.sessH, "Sessions", sessionsList(th, m.sessions, m.effectiveSel(), ld.leftW-4, ld.sessH-3)))
+
+	dmgTitle := "Damage"
+	if sel := m.effectiveSel(); sel >= 0 {
+		dmgTitle = "Damage — " + truncate(m.sessions[sel].Name(), ld.rightW-12)
 	}
-	pill := lipgloss.NewStyle().Foreground(lipgloss.Color(th.bg)).Background(lipgloss.Color(pillBG)).
-		Bold(true).Padding(0, 1).Render(pillTxt)
-	titleTxt := th.fg(th.accent).Bold(true).Render(truncate("⚔  "+name, innerW-lipgloss.Width(pill)-1))
-	gap := innerW - lipgloss.Width(titleTxt) - lipgloss.Width(pill)
-	if gap < 1 {
-		gap = 1
-	}
-	titleRow := titleTxt + strings.Repeat(" ", gap) + pill
+	bottom := lipgloss.JoinHorizontal(lipgloss.Top,
+		card(th, ld.timersW, ld.botH, "Spell Timers", timersList(th, m.tracker, ld.timersW-4)),
+		" ",
+		card(th, ld.mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, ld.mobW-4)))
+	right := lipgloss.JoinVertical(lipgloss.Left,
+		card(th, ld.rightW, ld.dmgH, dmgTitle, m.vp.View()),
+		bottom)
 
-	inner := lipgloss.JoinVertical(lipgloss.Left, titleRow, th.fg(th.dim).Render(meta), "", m.vp.View())
-	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.accent)).
-		Background(lipgloss.Color(th.panel)).Padding(0, 1).Render(inner)
+	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+	footer := th.fg(th.dim).Render("[t] theme   [↑↓] select fight   [wheel] scroll dmg   [end] live   [q] quit")
 
-	banner := th.fg(th.accent).Bold(true).Render("✦ 99dps") + th.fg(th.dim).Render("  ·  "+m.character)
-	footer := th.fg(th.dim).Render(fmt.Sprintf("theme: %s   ·   [t] theme   [wheel/↑↓] scroll   [q] quit", th.name))
-
-	body := lipgloss.JoinVertical(lipgloss.Left, banner, "", card, "", footer)
+	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, footer)
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
-		Width(m.w).Height(m.h).Padding(1, 2).Render(body)
+		Width(m.w).Height(m.h).Padding(1, 1).Render(full)
 }
 
-// damageContent is the scrollable dealer bar chart for the active fight, ported
-// from render.go's logic into themed Lipgloss.
+// damageContent is the scrollable dealer bar chart for the selected fight.
 func (m Model) damageContent(cur *session.CombatSession, _ bool, width int) string {
 	th := themes[m.theme]
 	if cur == nil {
@@ -171,11 +226,10 @@ func (m Model) damageContent(cur *session.CombatSession, _ bool, width int) stri
 	}
 
 	const nameW, valW, dpsW = 12, 7, 8
-	barCells := width - nameW - valW - dpsW - 3 - 8 // 3 gaps + headroom so values always fit
+	barCells := width - nameW - valW - dpsW - 3 - 4
 	if barCells < 6 {
 		barCells = 6
 	}
-
 	var rows []string
 	for i, d := range stats {
 		from, to := th.barFrom, th.barTo

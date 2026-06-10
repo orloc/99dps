@@ -50,3 +50,6 @@ func truncate(s string, w int) string {
 func rightCell(s string, w int, color string) string {
 	return lipgloss.NewStyle().Width(w).Align(lipgloss.Right).Foreground(lipgloss.Color(color)).Render(s)
 }
+
+// mmss formats a seconds count as m:ss (or h:mm:ss past an hour).
+func mmss(sec int64) string { return fmtDuration(time.Duration(sec) * time.Second) }
