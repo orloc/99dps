@@ -39,7 +39,7 @@ is client-specific and isn't in the current all-caster logs). Add to
 
 ## Code-review follow-ups (deferred — low priority, not bugs)
 - [ ] `cli.go` `switchTo` re-reads the new log twice: `loader.Follow` seeks EOF, then `RebuildTrackerFromFile` replays the whole file. The replay is idempotent so this is harmless; Follow-first is kept for error-safety. Reorder only if startup cost on huge logs becomes noticeable.
-- [ ] `gamestate/book.go` `DurationSeconds` formulas 2 and 3 are best-effort against the EQ buffduration table and may be slightly off; verify against a known-duration debuff before trusting the countdown to the second.
+- [x] `gamestate/book.go` `DurationSeconds`: formula table audited branch-by-branch against the canonical EQ `CalcBuffDuration_formula` (matches). The real off-by-one was the **EQ cast-tick**: a buff runs one tick longer than the raw formula (Curse of the Spirits, formula 1 / cap 14, is 15 ticks = 1:30 in game, not 14). Fixed with `+1 tick`; verified against Curse. Also corrected the formula-5 zero-cap edge (1, not 3).
 - [ ] `gamestate/tracker.go` `expireByMessage` matches the first timer whose fade emote fits; with two same-named debuffs up it may clear the wrong one (same-name ambiguity caveat).
 - [ ] Test gaps remaining: `renderTimers` charm-pinning, `splitCC`/`renderCC` column layout, `parseTimer` edge cases, zone override round-trip.
 
