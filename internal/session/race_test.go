@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"99dps/internal/common"
+	"99dps/internal/combat"
 )
 
 // Regression for bug #3: Apply takes the write lock for the duration of the
@@ -15,7 +15,7 @@ func TestApply_RaceFreeWithReaders(t *testing.T) {
 	sm := &SessionManager{}
 
 	// Seed a session so readers have something to look at.
-	sm.Apply(&common.DamageSet{ActionTime: 1, Dealer: "Foo", Dmg: 1})
+	sm.Apply(&combat.DamageSet{ActionTime: 1, Dealer: "Foo", Dmg: 1})
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -31,7 +31,7 @@ func TestApply_RaceFreeWithReaders(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				sm.Apply(&common.DamageSet{
+				sm.Apply(&combat.DamageSet{
 					ActionTime: tick,
 					Dealer:     "Foo",
 					Dmg:        1,
@@ -66,7 +66,7 @@ func TestApply_RaceFreeWithReaders(t *testing.T) {
 // map write" even without -race.
 func TestCurrent_SnapshotIndependentOfLiveSession(t *testing.T) {
 	sm := &SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 1, Dealer: "Foo", Dmg: 1})
+	sm.Apply(&combat.DamageSet{ActionTime: 1, Dealer: "Foo", Dmg: 1})
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -80,7 +80,7 @@ func TestCurrent_SnapshotIndependentOfLiveSession(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				sm.Apply(&common.DamageSet{
+				sm.Apply(&combat.DamageSet{
 					ActionTime: int64(i + 2),
 					Dealer:     "d" + string(rune('a'+(i%26))),
 					Dmg:        1,

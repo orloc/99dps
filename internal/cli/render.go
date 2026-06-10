@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
@@ -206,7 +206,7 @@ func renderStatus(char string, class eqclass.Class, level int, zone string, kill
 // renderSpecials lists dealers who landed activated skills (backstab/bash/kick),
 // showing that damage and its share of the dealer's total. Empty when nobody
 // used a special.
-func renderSpecials(stats []common.DamageStat, width int) string {
+func renderSpecials(stats []combat.DamageStat, width int) string {
 	var b strings.Builder
 	for _, v := range stats {
 		if v.SpecialHits == 0 {
@@ -287,7 +287,7 @@ func renderAvoidance(cur *session.CombatSession, width int) string {
 
 // compactAvoidanceRow is the narrow fallback: name + avoid% (faced), with the
 // miss/dodge/parry/block split appended only if it still fits the width.
-func compactAvoidanceRow(name string, s common.SwingStats, faced, width int) string {
+func compactAvoidanceRow(name string, s combat.SwingStats, faced, width int) string {
 	base := fmt.Sprintf("%-12s %3d%% %5d",
 		truncate(displayName(name), 12),
 		s.Avoided()*100/faced,
@@ -517,7 +517,7 @@ func renderSkills(cur *session.CombatSession, class eqclass.Class, level, width 
 	} else {
 		type row struct {
 			name string
-			s    common.SkillStat
+			s    combat.SkillStat
 		}
 		rows := make([]row, 0, len(skills))
 		for n, s := range skills {
@@ -721,9 +721,9 @@ func critPct(crits, hits int) int {
 }
 
 // topSkill returns the highest-damage class-relevant skill, or ("", zero).
-func topSkill(skills map[string]common.SkillStat, class eqclass.Class) (string, common.SkillStat) {
+func topSkill(skills map[string]combat.SkillStat, class eqclass.Class) (string, combat.SkillStat) {
 	var name string
-	var best common.SkillStat
+	var best combat.SkillStat
 	for n, s := range skills {
 		if !skillRelevant(n, class) {
 			continue
@@ -736,13 +736,13 @@ func topSkill(skills map[string]common.SkillStat, class eqclass.Class) (string, 
 }
 
 // playerStat returns the player's own DamageStat from a session snapshot.
-func playerStat(cur *session.CombatSession) common.DamageStat {
+func playerStat(cur *session.CombatSession) combat.DamageStat {
 	for _, v := range cur.GetAggressors() {
 		if strings.EqualFold(v.Dealer, "you") {
 			return v
 		}
 	}
-	return common.DamageStat{}
+	return combat.DamageStat{}
 }
 
 // playerAvoidance returns the player's avoided count and swings faced as the
@@ -837,7 +837,7 @@ func timerStyle(detrimental bool, rem, now int64) string {
 // renderBars draws one horizontal bar per dealer, Recount-style: a colored
 // fill proportional to that dealer's share of the top dealer's damage, with the
 // name on the left and total/dps on the right.
-func renderBars(agg []common.DamageStat, width, height int) string {
+func renderBars(agg []combat.DamageStat, width, height int) string {
 	if len(agg) == 0 || width < 12 || height < 1 {
 		return "Fight something!"
 	}
@@ -890,7 +890,7 @@ func renderBars(agg []common.DamageStat, width, height int) string {
 
 // dealerDPS derives damage-per-second from a dealer's own first-to-last-hit
 // span. A zero span (or a single hit) falls back to raw total.
-func dealerDPS(d common.DamageStat) int {
+func dealerDPS(d combat.DamageStat) int {
 	if d.Hits == 0 {
 		return 0
 	}

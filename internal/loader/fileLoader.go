@@ -1,9 +1,9 @@
 package loader
 
 import (
-	"99dps/internal/common"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,9 +28,13 @@ type LogSource struct {
 // from the start of the file.
 func LoadFile(dir string) *LogSource {
 	path, err := Latest(dir)
-	common.CheckErr(err)
+	if err != nil {
+		log.Fatal(err) // startup discovery failure — nothing to fall back to
+	}
 	src, err := Follow(path, false)
-	common.CheckErr(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 	return src
 }
 

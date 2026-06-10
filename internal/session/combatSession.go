@@ -1,7 +1,7 @@
 package session
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"maps"
 	"sort"
 	"strings"
@@ -12,16 +12,16 @@ type CombatSession struct {
 	start      time.Time
 	end        time.Time
 	lastTime   int64
-	aggressors map[string]common.DamageStat
+	aggressors map[string]combat.DamageStat
 	// offense is keyed by attacker (raw name, matching DamageSet.Dealer) and
 	// only counts hits and misses — an attacker's accuracy. Defensive outcomes
 	// (dodge/parry/block/absorb) are the defender's doing and must not affect
 	// the attacker's hit ratio. defense is keyed by defender (normalized,
 	// matching DamageSet.Target) and faces every outcome.
-	offense map[string]common.SwingStats
-	defense map[string]common.SwingStats
+	offense map[string]combat.SwingStats
+	defense map[string]combat.SwingStats
 	// crits is keyed by attacker (raw name); counts/sums critical hits.
-	crits map[string]common.CritStat
+	crits map[string]combat.CritStat
 
 	// targets sums melee damage dealt *to* each target (raw target name), so
 	// Name() can pick the heaviest enemy without retaining every hit.
@@ -30,7 +30,7 @@ type CombatSession struct {
 	// skills tallies the *player's* activated melee skills (Backstab/Bash/Kick),
 	// keyed by canonical skill name, for the class-aware skills panel. Only the
 	// player's skills are tracked (it's their own breakdown).
-	skills map[string]common.SkillStat
+	skills map[string]combat.SkillStat
 
 	// session bookkeeping from kill / xp / death lines.
 	kills   int // your killing blows
@@ -46,16 +46,16 @@ type CombatSession struct {
 // Defender pairs a combatant with its defensive swing tally, for display.
 type Defender struct {
 	Name  string
-	Stats common.SwingStats
+	Stats combat.SwingStats
 }
 
 // adjustDamageLocked applies one event. Caller must hold the SessionManager
 // write lock.
-func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
+func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 	cs.lastTime = set.ActionTime
 
 	// a landed damage line is also a connecting swing
-	cs.recordOutcome(set.Dealer, set.Target, common.OutcomeHit)
+	cs.recordOutcome(set.Dealer, set.Target, combat.OutcomeHit)
 
 	// sum damage per target for Name()
 	if set.Target != "" {
@@ -82,7 +82,7 @@ func (cs *CombatSession) adjustDamageLocked(set *common.DamageSet) {
 	if strings.EqualFold(set.Dealer, "You") {
 		if sk := playerSkill(set.Verb); sk != "" {
 			if cs.skills == nil {
-				cs.skills = make(map[string]common.SkillStat)
+				cs.skills = make(map[string]combat.SkillStat)
 			}
 			s := cs.skills[sk]
 			s.Total += set.Dmg
@@ -126,9 +126,9 @@ func playerSkill(verb string) string {
 
 // applyCritLocked records a critical hit against its attacker. Caller holds the
 // write lock; crits only annotate an in-progress fight.
-func (cs *CombatSession) applyCritLocked(cr *common.Crit) {
+func (cs *CombatSession) applyCritLocked(cr *combat.Crit) {
 	if cs.crits == nil {
-		cs.crits = make(map[string]common.CritStat)
+		cs.crits = make(map[string]combat.CritStat)
 	}
 	s := cs.crits[cr.Attacker]
 	s.Count++
@@ -137,15 +137,15 @@ func (cs *CombatSession) applyCritLocked(cr *common.Crit) {
 }
 
 // applyEventLocked folds a kill / xp / death line into the session counters.
-func (cs *CombatSession) applyEventLocked(e *common.Event) {
+func (cs *CombatSession) applyEventLocked(e *combat.Event) {
 	switch e.Kind {
-	case common.EventKill:
+	case combat.EventKill:
 		cs.kills++
-	case common.EventXP:
+	case combat.EventXP:
 		cs.xpGains++
-	case common.EventPartyXP:
+	case combat.EventPartyXP:
 		cs.xpGains++
-	case common.EventDeath:
+	case combat.EventDeath:
 		cs.deaths++
 	}
 }
@@ -153,7 +153,7 @@ func (cs *CombatSession) applyEventLocked(e *common.Event) {
 // applyMagicLocked adds a non-melee (spell/proc/DoT) damage line to the
 // unattributed magic total. EQ logs name no caster, so it can't be split per
 // spell. Caller holds the write lock; magic only annotates an in-progress fight.
-func (cs *CombatSession) applyMagicLocked(m *common.Magic) {
+func (cs *CombatSession) applyMagicLocked(m *combat.Magic) {
 	if strings.ToUpper(m.Target) == "YOU" {
 		return // incoming spell damage on the player isn't enemy magic
 	}
@@ -180,7 +180,7 @@ func (cs *CombatSession) MagicTotal() int {
 
 // Skills returns the player's per-skill activated-attack tallies (keyed by
 // canonical name: Backstab/Bash/Kick). Safe to call on a snapshot.
-func (cs *CombatSession) Skills() map[string]common.SkillStat {
+func (cs *CombatSession) Skills() map[string]combat.SkillStat {
 	if cs == nil {
 		return nil
 	}
@@ -188,9 +188,9 @@ func (cs *CombatSession) Skills() map[string]common.SkillStat {
 }
 
 // CritFor returns the critical-hit tally for an attacker, keyed by raw name.
-func (cs *CombatSession) CritFor(name string) common.CritStat {
+func (cs *CombatSession) CritFor(name string) combat.CritStat {
 	if cs == nil {
-		return common.CritStat{}
+		return combat.CritStat{}
 	}
 	return cs.crits[name]
 }
@@ -221,33 +221,33 @@ func (cs *CombatSession) Deaths() int {
 // activity: the SessionManager routes them through activeForLocked, so a swing
 // can open or sustain a fight (a stretch of pure misses no longer splits it).
 // Caller holds the write lock.
-func (cs *CombatSession) applySwingLocked(sw *common.Swing) {
+func (cs *CombatSession) applySwingLocked(sw *combat.Swing) {
 	cs.recordOutcome(sw.Attacker, sw.Defender, sw.Outcome)
 }
 
 // recordOutcome tallies one swing. The defender faces every outcome; the
 // attacker only owns whether it connected or missed — dodge/parry/block/absorb
 // are defensive acts and stay out of the attacker's accuracy.
-func (cs *CombatSession) recordOutcome(attacker, defender string, o common.SwingOutcome) {
+func (cs *CombatSession) recordOutcome(attacker, defender string, o combat.SwingOutcome) {
 	if cs.offense == nil {
-		cs.offense = make(map[string]common.SwingStats)
+		cs.offense = make(map[string]combat.SwingStats)
 	}
 	if cs.defense == nil {
-		cs.defense = make(map[string]common.SwingStats)
+		cs.defense = make(map[string]combat.SwingStats)
 	}
 	if defender != "" {
 		cs.defense[defender] = cs.defense[defender].Add(o)
 	}
-	if (o == common.OutcomeHit || o == common.OutcomeMiss) && attacker != "" {
+	if (o == combat.OutcomeHit || o == combat.OutcomeMiss) && attacker != "" {
 		cs.offense[attacker] = cs.offense[attacker].Add(o)
 	}
 }
 
 // OffenseFor returns the accuracy tally for an attacker, keyed by raw name
 // (i.e. DamageStat dealer names). Zero value if unseen.
-func (cs *CombatSession) OffenseFor(name string) common.SwingStats {
+func (cs *CombatSession) OffenseFor(name string) combat.SwingStats {
 	if cs == nil {
-		return common.SwingStats{}
+		return combat.SwingStats{}
 	}
 	return cs.offense[name]
 }
@@ -270,11 +270,11 @@ func (cs *CombatSession) Defense() []Defender {
 
 // GetAggressors is safe to call on a snapshot returned by SessionManager.
 // Calling it on a live session is unsafe — go through SessionManager.Current().
-func (cs *CombatSession) GetAggressors() []common.DamageStat {
+func (cs *CombatSession) GetAggressors() []combat.DamageStat {
 	if cs == nil {
 		return nil
 	}
-	stats := make([]common.DamageStat, 0, len(cs.aggressors))
+	stats := make([]combat.DamageStat, 0, len(cs.aggressors))
 	for _, v := range cs.aggressors {
 		stats = append(stats, v)
 	}

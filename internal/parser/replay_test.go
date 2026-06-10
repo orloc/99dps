@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"99dps/internal/session"
 	"bufio"
 	"os"
@@ -46,7 +46,7 @@ func TestDispatch_GoldenReplay(t *testing.T) {
 	}
 
 	// YOU faced 2 swings (1 landed bite, 1 dodge), avoided 1
-	var youDef common.SwingStats
+	var youDef combat.SwingStats
 	for _, d := range cur.Defense() {
 		if d.Name == "YOU" {
 			youDef = d.Stats
@@ -70,7 +70,7 @@ func TestDispatch_GoldenReplay(t *testing.T) {
 	}
 
 	// the backstab is an activated special
-	var you common.DamageStat
+	var you combat.DamageStat
 	for _, s := range cur.GetAggressors() {
 		if s.Dealer == "You" {
 			you = s

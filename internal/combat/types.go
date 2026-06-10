@@ -1,4 +1,4 @@
-package common
+package combat
 
 // DamageStat is a per-dealer running tally within a session. It keeps only the
 // aggregates the UI consumes — never the individual hits — so a snapshot is a

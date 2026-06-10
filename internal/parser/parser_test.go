@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"os"
@@ -73,7 +73,7 @@ func TestObserveSpells_CRLFLandingStartsTimer(t *testing.T) {
 }
 
 // parseSwingLine is a test helper around parseSwing.
-func parseSwingLine(t *testing.T, subject string) *common.Swing {
+func parseSwingLine(t *testing.T, subject string) *combat.Swing {
 	t.Helper()
 	p := &DmgParser{}
 	full := fakeTS + subject
@@ -92,15 +92,15 @@ func TestParseSwing_Outcomes(t *testing.T) {
 		subject  string
 		attacker string
 		defender string
-		outcome  common.SwingOutcome
+		outcome  combat.SwingOutcome
 	}{
-		{"A saltwater croc tries to bite YOU, but misses!", "A saltwater croc", "YOU", common.OutcomeMiss},
-		{"You try to pierce a saltwater croc, but miss!", "You", "a saltwater croc", common.OutcomeMiss},
-		{"A saltwater croc tries to bite YOU, but YOU block!", "A saltwater croc", "YOU", common.OutcomeBlock},
-		{"A saltwater croc tries to kick YOU, but YOU dodge!", "A saltwater croc", "YOU", common.OutcomeDodge},
-		{"Argoni tries to slash imp protector, but imp protector parries!", "Argoni", "imp protector", common.OutcomeParry},
-		{"A saltwater croc tries to bite YOU, but YOU riposte!", "A saltwater croc", "YOU", common.OutcomeRiposte},
-		{"A sand giant tries to crush YOU, but YOUR magical skin absorbs the blow!", "A sand giant", "YOU", common.OutcomeAbsorb},
+		{"A saltwater croc tries to bite YOU, but misses!", "A saltwater croc", "YOU", combat.OutcomeMiss},
+		{"You try to pierce a saltwater croc, but miss!", "You", "a saltwater croc", combat.OutcomeMiss},
+		{"A saltwater croc tries to bite YOU, but YOU block!", "A saltwater croc", "YOU", combat.OutcomeBlock},
+		{"A saltwater croc tries to kick YOU, but YOU dodge!", "A saltwater croc", "YOU", combat.OutcomeDodge},
+		{"Argoni tries to slash imp protector, but imp protector parries!", "Argoni", "imp protector", combat.OutcomeParry},
+		{"A saltwater croc tries to bite YOU, but YOU riposte!", "A saltwater croc", "YOU", combat.OutcomeRiposte},
+		{"A sand giant tries to crush YOU, but YOUR magical skin absorbs the blow!", "A sand giant", "YOU", combat.OutcomeAbsorb},
 	}
 
 	for _, c := range cases {
@@ -153,14 +153,14 @@ func TestParseEvent(t *testing.T) {
 	p := &DmgParser{}
 	cases := []struct {
 		subject string
-		kind    common.EventKind
+		kind    combat.EventKind
 	}{
-		{"You have slain a saltwater croc!", common.EventKill},
-		{"You gain party experience!!", common.EventPartyXP},
-		{"You gain experience!!", common.EventXP},
-		{"You have been slain by The Avatar of War!", common.EventDeath},
-		{"You have entered the Greater Faydark.", common.EventZone},
-		{"It will take you about 30 seconds to prepare your camp.", common.EventZone},
+		{"You have slain a saltwater croc!", combat.EventKill},
+		{"You gain party experience!!", combat.EventPartyXP},
+		{"You gain experience!!", combat.EventXP},
+		{"You have been slain by The Avatar of War!", combat.EventDeath},
+		{"You have entered the Greater Faydark.", combat.EventZone},
+		{"It will take you about 30 seconds to prepare your camp.", combat.EventZone},
 	}
 	for _, c := range cases {
 		ev, err := p.parseEvent(fakeTS + c.subject)

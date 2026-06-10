@@ -1,11 +1,11 @@
 package cli
 
 import (
-	"99dps/internal/common"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -103,7 +103,7 @@ func New(m *session.SessionManager, character string, tracker *gamestate.Tracker
 	var err error
 	a.gui, err = gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
-		common.CheckErr(err)
+		log.Fatal(err) // can't create the terminal UI — fatal at startup
 	}
 
 	a.initGui()
@@ -113,7 +113,7 @@ func New(m *session.SessionManager, character string, tracker *gamestate.Tracker
 
 func (a *App) Loop() {
 	if err := a.gui.MainLoop(); err != nil && err != gocui.ErrQuit {
-		common.CheckErr(err)
+		log.Fatal(err)
 	}
 }
 
@@ -528,7 +528,7 @@ func (a *App) initGui() {
 	// it first to restore the terminal before exiting.
 	if err := a.setKeybindings(); err != nil {
 		a.gui.Close()
-		common.CheckErr(err)
+		log.Fatal(err)
 	}
 }
 

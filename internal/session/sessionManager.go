@@ -1,7 +1,7 @@
 package session
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"sync"
 	"time"
 )
@@ -40,7 +40,7 @@ type SessionManager struct {
 
 // Apply routes one melee damage event, opening or rolling a session per the
 // adaptive cadence rule.
-func (sm *SessionManager) Apply(set *common.DamageSet) {
+func (sm *SessionManager) Apply(set *combat.DamageSet) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.activeForLocked(set.ActionTime).adjustDamageLocked(set)
@@ -49,7 +49,7 @@ func (sm *SessionManager) Apply(set *common.DamageSet) {
 // ApplySwing folds an avoided melee attempt into the fight. Swings are combat
 // activity, so they keep a session alive (and can open one) — a stretch of
 // nothing but misses no longer splits a fight.
-func (sm *SessionManager) ApplySwing(sw *common.Swing) {
+func (sm *SessionManager) ApplySwing(sw *combat.Swing) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.activeForLocked(sw.ActionTime).applySwingLocked(sw)
@@ -104,7 +104,7 @@ func (sm *SessionManager) openSessionLocked(actionTime int64) *CombatSession {
 	cs := &CombatSession{
 		start:      time.Unix(actionTime, 0),
 		lastTime:   actionTime,
-		aggressors: make(map[string]common.DamageStat),
+		aggressors: make(map[string]combat.DamageStat),
 	}
 	sm.sessions = append(sm.sessions, cs)
 	sm.activeSession = len(sm.sessions) - 1
@@ -114,7 +114,7 @@ func (sm *SessionManager) openSessionLocked(actionTime int64) *CombatSession {
 }
 
 // ApplyCrit records a critical hit on the active session (never rolls).
-func (sm *SessionManager) ApplyCrit(cr *common.Crit) {
+func (sm *SessionManager) ApplyCrit(cr *combat.Crit) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -127,7 +127,7 @@ func (sm *SessionManager) ApplyCrit(cr *common.Crit) {
 // ApplyEvent folds a kill / xp line into the active session. Death, zoning, and
 // camping are hard boundaries: they close the current fight so the next combat
 // exchange starts a fresh session (kills do not — a multi-mob pull stays one).
-func (sm *SessionManager) ApplyEvent(e *common.Event) {
+func (sm *SessionManager) ApplyEvent(e *combat.Event) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (sm *SessionManager) ApplyEvent(e *common.Event) {
 		return
 	}
 	sm.sessions[sm.activeSession].applyEventLocked(e)
-	if e.Kind == common.EventDeath || e.Kind == common.EventZone {
+	if e.Kind == combat.EventDeath || e.Kind == combat.EventZone {
 		sm.endSessionLocked(e.ActionTime)
 	}
 }
@@ -157,7 +157,7 @@ func (sm *SessionManager) endSessionLocked(at int64) {
 // ApplyMagic folds a non-melee damage line into the fight. Spell damage is a
 // combat exchange, so it drives segmentation (and can open a fight for a pure
 // caster the mob never melees back).
-func (sm *SessionManager) ApplyMagic(m *common.Magic) {
+func (sm *SessionManager) ApplyMagic(m *combat.Magic) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.activeForLocked(m.ActionTime).applyMagicLocked(m)

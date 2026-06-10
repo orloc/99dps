@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"99dps/internal/common"
+	"99dps/internal/combat"
 )
 
 // hit is a tiny helper to push a melee damage line through the manager.
 func hit(sm *SessionManager, at int64, dealer string, dmg int, target string) {
-	sm.Apply(&common.DamageSet{ActionTime: at, Dealer: dealer, Dmg: dmg, Target: target})
+	sm.Apply(&combat.DamageSet{ActionTime: at, Dealer: dealer, Dmg: dmg, Target: target})
 }
 
 // Name is the heaviest enemy *target*, not the heaviest dealer — so even when
@@ -87,7 +87,7 @@ func TestTotalAndAggregates(t *testing.T) {
 		t.Errorf("Total = %d, want 45", cur.Total())
 	}
 
-	var you common.DamageStat
+	var you combat.DamageStat
 	for _, s := range cur.GetAggressors() {
 		if s.Dealer == "You" {
 			you = s
@@ -107,10 +107,10 @@ func TestTotalAndAggregates(t *testing.T) {
 // excluded.
 func TestPlayerSkillsTracking(t *testing.T) {
 	sm := &SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 150, Target: "a rat", Verb: "backstabs"})
-	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 40, Target: "a rat", Verb: "kick"})
-	sm.Apply(&common.DamageSet{ActionTime: 102, Dealer: "You", Dmg: 20, Target: "a rat", Verb: "slash"}) // auto-attack
-	sm.Apply(&common.DamageSet{ActionTime: 103, Dealer: "Bob", Dmg: 99, Target: "a rat", Verb: "kick"})  // groupmate
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 150, Target: "a rat", Verb: "backstabs"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 40, Target: "a rat", Verb: "kick"})
+	sm.Apply(&combat.DamageSet{ActionTime: 102, Dealer: "You", Dmg: 20, Target: "a rat", Verb: "slash"}) // auto-attack
+	sm.Apply(&combat.DamageSet{ActionTime: 103, Dealer: "Bob", Dmg: 99, Target: "a rat", Verb: "kick"})  // groupmate
 
 	skills := sm.Current().Skills()
 	if len(skills) != 2 {
@@ -142,8 +142,8 @@ func TestSnapshotIsIndependent(t *testing.T) {
 func TestMagicOnlyFightNamesTheTarget(t *testing.T) {
 	sm := &SessionManager{}
 	// a pure non-melee kill (wizard nuke / DoT): only ApplyMagic, no melee.
-	sm.ApplyMagic(&common.Magic{ActionTime: 100, Target: "a sand giant", Dmg: 800})
-	sm.ApplyMagic(&common.Magic{ActionTime: 101, Target: "a sand giant", Dmg: 600})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 100, Target: "a sand giant", Dmg: 800})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 101, Target: "a sand giant", Dmg: 600})
 	if got := sm.Current().Name(); got != "a sand giant" {
 		t.Errorf("magic-only fight name = %q, want %q (must not fall through to Solo)", got, "a sand giant")
 	}

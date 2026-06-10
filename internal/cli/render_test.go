@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
@@ -148,8 +148,8 @@ func TestPctOfAndDisplayName(t *testing.T) {
 // assert the key facts surface. Exercises the whole pure render path.
 func TestRenderDamage_Smoke(t *testing.T) {
 	sm := &session.SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
-	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 70, Target: "a rat", Verb: "slash"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 70, Target: "a rat", Verb: "slash"})
 
 	out := renderDamage(sm.Current(), true, 60)
 
@@ -167,7 +167,7 @@ func TestRenderDamage_Smoke(t *testing.T) {
 }
 
 func TestRenderBars(t *testing.T) {
-	agg := []common.DamageStat{
+	agg := []combat.DamageStat{
 		{Dealer: "You", Total: 1000, Hits: 10, FirstTime: 100, LastTime: 110},
 		{Dealer: "Bob", Total: 500, Hits: 5, FirstTime: 100, LastTime: 110},
 	}
@@ -187,13 +187,13 @@ func TestRenderBars(t *testing.T) {
 	// degenerate inputs all yield the placeholder rather than panicking
 	for _, c := range []struct {
 		name          string
-		agg           []common.DamageStat
+		agg           []combat.DamageStat
 		width, height int
 	}{
 		{"empty", nil, 60, 5},
 		{"too narrow", agg, 5, 5},
 		{"zero height", agg, 60, 0},
-		{"zero total", []common.DamageStat{{Dealer: "x", Total: 0}}, 60, 5},
+		{"zero total", []combat.DamageStat{{Dealer: "x", Total: 0}}, 60, 5},
 	} {
 		if got := renderBars(c.agg, c.width, c.height); got != "Fight something!" {
 			t.Errorf("renderBars(%s) = %q, want placeholder", c.name, got)
@@ -203,8 +203,8 @@ func TestRenderBars(t *testing.T) {
 
 func TestRenderSkillsAndSummary(t *testing.T) {
 	sm := &session.SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 200, Target: "a rat", Verb: "backstabs"})
-	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 200, Target: "a rat", Verb: "backstabs"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
 	cur := sm.Current()
 
 	out := renderSkills(cur, eqclass.ClassRogue, 50, 40)
@@ -230,8 +230,8 @@ func TestRenderSkillsAndSummary(t *testing.T) {
 // bucket surfaces for monks but is hidden for other classes.
 func TestSkillLabellingByClass(t *testing.T) {
 	sm := &session.SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 80, Target: "a rat", Verb: "kick"})
-	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 60, Target: "a rat", Verb: "strike"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 80, Target: "a rat", Verb: "kick"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 60, Target: "a rat", Verb: "strike"})
 	cur := sm.Current()
 
 	monk := renderSkills(cur, eqclass.ClassMonk, 35, 40)
@@ -298,15 +298,15 @@ func TestGetScreenDims(t *testing.T) {
 
 func TestDealerDPS(t *testing.T) {
 	// 1000 damage over a 10s span = 100/s
-	if got := dealerDPS(common.DamageStat{Total: 1000, Hits: 5, FirstTime: 100, LastTime: 110}); got != 100 {
+	if got := dealerDPS(combat.DamageStat{Total: 1000, Hits: 5, FirstTime: 100, LastTime: 110}); got != 100 {
 		t.Errorf("dealerDPS = %d, want 100", got)
 	}
 	// a zero span (single hit) falls back to the raw total
-	if got := dealerDPS(common.DamageStat{Total: 250, Hits: 1, FirstTime: 100, LastTime: 100}); got != 250 {
+	if got := dealerDPS(combat.DamageStat{Total: 250, Hits: 1, FirstTime: 100, LastTime: 100}); got != 250 {
 		t.Errorf("zero-span dealerDPS = %d, want 250", got)
 	}
 	// no hits → 0, no division
-	if got := dealerDPS(common.DamageStat{}); got != 0 {
+	if got := dealerDPS(combat.DamageStat{}); got != 0 {
 		t.Errorf("empty dealerDPS = %d, want 0", got)
 	}
 }
@@ -358,9 +358,9 @@ func TestRenderCC(t *testing.T) {
 
 func TestRenderAvoidance(t *testing.T) {
 	sm := &session.SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 10, Target: "a rat"})
-	for _, o := range []common.SwingOutcome{common.OutcomeMiss, common.OutcomeDodge, common.OutcomeRiposte} {
-		sm.ApplySwing(&common.Swing{ActionTime: 100, Attacker: "You", Defender: "a rat", Outcome: o})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 10, Target: "a rat"})
+	for _, o := range []combat.SwingOutcome{combat.OutcomeMiss, combat.OutcomeDodge, combat.OutcomeRiposte} {
+		sm.ApplySwing(&combat.Swing{ActionTime: 100, Attacker: "You", Defender: "a rat", Outcome: o})
 	}
 	cur := sm.Current()
 

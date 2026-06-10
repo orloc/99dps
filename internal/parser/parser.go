@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"99dps/internal/common"
+	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"bufio"
 	"fmt"
@@ -18,11 +18,11 @@ import (
 // satisfies it; depending on this interface rather than the concrete manager
 // keeps the parser free of the storage layer and unit-testable with a fake.
 type Sink interface {
-	Apply(*common.DamageSet)
-	ApplySwing(*common.Swing)
-	ApplyCrit(*common.Crit)
-	ApplyEvent(*common.Event)
-	ApplyMagic(*common.Magic)
+	Apply(*combat.DamageSet)
+	ApplySwing(*combat.Swing)
+	ApplyCrit(*combat.Crit)
+	ApplyEvent(*combat.Event)
+	ApplyMagic(*combat.Magic)
 }
 
 // SpellObserver is the parser's view of the live game-state tracker: the spell,
@@ -228,7 +228,7 @@ func (p *DmgParser) hasSwing(input string) bool {
 		(strings.Contains(input, " tries to ") || strings.Contains(input, " try to "))
 }
 
-func (p *DmgParser) parseSwing(input string) (*common.Swing, error) {
+func (p *DmgParser) parseSwing(input string) (*combat.Swing, error) {
 	if len(input) < LOG_SUBJECT_INDEX_START {
 		return nil, fmt.Errorf("line too short for a swing")
 	}
@@ -248,7 +248,7 @@ func (p *DmgParser) parseSwing(input string) (*common.Swing, error) {
 		return nil, fmt.Errorf("unrecognised swing outcome: %q", m[3])
 	}
 
-	return &common.Swing{
+	return &combat.Swing{
 		ActionTime: ts,
 		Attacker:   strings.TrimSpace(m[1]),
 		Defender:   normalizeName(strings.TrimSpace(m[2])),
@@ -259,20 +259,20 @@ func (p *DmgParser) parseSwing(input string) (*common.Swing, error) {
 // classifyOutcome maps the "but …" tail to a SwingOutcome. The second return is
 // false when the tail isn't a known avoidance phrase (so non-combat "tries to"
 // lines are ignored).
-func classifyOutcome(tail string) (common.SwingOutcome, bool) {
+func classifyOutcome(tail string) (combat.SwingOutcome, bool) {
 	switch {
 	case strings.Contains(tail, "miss"):
-		return common.OutcomeMiss, true
+		return combat.OutcomeMiss, true
 	case strings.Contains(tail, "dodge"):
-		return common.OutcomeDodge, true
+		return combat.OutcomeDodge, true
 	case strings.Contains(tail, "parr"): // parry / parries
-		return common.OutcomeParry, true
+		return combat.OutcomeParry, true
 	case strings.Contains(tail, "block"):
-		return common.OutcomeBlock, true
+		return combat.OutcomeBlock, true
 	case strings.Contains(tail, "ripost"): // riposte / ripostes
-		return common.OutcomeRiposte, true
+		return combat.OutcomeRiposte, true
 	case strings.Contains(tail, "magical skin absorbs"):
-		return common.OutcomeAbsorb, true
+		return combat.OutcomeAbsorb, true
 	}
 	return 0, false
 }
@@ -307,7 +307,7 @@ func (p *DmgParser) hasDamage(inputString string) bool {
 // substring (e.g. "a slashing terror") isn't mistaken for the verb.
 var damageLineRe = regexp.MustCompile(`^(.+?) (` + COMBAT_VERB_STRING + `) (.+?) for (\d+) points of damage`)
 
-func (p *DmgParser) parseDamage(input string) (*common.DamageSet, error) {
+func (p *DmgParser) parseDamage(input string) (*combat.DamageSet, error) {
 	if len(input) < LOG_SUBJECT_INDEX_START {
 		return nil, fmt.Errorf("line too short for a damage event")
 	}
@@ -327,7 +327,7 @@ func (p *DmgParser) parseDamage(input string) (*common.DamageSet, error) {
 		return nil, err
 	}
 
-	return &common.DamageSet{
+	return &combat.DamageSet{
 		ActionTime: ts,
 		Dealer:     strings.TrimSpace(m[1]),
 		Verb:       m[2],
@@ -369,7 +369,7 @@ func (p *DmgParser) hasCrit(input string) bool {
 	return strings.Contains(input, "critical hit!(")
 }
 
-func (p *DmgParser) parseCrit(input string) (*common.Crit, error) {
+func (p *DmgParser) parseCrit(input string) (*combat.Crit, error) {
 	if len(input) < LOG_SUBJECT_INDEX_START {
 		return nil, fmt.Errorf("line too short for a crit")
 	}
@@ -389,7 +389,7 @@ func (p *DmgParser) parseCrit(input string) (*common.Crit, error) {
 		return nil, err
 	}
 
-	return &common.Crit{
+	return &combat.Crit{
 		ActionTime: ts,
 		Attacker:   p.normalizeAttacker(strings.TrimSpace(m[1])),
 		Damage:     dmg,
@@ -416,7 +416,7 @@ func (p *DmgParser) hasEvent(input string) bool {
 
 var slainPattern = regexp.MustCompile(`^You have slain (.+)!`)
 
-func (p *DmgParser) parseEvent(input string) (*common.Event, error) {
+func (p *DmgParser) parseEvent(input string) (*combat.Event, error) {
 	if len(input) < LOG_SUBJECT_INDEX_START {
 		return nil, fmt.Errorf("line too short for an event")
 	}
@@ -429,19 +429,19 @@ func (p *DmgParser) parseEvent(input string) (*common.Event, error) {
 
 	switch {
 	case strings.HasPrefix(body, "You have been slain by"):
-		return &common.Event{ActionTime: ts, Kind: common.EventDeath}, nil
+		return &combat.Event{ActionTime: ts, Kind: combat.EventDeath}, nil
 	case strings.HasPrefix(body, "You have entered ") || strings.Contains(body, "to prepare your camp"):
-		return &common.Event{ActionTime: ts, Kind: common.EventZone}, nil
+		return &combat.Event{ActionTime: ts, Kind: combat.EventZone}, nil
 	case strings.HasPrefix(body, "You have slain "):
 		name := ""
 		if m := slainPattern.FindStringSubmatch(body); m != nil {
 			name = m[1]
 		}
-		return &common.Event{ActionTime: ts, Kind: common.EventKill, Name: name}, nil
+		return &combat.Event{ActionTime: ts, Kind: combat.EventKill, Name: name}, nil
 	case strings.HasPrefix(body, "You gain party experience"):
-		return &common.Event{ActionTime: ts, Kind: common.EventPartyXP}, nil
+		return &combat.Event{ActionTime: ts, Kind: combat.EventPartyXP}, nil
 	case strings.HasPrefix(body, "You gain experience"):
-		return &common.Event{ActionTime: ts, Kind: common.EventXP}, nil
+		return &combat.Event{ActionTime: ts, Kind: combat.EventXP}, nil
 	}
 
 	return nil, fmt.Errorf("not a bookkeeping event: %q", input)
@@ -456,7 +456,7 @@ func (p *DmgParser) hasMagic(input string) bool {
 		strings.Contains(input, "points of damage")
 }
 
-func (p *DmgParser) parseMagic(input string) (*common.Magic, error) {
+func (p *DmgParser) parseMagic(input string) (*combat.Magic, error) {
 	if len(input) < LOG_SUBJECT_INDEX_START {
 		return nil, fmt.Errorf("line too short for a magic event")
 	}
@@ -472,7 +472,7 @@ func (p *DmgParser) parseMagic(input string) (*common.Magic, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &common.Magic{
+	return &combat.Magic{
 		ActionTime: ts,
 		Target:     normalizeName(strings.TrimSpace(m[1])),
 		Dmg:        dmg,

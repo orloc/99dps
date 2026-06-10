@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"99dps/internal/common"
+	"99dps/internal/combat"
 )
 
 // Swing attribution: an attacker's accuracy (offense) counts only hits and
@@ -13,16 +13,16 @@ func TestApplySwing_OffenseExcludesDefensiveOutcomes(t *testing.T) {
 	sm := &SessionManager{}
 
 	// start the fight with a landed hit (also a connecting swing)
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 10, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 10, Target: "a rat"})
 
-	at := func(o common.SwingOutcome) {
-		sm.ApplySwing(&common.Swing{ActionTime: 100, Attacker: "You", Defender: "a rat", Outcome: o})
+	at := func(o combat.SwingOutcome) {
+		sm.ApplySwing(&combat.Swing{ActionTime: 100, Attacker: "You", Defender: "a rat", Outcome: o})
 	}
-	at(common.OutcomeMiss)
-	at(common.OutcomeDodge)
-	at(common.OutcomeParry)
-	at(common.OutcomeBlock)
-	at(common.OutcomeRiposte)
+	at(combat.OutcomeMiss)
+	at(combat.OutcomeDodge)
+	at(combat.OutcomeParry)
+	at(combat.OutcomeBlock)
+	at(combat.OutcomeRiposte)
 
 	cur := sm.Current()
 
@@ -37,7 +37,7 @@ func TestApplySwing_OffenseExcludesDefensiveOutcomes(t *testing.T) {
 		t.Errorf("attempts/hitrate = %d/%d, want 2/50", off.Attempts(), off.HitRate())
 	}
 
-	var rat common.SwingStats
+	var rat combat.SwingStats
 	for _, d := range cur.Defense() {
 		if d.Name == "a rat" {
 			rat = d.Stats
@@ -60,9 +60,9 @@ func TestSegmentation_AdaptiveCadence(t *testing.T) {
 
 	// fast pull: damage every 1s, plus a kill mid-way → one encounter
 	for ts := int64(1000); ts < 1010; ts++ {
-		sm.Apply(&common.DamageSet{ActionTime: ts, Dealer: "You", Dmg: 10, Target: "a rat"})
+		sm.Apply(&combat.DamageSet{ActionTime: ts, Dealer: "You", Dmg: 10, Target: "a rat"})
 	}
-	sm.ApplyEvent(&common.Event{ActionTime: 1005, Kind: common.EventKill}) // punctuation, not a boundary
+	sm.ApplyEvent(&combat.Event{ActionTime: 1005, Kind: combat.EventKill}) // punctuation, not a boundary
 	if sm.Len() != 1 {
 		t.Fatalf("fast pull split into %d sessions, want 1", sm.Len())
 	}
@@ -71,15 +71,15 @@ func TestSegmentation_AdaptiveCadence(t *testing.T) {
 	// swing activity keeps it one fight, though the damage-to-damage gap alone
 	// would exceed the floor and split it.
 	for ts := int64(1013); ts <= 1024; ts += 4 { // 1013,1017,1021 — gaps of 4s
-		sm.ApplySwing(&common.Swing{ActionTime: ts, Attacker: "a rat", Defender: "YOU", Outcome: common.OutcomeMiss})
+		sm.ApplySwing(&combat.Swing{ActionTime: ts, Attacker: "a rat", Defender: "YOU", Outcome: combat.OutcomeMiss})
 	}
-	sm.Apply(&common.DamageSet{ActionTime: 1024, Dealer: "You", Dmg: 10, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1024, Dealer: "You", Dmg: 10, Target: "a rat"})
 	if sm.Len() != 1 {
 		t.Fatalf("swing activity should hold one session, got %d", sm.Len())
 	}
 
 	// a long silence past the ceiling opens a new encounter
-	sm.Apply(&common.DamageSet{ActionTime: 1024 + segGapCeil + 5, Dealer: "You", Dmg: 10, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1024 + segGapCeil + 5, Dealer: "You", Dmg: 10, Target: "a rat"})
 	if sm.Len() != 2 {
 		t.Fatalf("silence past the ceiling should roll a session, got %d", sm.Len())
 	}
@@ -88,13 +88,13 @@ func TestSegmentation_AdaptiveCadence(t *testing.T) {
 // Hard boundaries: player death, zoning, and camping close the current fight so
 // the next combat exchange starts a fresh session — while a mob kill does not.
 func TestSegmentation_HardBoundaries(t *testing.T) {
-	boundary := func(name string, ev *common.Event) {
+	boundary := func(name string, ev *combat.Event) {
 		sm := &SessionManager{}
-		sm.Apply(&common.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a rat"})
-		sm.Apply(&common.DamageSet{ActionTime: 1001, Dealer: "You", Dmg: 10, Target: "a rat"})
+		sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a rat"})
+		sm.Apply(&combat.DamageSet{ActionTime: 1001, Dealer: "You", Dmg: 10, Target: "a rat"})
 		sm.ApplyEvent(ev) // boundary
 		// next exchange immediately (well within the idle threshold) → new session
-		sm.Apply(&common.DamageSet{ActionTime: 1003, Dealer: "You", Dmg: 10, Target: "a rat"})
+		sm.Apply(&combat.DamageSet{ActionTime: 1003, Dealer: "You", Dmg: 10, Target: "a rat"})
 		if n := sm.Len(); n != 2 {
 			t.Errorf("%s: Len=%d, want 2 (boundary should split)", name, n)
 		}
@@ -102,14 +102,14 @@ func TestSegmentation_HardBoundaries(t *testing.T) {
 			t.Errorf("%s: first session should be marked ended", name)
 		}
 	}
-	boundary("death", &common.Event{ActionTime: 1002, Kind: common.EventDeath})
-	boundary("zone", &common.Event{ActionTime: 1002, Kind: common.EventZone})
+	boundary("death", &combat.Event{ActionTime: 1002, Kind: combat.EventDeath})
+	boundary("zone", &combat.Event{ActionTime: 1002, Kind: combat.EventZone})
 
 	// a kill must NOT split a multi-mob pull
 	sm := &SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a rat"})
-	sm.ApplyEvent(&common.Event{ActionTime: 1001, Kind: common.EventKill})
-	sm.Apply(&common.DamageSet{ActionTime: 1002, Dealer: "You", Dmg: 10, Target: "another rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a rat"})
+	sm.ApplyEvent(&combat.Event{ActionTime: 1001, Kind: combat.EventKill})
+	sm.Apply(&combat.DamageSet{ActionTime: 1002, Dealer: "You", Dmg: 10, Target: "another rat"})
 	if n := sm.Len(); n != 1 {
 		t.Errorf("kill split the pull: Len=%d, want 1", n)
 	}
@@ -121,13 +121,13 @@ func TestApply_CritsSpecialsAndEvents(t *testing.T) {
 	sm := &SessionManager{}
 
 	// auto-attack hit + a backstab special, both by You
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
-	sm.Apply(&common.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 150, Target: "a rat", Verb: "backstab"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 50, Target: "a rat", Verb: "slash"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "You", Dmg: 150, Target: "a rat", Verb: "backstab"})
 
-	sm.ApplyCrit(&common.Crit{ActionTime: 101, Attacker: "You", Damage: 150})
-	sm.ApplyEvent(&common.Event{ActionTime: 102, Kind: common.EventKill})
-	sm.ApplyEvent(&common.Event{ActionTime: 102, Kind: common.EventXP})
-	sm.ApplyEvent(&common.Event{ActionTime: 102, Kind: common.EventDeath})
+	sm.ApplyCrit(&combat.Crit{ActionTime: 101, Attacker: "You", Damage: 150})
+	sm.ApplyEvent(&combat.Event{ActionTime: 102, Kind: combat.EventKill})
+	sm.ApplyEvent(&combat.Event{ActionTime: 102, Kind: combat.EventXP})
+	sm.ApplyEvent(&combat.Event{ActionTime: 102, Kind: combat.EventDeath})
 
 	if n := sm.Len(); n != 1 {
 		t.Fatalf("non-damage events rolled a session: Len=%d, want 1", n)
@@ -142,7 +142,7 @@ func TestApply_CritsSpecialsAndEvents(t *testing.T) {
 		t.Errorf("counters kills/xp/deaths = %d/%d/%d, want 1/1/1", cur.Kills(), cur.XpGains(), cur.Deaths())
 	}
 
-	var you common.DamageStat
+	var you combat.DamageStat
 	for _, s := range cur.GetAggressors() {
 		if s.Dealer == "You" {
 			you = s
@@ -160,11 +160,11 @@ func TestApply_CritsSpecialsAndEvents(t *testing.T) {
 // the encounter total); incoming spell damage on the player does not.
 func TestApplyMagic_UnattributedTotal(t *testing.T) {
 	sm := &SessionManager{}
-	sm.Apply(&common.DamageSet{ActionTime: 100, Dealer: "a rat", Dmg: 5, Target: "YOU", Verb: "bite"})
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "a rat", Dmg: 5, Target: "YOU", Verb: "bite"})
 
-	sm.ApplyMagic(&common.Magic{ActionTime: 103, Target: "a rat", Dmg: 200})
-	sm.ApplyMagic(&common.Magic{ActionTime: 104, Target: "a rat", Dmg: 50})
-	sm.ApplyMagic(&common.Magic{ActionTime: 105, Target: "YOU", Dmg: 999}) // incoming — excluded
+	sm.ApplyMagic(&combat.Magic{ActionTime: 103, Target: "a rat", Dmg: 200})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 104, Target: "a rat", Dmg: 50})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 105, Target: "YOU", Dmg: 999}) // incoming — excluded
 
 	if n := sm.Len(); n != 1 {
 		t.Fatalf("magic events rolled a session: Len=%d, want 1", n)
@@ -184,7 +184,7 @@ func TestApplyMagic_UnattributedTotal(t *testing.T) {
 func TestApply_FirstHitDoesNotRollSession(t *testing.T) {
 	sm := &SessionManager{}
 
-	set := &common.DamageSet{
+	set := &combat.DamageSet{
 		ActionTime: 1_700_000_000,
 		Dealer:     "Foo",
 		Dmg:        42,
@@ -210,13 +210,13 @@ func TestApply_FirstHitDoesNotRollSession(t *testing.T) {
 func TestApply_ThresholdRollsSessions(t *testing.T) {
 	sm := &SessionManager{}
 
-	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_000, Dealer: "Foo", Dmg: 1})
-	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_005, Dealer: "Foo", Dmg: 1}) // +5s, same session
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_000, Dealer: "Foo", Dmg: 1})
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_005, Dealer: "Foo", Dmg: 1}) // +5s, same session
 	if got := len(sm.sessions); got != 1 {
 		t.Fatalf("within-threshold hit opened a new session: got %d sessions", got)
 	}
 
-	sm.Apply(&common.DamageSet{ActionTime: 1_700_000_100, Dealer: "Foo", Dmg: 1}) // +95s, new session
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_100, Dealer: "Foo", Dmg: 1}) // +95s, new session
 	if got := len(sm.sessions); got != 2 {
 		t.Fatalf("past-threshold hit didn't roll: got %d sessions", got)
 	}
