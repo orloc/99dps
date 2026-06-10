@@ -92,7 +92,7 @@ func rainbowBar(frac float64) (light, dark string) {
 		frac = 1
 	}
 	h := (1 - frac) * 280 // frac=1 → 0° (red), frac=0 → 280° (violet)
-	return hsvHex(h, 0.70, 0.98), hsvHex(h, 0.88, 0.60)
+	return hsvHex(h, 0.52, 0.96), hsvHex(h, 0.66, 0.60)
 }
 
 func blend(a, b string, t float64) lipgloss.Color {
