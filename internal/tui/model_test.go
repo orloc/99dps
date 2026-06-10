@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +11,8 @@ import (
 	"github.com/muesli/termenv"
 
 	"99dps/internal/combat"
+	"99dps/internal/eqclass"
+	"99dps/internal/gamestate"
 	"99dps/internal/session"
 )
 
@@ -34,12 +35,30 @@ func sampleManager() *session.SessionManager {
 
 // renderAt drives the model through a window-size + tick so View() has content.
 func renderAt(sm *session.SessionManager, themeIdx, w, h int) string {
-	var m tea.Model = New(sm, nil, "Kelkix")
+	return renderAtTr(sm, nil, themeIdx, w, h)
+}
+
+func renderAtTr(sm *session.SessionManager, tr *gamestate.Tracker, themeIdx, w, h int) string {
+	var m tea.Model = New(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	mm := m.(Model)
 	mm.theme = themeIdx
 	mm.refresh()
 	return mm.View()
+}
+
+// monkScene is a melee (Monk) scenario: skill attacks + a Mend cooldown, so the
+// class-aware panel shows SKILLS + COOLDOWNS instead of spell timers.
+func monkScene() (*session.SessionManager, *gamestate.Tracker) {
+	sm := sampleManager()
+	sm.Apply(&combat.DamageSet{ActionTime: 1043, Dealer: "You", Dmg: 90, Target: "a sand giant", Verb: "kick"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1044, Dealer: "You", Dmg: 70, Target: "a sand giant", Verb: "strike"})
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassMonk)
+	tr.Observe("You mend your wounds and heal some damage.", 1044) // starts the Mend cooldown
+	return sm, tr
 }
 
 func TestPanelsRenderLiveData(t *testing.T) {
@@ -60,19 +79,40 @@ func TestPanelsRenderLiveData(t *testing.T) {
 	}
 }
 
-// TestWriteShots dumps a truecolor frame per theme for screenshotting with
-// `freeze`. Gated behind TUI_SHOT so it doesn't run (or write) in normal CI.
+// TestClassAwarePanels verifies the bottom panel switches on class: a melee
+// class shows SKILLS + COOLDOWNS, and an enchanter gets a Crowd Control column.
+func TestClassAwarePanels(t *testing.T) {
+	sm, tr := monkScene()
+	out := renderAtTr(sm, tr, 0, 110, 34)
+	for _, want := range []string{"Skills", "SKILLS", "COOLDOWNS", "Mend"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("monk panel missing %q", want)
+		}
+	}
+
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	ench := gamestate.NewTracker(book)
+	ench.SetClass(eqclass.ClassEnchanter)
+	if out := renderAtTr(sampleManager(), ench, 0, 110, 34); !strings.Contains(out, "Crowd Control") {
+		t.Errorf("enchanter layout should include a Crowd Control column")
+	}
+}
+
+// TestWriteShots dumps truecolor frames for screenshotting with `freeze`. Gated
+// behind TUI_SHOT so it doesn't run (or write) in normal CI.
 func TestWriteShots(t *testing.T) {
 	if os.Getenv("TUI_SHOT") == "" {
 		t.Skip("set TUI_SHOT=1 to write /tmp/tui<theme>.ansi previews")
 	}
 	lipgloss.SetColorProfile(termenv.TrueColor)
-	sm := sampleManager()
-	for i := range themes {
-		_ = time.Now()
-		path := fmt.Sprintf("/tmp/tui%d.ansi", i)
-		if err := os.WriteFile(path, []byte(renderAt(sm, i, 108, 34)), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	_ = time.Now()
+	// theme 0/1: caster scenario; theme 2: a Monk (melee) scenario showing the
+	// class-aware Skills + Cooldowns panel.
+	if err := os.WriteFile("/tmp/tui0.ansi", []byte(renderAt(sampleManager(), 0, 108, 34)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	smMonk, trMonk := monkScene()
+	if err := os.WriteFile("/tmp/tui-monk.ansi", []byte(renderAtTr(smMonk, trMonk, 0, 108, 34)), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

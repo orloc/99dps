@@ -182,14 +182,29 @@ func (m Model) View() string {
 		card(th, ld.leftW, ld.nowH, "Now", nowBox(th, m.character, m.tracker, ld.leftW-4)),
 		card(th, ld.leftW, ld.sessH, "Sessions", sessionsList(th, m.sessions, m.effectiveSel(), ld.leftW-4, ld.sessH-3)))
 
+	var cur *session.CombatSession
 	dmgTitle := "Damage"
 	if sel := m.effectiveSel(); sel >= 0 {
-		dmgTitle = "Damage — " + truncate(m.sessions[sel].Name(), ld.rightW-12)
+		cur = m.sessions[sel]
+		dmgTitle = "Damage — " + truncate(cur.Name(), ld.rightW-12)
 	}
-	bottom := lipgloss.JoinHorizontal(lipgloss.Top,
-		card(th, ld.timersW, ld.botH, "Spell Timers", timersList(th, m.tracker, ld.timersW-4)),
-		" ",
-		card(th, ld.mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, ld.mobW-4)))
+
+	// bottom row: the class-aware panel + Mob Tracker — enchanters get a third,
+	// dedicated Crowd Control column (matching the gocui layout).
+	var bottom string
+	if m.isEnchanter() {
+		classW := ld.rightW * 38 / 100
+		ccW := ld.rightW * 30 / 100
+		mobW := ld.rightW - classW - ccW - 2
+		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
+			card(th, classW, ld.botH, classPanelTitle(m.tracker), m.classPanel(cur, classW-4)), " ",
+			card(th, ccW, ld.botH, "Crowd Control", ccBody(th, m.tracker, ccW-4)), " ",
+			card(th, mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, mobW-4)))
+	} else {
+		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
+			card(th, ld.timersW, ld.botH, classPanelTitle(m.tracker), m.classPanel(cur, ld.timersW-4)), " ",
+			card(th, ld.mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, ld.mobW-4)))
+	}
 	right := lipgloss.JoinVertical(lipgloss.Left,
 		card(th, ld.rightW, ld.dmgH, dmgTitle, m.vp.View()),
 		bottom)

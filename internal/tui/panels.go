@@ -84,45 +84,131 @@ func sessionsList(th theme, sessions []*session.CombatSession, selected, w, h in
 	return strings.Join(lines, "\n")
 }
 
-// timersList: active spell timers as countdown bars, urgency-tinted.
-func timersList(th theme, tr *gamestate.Tracker, w int) string {
+// splitCCtimers partitions timers into crowd control (mez/charm) and the rest.
+func splitCCtimers(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
+	for _, tm := range timers {
+		if tm.Mez || tm.Charm {
+			cc = append(cc, tm)
+		} else {
+			rest = append(rest, tm)
+		}
+	}
+	return cc, rest
+}
+
+func bySoonest(ts []gamestate.Timer) {
+	sort.SliceStable(ts, func(i, j int) bool { return ts[i].Expiry < ts[j].Expiry })
+}
+
+func urgencyColor(th theme, frac float64) string {
+	switch {
+	case frac <= 0.2:
+		return "#e0564e" // red — about to fade
+	case frac <= 0.5:
+		return th.accent // gold
+	default:
+		return "#5fd37a" // green
+	}
+}
+
+// timerLine is one buff/debuff: name + urgency-tinted countdown bar + remaining.
+func timerLine(th theme, tm gamestate.Timer, now int64, w int) string {
+	const nameW, timeW = 13, 6
+	barCells := w - nameW - timeW - 4
+	if barCells < 4 {
+		barCells = 4
+	}
+	total, rem := tm.Expiry-tm.Start, tm.Expiry-now
+	if rem < 0 {
+		rem = 0
+	}
+	frac := 1.0
+	if total > 0 {
+		frac = float64(rem) / float64(total)
+	}
+	col := urgencyColor(th, frac)
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW)), " ",
+		gradientBar(frac, barCells, col, col, th.track), " ",
+		rightCell(mmss(rem), timeW, th.dim))
+}
+
+// ccLine is one crowd-control entry: mez (M, breaks on damage) or charm (⊗).
+func ccLine(th theme, tm gamestate.Timer, now int64, w int) string {
+	const nameW, timeW = 12, 6
+	barCells := w - nameW - timeW - 6
+	if barCells < 4 {
+		barCells = 4
+	}
+	rem := tm.Expiry - now
+	if rem < 0 {
+		rem = 0
+	}
+	label, col := "M", "#e0564e"
+	if tm.Charm {
+		label, col = "⊗", "#c98ad6"
+	}
+	total := tm.Expiry - tm.Start
+	frac := 1.0
+	if total > 0 {
+		frac = float64(rem) / float64(total)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		th.fg(col).Bold(true).Render(label), " ",
+		th.fg(th.text).Width(nameW).Render(truncate(tm.Target, nameW)), " ",
+		gradientBar(frac, barCells, col, col, th.track), " ",
+		rightCell(mmss(rem), timeW, th.dim))
+}
+
+// timersBody renders the spell-timer panel: crowd control pinned at the top when
+// ccInline, then buffs/debuffs. (Enchanters move CC to their own column.)
+func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool) string {
 	if tr == nil {
 		return th.fg(th.dim).Render("spell timers off\n(no spells_us.txt)")
 	}
 	now := time.Now().Unix()
-	active := tr.Active(now)
-	if len(active) == 0 {
-		return th.fg(th.dim).Render("No active spells.")
-	}
-	sort.SliceStable(active, func(i, j int) bool { return active[i].Expiry < active[j].Expiry })
-
-	const nameW, timeW = 13, 6
-	barCells := w - nameW - timeW - 2 - 2
-	if barCells < 4 {
-		barCells = 4
+	cc, rest := splitCCtimers(tr.Active(now))
+	if !ccInline {
+		cc = nil
 	}
 	var lines []string
-	for _, tm := range active {
-		total := tm.Expiry - tm.Start
-		rem := tm.Expiry - now
-		if rem < 0 {
-			rem = 0
+	if len(cc) > 0 {
+		bySoonest(cc)
+		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
+		for _, tm := range cc {
+			lines = append(lines, ccLine(th, tm, now, w))
 		}
-		frac := 1.0
-		if total > 0 {
-			frac = float64(rem) / float64(total)
+		if len(rest) > 0 {
+			lines = append(lines, "")
 		}
-		col := "#5fd37a" // green
-		switch {
-		case frac <= 0.2:
-			col = "#e0564e" // red — about to fade
-		case frac <= 0.5:
-			col = th.accent // gold
+	}
+	if len(rest) == 0 {
+		if len(cc) == 0 {
+			return th.fg(th.dim).Render("No active spells.")
 		}
-		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top,
-			th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW)), " ",
-			gradientBar(frac, barCells, col, col, th.track), " ",
-			rightCell(mmss(rem), timeW, th.dim)))
+		return strings.Join(lines, "\n")
+	}
+	bySoonest(rest)
+	for _, tm := range rest {
+		lines = append(lines, timerLine(th, tm, now, w))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ccBody renders the enchanter's dedicated Crowd Control column (mez + charm).
+func ccBody(th theme, tr *gamestate.Tracker, w int) string {
+	if tr == nil {
+		return th.fg(th.dim).Render("—")
+	}
+	now := time.Now().Unix()
+	cc, _ := splitCCtimers(tr.Active(now))
+	if len(cc) == 0 {
+		return th.fg(th.dim).Render("No crowd control.")
+	}
+	bySoonest(cc)
+	var lines []string
+	for _, tm := range cc {
+		lines = append(lines, ccLine(th, tm, now, w))
 	}
 	return strings.Join(lines, "\n")
 }
