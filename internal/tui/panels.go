@@ -152,10 +152,10 @@ func urgencyColor(th theme, frac float64) string {
 	}
 }
 
-// timerLine is one buff/debuff: name + urgency-tinted countdown bar + remaining.
-// The time column (width tw, sized by the caller to the panel's longest time) is
-// guaranteed to render in full even when the panel is narrow — the bar is
-// dropped first, then the name truncates, so the countdown is never clipped.
+// timerLine is one buff/debuff: spell name on the left, the remaining time on
+// the right tinted by urgency (green healthy → gold → red near expiry). The time
+// column (width tw, sized by the caller to the panel's longest time) always
+// renders in full; the name takes the rest and truncates if the panel is narrow.
 func timerLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
 	total, rem := tm.Expiry-tm.Start, tm.Expiry-now
 	if rem < 0 {
@@ -171,19 +171,12 @@ func timerLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
 	}
 	col := urgencyColor(th, frac)
 
-	const nameMax = 13
-	body := w - tw - 1 // room left of the time and its leading space
-	if body < 1 {
-		return rightCell(timeStr, w, th.dim) // too narrow for anything but the time
+	nameW := w - tw - 1 // the rest, minus the gap before the time
+	if nameW < 1 {
+		return rightCell(timeStr, w, col) // too narrow for anything but the time
 	}
-	nameW := min(nameMax, body)
-	barCells := body - nameW - 1
-	name := th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW))
-	mid := strings.Repeat(" ", body-nameW) // no bar: pad so the time stays aligned
-	if barCells >= 4 {
-		mid = " " + gradientBar(frac, barCells, col, col, th.track)
-	}
-	return name + mid + " " + rightCell(timeStr, tw, th.dim)
+	return th.fg(th.text).Width(nameW).Render(truncate(tm.Spell, nameW)) + " " +
+		rightCell(timeStr, tw, col)
 }
 
 // ccLine is one crowd-control entry: mez (M, breaks on damage) or charm (⊗).
@@ -202,11 +195,6 @@ func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool, tw int
 	if tm.Charm {
 		label, col = "⊗", "#c98ad6"
 	}
-	total := tm.Expiry - tm.Start
-	frac := 1.0
-	if total > 0 {
-		frac = float64(rem) / float64(total)
-	}
 	nameStyle := th.fg(th.text)
 	if hovered {
 		nameStyle = th.fg(th.accent).Bold(true)
@@ -221,19 +209,14 @@ func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool, tw int
 		suffix = th.fg("#e0564e").Bold(true).Render(" ✕")
 	}
 
-	const nameMax = 12
-	body := w - 2 - 1 - tw - xtra // minus label+space, the time's leading space, time, ✕
-	if body < 1 {
-		return prefix + rightCell(timeStr, max(w-2, 1), th.dim) + suffix
+	// label + space + name + space + time (+ ✕). The time keeps its mez/charm
+	// tint; the name takes whatever's left.
+	nameW := w - 2 - 1 - tw - xtra
+	if nameW < 1 {
+		return prefix + rightCell(timeStr, max(w-2, 1), col) + suffix
 	}
-	nameW := min(nameMax, body)
-	barCells := body - nameW - 1
 	name := nameStyle.Width(nameW).Render(truncate(displayName(tm.Target), nameW))
-	mid := strings.Repeat(" ", body-nameW)
-	if barCells >= 4 {
-		mid = " " + gradientBar(frac, barCells, col, col, th.track)
-	}
-	return prefix + name + mid + " " + rightCell(timeStr, tw, th.dim) + suffix
+	return prefix + name + " " + rightCell(timeStr, tw, col) + suffix
 }
 
 // targetHeader renders a buff/debuff group's target name. When hovered it
