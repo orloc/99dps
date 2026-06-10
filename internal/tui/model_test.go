@@ -262,4 +262,19 @@ func TestWriteShots(t *testing.T) {
 	if err := os.WriteFile("/tmp/tui-caster.ansi", []byte(mc.View()), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
+	// mob-tracker scene: kills staggered so repops span every urgency state
+	// (UP / imminent / soon / counting), to eyeball the brighter names + tints.
+	book2, _ := gamestate.LoadReader(strings.NewReader(""))
+	trMob := gamestate.NewTracker(book2)
+	trMob.SetLevel(50)
+	now := time.Now().Unix()
+	trMob.Observe("You have entered east commonlands.", now-600)         // default repop 400s
+	trMob.Observe("a giant rat has been slain by Thunk!", now)           // ~400s → dim
+	trMob.Observe("a decaying skeleton has been slain by Bob!", now-340) // ~60s → gold
+	trMob.Observe("You have slain a young kodiak!", now-382)             // ~18s → red
+	trMob.Observe("a fippy darkpaw has been slain by Sue!", now-410)     // UP → green
+	if err := os.WriteFile("/tmp/tui-mob.ansi", []byte(renderAtTr(sampleManager(), trMob, 0, 108, 34)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

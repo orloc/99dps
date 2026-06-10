@@ -152,6 +152,22 @@ func urgencyColor(th theme, frac float64) string {
 	}
 }
 
+// mobUrgencyColor tints a repop countdown by how imminent the pop is (absolute,
+// since a respawn carries no total): up now → green, escalating gold→red as it
+// approaches so an imminent spawn alerts; dim while still far off.
+func mobUrgencyColor(th theme, rem int64) string {
+	switch {
+	case rem <= 0:
+		return "#5fd37a" // up now
+	case rem <= 30:
+		return "#e0564e" // imminent — get to the spawn
+	case rem <= 90:
+		return th.accent // soon
+	default:
+		return th.dim // counting down
+	}
+}
+
 // timerLine is one buff/debuff: spell name on the left, the remaining time on
 // the right tinted by urgency (green healthy → gold → red near expiry). The time
 // column (width tw, sized by the caller to the panel's longest time) always
@@ -333,16 +349,18 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int) string {
 	mobW := max(w-timeW-1, 1)
 	var lines []string
 	for _, r := range rs {
-		when, whenCol := mmss(r.Remaining), th.dim
+		when := mmss(r.Remaining)
 		if r.Remaining <= 0 {
-			when, whenCol = "UP", "#5fd37a"
+			when = "UP"
 		}
-		nameCol := th.text
-		if !r.Mine {
-			nameCol = th.dim
+		// names as bright as the spell-timer buff names; the player's own kills
+		// bolded for a subtle ownership cue.
+		nameStyle := th.fg(th.text)
+		if r.Mine {
+			nameStyle = nameStyle.Bold(true)
 		}
-		lines = append(lines, th.fg(nameCol).Width(mobW).Render(truncate(r.Mob, mobW))+" "+
-			rightCell(when, timeW, whenCol))
+		lines = append(lines, nameStyle.Width(mobW).Render(truncate(r.Mob, mobW))+" "+
+			rightCell(when, timeW, mobUrgencyColor(th, r.Remaining)))
 	}
 	return strings.Join(lines, "\n")
 }
