@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"99dps/internal/combat"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 	"99dps/internal/tts"
@@ -783,31 +784,68 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			numBlock(pctv, total, dps, hit, crit, col)
 	}
 
-	petName := m.tracker.PetName() // your pet's dealer name (or "")
+	// roll the pet up under the "You" row: pull it out of the rank list and render
+	// it as an indented child of You, so its contribution still shows but it isn't
+	// scattered among the other dealers. (No You row → keep it inline, tagged.)
+	petName := m.tracker.PetName()
+	hasYou := false
+	for _, d := range stats {
+		if strings.EqualFold(d.Dealer, "you") {
+			hasYou = true
+			break
+		}
+	}
+	var pet combat.DamageStat
+	petChild := false
+	if hasYou && petName != "" {
+		kept := stats[:0]
+		for _, d := range stats {
+			if !petChild && strings.EqualFold(d.Dealer, petName) {
+				pet, petChild = d, true
+				continue
+			}
+			kept = append(kept, d)
+		}
+		stats = kept
+	}
+
+	// acc returns the hit%/crit% cells for a dealer (its own DamageStat for crits).
+	acc := func(d combat.DamageStat) (hit, crit string) {
+		hit, crit = "-", "-"
+		if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
+			hit = fmt.Sprintf("%d%%", hr)
+		}
+		if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
+			crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
+		}
+		return hit, crit
+	}
+
 	for i, d := range stats {
 		from, to := th.barFrom, th.barTo
 		if i > 0 {
 			from, to = th.accent, th.accentLo
 		}
-		nameStyle := th.fg(th.text)
-		col := th.text
-		if strings.EqualFold(d.Dealer, "you") {
+		nameStyle, col := th.fg(th.text), th.text
+		you := strings.EqualFold(d.Dealer, "you")
+		if you {
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
 		name := d.Dealer
-		if petName != "" && strings.EqualFold(d.Dealer, petName) {
-			name += " (pet)" // detected via /pet leader or a pet command reply
+		if !petChild && petName != "" && strings.EqualFold(d.Dealer, petName) {
+			name += " (pet)" // pet without a You row to nest under — tag it inline
 		}
-		hit := "-"
-		if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
-			hit = fmt.Sprintf("%d%%", hr)
-		}
-		crit := "-"
-		if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
-			crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
-		}
+		hit, crit := acc(d)
 		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(name, nameW)),
 			hit, crit, float64(d.Total)/float64(maxTotal), from, to, col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
+
+		// the pet, rolled up under You as an indented child (dim, no rank)
+		if petChild && you {
+			phit, pcrit := acc(pet)
+			b.WriteString(row("", th.fg(th.dim).Width(nameW).Render(truncate("↳ "+pet.Dealer, nameW)),
+				phit, pcrit, float64(pet.Total)/float64(maxTotal), th.dim, th.dim, th.dim,
+				pet.Total, pet.Total/int(span), pct(pet.Total, encTotal)) + "\n")
+		}
 	}
 
 	// unattributed spell/proc/DoT damage — EQ names no caster, so it's its own

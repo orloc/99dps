@@ -433,6 +433,39 @@ func TestDueAnnouncements(t *testing.T) {
 	}
 }
 
+// TestPetRollup: the detected pet renders as an indented "↳" child directly
+// under the You row, not as its own ranked dealer.
+func TestPetRollup(t *testing.T) {
+	sm := sampleManager() // "You" is the top dealer
+	sm.Apply(&combat.DamageSet{ActionTime: 1041, Dealer: "Xenab", Dmg: 120_000, Target: "a sand giant"})
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetCharacter("Kelkix")
+	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
+
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	if !strings.Contains(out, "↳ Xenab") {
+		t.Fatalf("pet should render as an indented child; got:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	youIdx, petIdx := -1, -1
+	for i, l := range lines {
+		if youIdx < 0 && strings.Contains(l, "You") {
+			youIdx = i
+		}
+		if strings.Contains(l, "Xenab") {
+			petIdx = i
+		}
+	}
+	if youIdx < 0 || petIdx != youIdx+1 {
+		t.Errorf("pet should sit directly under You (you=%d pet=%d)", youIdx, petIdx)
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
