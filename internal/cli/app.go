@@ -145,14 +145,21 @@ func (a *App) refresh() {
 	// can close the last session before a new fight has started)
 	live := sel >= 0 && sel == len(all)-1 && all[sel].EndTime().IsZero()
 
-	a.updateStatus()
-	a.updateSessions(all, sel)
-	a.updateDamage(cur, live)
-	a.updateGraph(cur)
-	a.updatePanel(cur)
-	a.updateRepops()
-	a.updateCC()
-	a.updateShortcuts()
+	// Repaint on the gocui main loop. The update* methods read view geometry
+	// (a.gui.Size()/View().Size()) to size the renderers, and the main loop
+	// concurrently rewrites that geometry on a terminal resize — doing the reads
+	// here, inside g.Update, keeps them on the main goroutine and race-free.
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.updateStatus()
+		a.updateSessions(all, sel)
+		a.updateDamage(cur, live)
+		a.updateGraph(cur)
+		a.updatePanel(cur)
+		a.updateRepops()
+		a.updateCC()
+		a.updateShortcuts()
+		return nil
+	})
 }
 
 // updatePanel repaints the bottom-right panel: a stack of independently-gated
@@ -189,13 +196,10 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	sy := a.timerScrollY
 	a.mu.Unlock()
 
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewTimers, str)
-		if v, err := g.View(viewTimers); err == nil {
-			v.SetOrigin(0, sy)
-		}
-		return nil
-	})
+	a.writeView(viewTimers, str)
+	if v, err := a.gui.View(viewTimers); err == nil {
+		v.SetOrigin(0, sy)
+	}
 }
 
 // panelBody is the category-driven main content of the bottom-right panel, plus
@@ -321,13 +325,10 @@ func (a *App) updateRepops() {
 	sy := a.repopScrollY
 	a.mu.Unlock()
 
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewRepops, str)
-		if v, err := g.View(viewRepops); err == nil {
-			v.SetOrigin(0, sy)
-		}
-		return nil
-	})
+	a.writeView(viewRepops, str)
+	if v, err := a.gui.View(viewRepops); err == nil {
+		v.SetOrigin(0, sy)
+	}
 }
 
 // timersStr renders the active spell timers and fires any due audio cues. "now"
@@ -359,13 +360,10 @@ func (a *App) updateCC() {
 	a.ccLineTargets = lineTargets
 	a.mu.Unlock()
 
-	a.gui.Update(func(g *gocui.Gui) error {
-		if _, err := g.View(viewCC); err != nil {
-			return nil // not laid out yet this frame
-		}
-		a.writeView(viewCC, str)
-		return nil
-	})
+	if _, err := a.gui.View(viewCC); err != nil {
+		return // not laid out yet this frame
+	}
+	a.writeView(viewCC, str)
 }
 
 // announceLowBuffs speaks a cue when a (non-charm) timer first drops below the
@@ -488,10 +486,7 @@ func (a *App) updateShortcuts() {
 	if status != "" {
 		text = "\x1b[1m" + status + "\x1b[0m\n" + text
 	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewShortcuts, text)
-		return nil
-	})
+	a.writeView(viewShortcuts, text)
 }
 
 // resolveSelection clamps the pinned selection to the available sessions and,
@@ -516,16 +511,14 @@ func (a *App) initGui() {
 	common.CheckErr(a.setKeybindings())
 }
 
-// updateDamage / updateSessions / updateGraph are the gui-coupled wrappers:
-// each gathers the panel width, calls the pure renderer in render.go, and pushes
-// the result onto the gocui event loop.
+// updateDamage / updateSessions / updateGraph are the gui-coupled wrappers: each
+// gathers the panel width, calls the pure renderer in render.go, and writes the
+// view. They run inside refresh()'s single g.Update, i.e. on the main loop, so
+// reading view geometry and writing views here is race-free.
 
 func (a *App) updateDamage(cur *session.CombatSession, live bool) {
 	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage))
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewDamage, str)
-		return nil
-	})
+	a.writeView(viewDamage, str)
 }
 
 // updateStatus repaints the top-left "Now" box: character, class/level, zone,
@@ -545,10 +538,7 @@ func (a *App) updateStatus() {
 	}
 
 	str := renderStatus(char, class, level, zone, kills, perHour, deaths, a.viewInnerWidth(viewStatus))
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewStatus, str)
-		return nil
-	})
+	a.writeView(viewStatus, str)
 }
 
 func (a *App) updateSessions(dat []*session.CombatSession, selected int) {
@@ -568,13 +558,10 @@ func (a *App) updateSessions(dat []*session.CombatSession, selected int) {
 	sy := a.scrollY
 	a.mu.Unlock()
 
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewSessions, str)
-		if v, err := g.View(viewSessions); err == nil {
-			v.SetOrigin(0, sy)
-		}
-		return nil
-	})
+	a.writeView(viewSessions, str)
+	if v, err := a.gui.View(viewSessions); err == nil {
+		v.SetOrigin(0, sy)
+	}
 }
 
 func (a *App) updateGraph(cur *session.CombatSession) {
@@ -594,10 +581,7 @@ func (a *App) updateGraph(cur *session.CombatSession) {
 	})
 
 	str := renderBars(agg, width, height)
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.writeView(viewGraph, str)
-		return nil
-	})
+	a.writeView(viewGraph, str)
 }
 
 // viewInnerWidth returns the drawable column count inside a view, borders
