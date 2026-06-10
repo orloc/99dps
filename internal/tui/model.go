@@ -68,7 +68,7 @@ func (m Model) Init() tea.Cmd { return tick() }
 // column), so its widths are computed here once and shared by sizing + render.
 type layout struct {
 	leftW, rightW     int
-	nowH, sessH       int
+	sessH             int
 	dmgH, botH        int
 	dmgW, extrasW     int // top-right split: dealer meter | Specials/Avoidance
 	classW, ccW, mobW int // bottom row: class panel | [CC] | mob tracker
@@ -87,16 +87,15 @@ func (m Model) layout() layout {
 		leftW = innerW / 3
 	}
 	rightW := innerW - leftW - 1
-	nowH := 6
-	sessH := areaH - nowH - 1
 	dmgH := areaH * 52 / 100
 	if dmgH < 5 {
 		dmgH = 5
 	}
 	botH := areaH - dmgH - 1
+	sessH := dmgH + botH // Sessions spans the full left column (no "Now" box)
 
 	ld := layout{
-		leftW: leftW, rightW: rightW, nowH: nowH, sessH: sessH,
+		leftW: leftW, rightW: rightW, sessH: sessH,
 		dmgH: dmgH, botH: botH, areaH: areaH, ench: m.isEnchanter(),
 	}
 	// top-right splits into the dealer meter (left, the bulk) and a Specials /
@@ -296,7 +295,7 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 	in := func(cx, cw, cy, ch int) bool { return x >= cx && x < cx+cw && y >= cy && y < cy+ch }
 
 	switch {
-	case in(1, ld.leftW, gridY+ld.nowH, ld.sessH):
+	case in(1, ld.leftW, gridY, ld.sessH):
 		return &m.vpSessions
 	case in(rightX, ld.dmgW, gridY, ld.dmgH):
 		return &m.vpDamage
@@ -353,6 +352,37 @@ func (m *Model) hoverTargetAt(x, y int) string {
 	return ""
 }
 
+// banner is the full-width header plaque (dark text on muted gold, like the EQ
+// zone plaques) so it clearly reads as the header: app · character · class-level
+// · zone on the left, with the zone kills/hr pushed to the right.
+func (m Model) banner(th theme, w int) string {
+	bar := lipgloss.NewStyle().Background(lipgloss.Color(th.accentLo)).Foreground(lipgloss.Color(th.bg))
+	sep := bar.Render("  ·  ")
+
+	bits := []string{bar.Bold(true).Render("✦ 99dps"), bar.Bold(true).Render(m.character)}
+	var right string
+	if m.tracker != nil {
+		if lv := m.tracker.Level(); lv > 0 {
+			bits = append(bits, bar.Render(fmt.Sprintf("L%d %s", lv, m.tracker.Class())))
+		}
+		if z := m.tracker.Zone(); z != "" {
+			bits = append(bits, bar.Bold(true).Render("◆ "+z))
+		}
+		if k, ph, _ := m.tracker.ZoneKillStats(time.Now().Unix()); k > 0 {
+			right = bar.Bold(true).Render(fmt.Sprintf("%d kills · %d/hr", k, ph))
+		}
+	}
+	left := " " + strings.Join(bits, sep)
+
+	line := left
+	if right != "" {
+		if gap := w - lipgloss.Width(left) - lipgloss.Width(right) - 1; gap >= 2 {
+			line = left + strings.Repeat(" ", gap) + right + " "
+		}
+	}
+	return bar.Width(w).MaxWidth(w).Render(line)
+}
+
 func (m Model) View() string {
 	if !m.ready {
 		return "starting…"
@@ -360,24 +390,10 @@ func (m Model) View() string {
 	th := themes[m.theme]
 	ld := m.layout()
 
-	// header banner: app · character · class/level · zone
-	bannerBits := []string{th.fg(th.accent).Bold(true).Render("✦ 99dps"), th.fg(th.dim).Render(m.character)}
-	if m.tracker != nil {
-		if lv := m.tracker.Level(); lv > 0 {
-			bannerBits = append(bannerBits, th.fg(th.dim).Render(fmt.Sprintf("L%d %s", lv, m.tracker.Class())))
-		}
-		if z := m.tracker.Zone(); z != "" {
-			bannerBits = append(bannerBits, th.fg(th.accent).Render("◆ "+z))
-		}
-	}
 	innerW := m.w - 2 // content width inside the outer Padding(1,1)
-	// clip to width so a long banner can't wrap (lipgloss wraps, not clips, which
-	// looks "scrunched") — MaxWidth truncates ANSI-safely.
-	banner := lipgloss.NewStyle().MaxWidth(innerW).Render(strings.Join(bannerBits, th.fg(th.dim).Render("  ·  ")))
+	banner := m.banner(th, innerW)
 
-	left := lipgloss.JoinVertical(lipgloss.Left,
-		card(th, ld.leftW, ld.nowH, "Now", nowBox(th, m.character, m.tracker, ld.leftW-4)),
-		card(th, ld.leftW, ld.sessH, "Sessions", m.vpSessions.View()))
+	left := card(th, ld.leftW, ld.sessH, "Sessions", m.vpSessions.View())
 
 	dmgTitle := "Damage"
 	if sel := m.effectiveSel(); sel >= 0 {

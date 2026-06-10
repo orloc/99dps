@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/combat"
-	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 )
@@ -36,30 +35,6 @@ func card(th theme, w, h int, title, body string) string {
 		Background(lipgloss.Color(th.panel)).
 		Width(cw).Height(ch).Padding(0, 1).MaxHeight(h).MaxWidth(w).
 		Render(content)
-}
-
-// nowBox: character, class/level, current zone, and the zone-wide kill rate.
-func nowBox(th theme, character string, tr *gamestate.Tracker, w int) string {
-	lines := []string{th.fg(th.text).Bold(true).Render(truncate(character, w))}
-	if tr != nil {
-		cl := ""
-		if lv := tr.Level(); lv > 0 {
-			cl = fmt.Sprintf("L%d ", lv)
-		}
-		if c := tr.Class(); c != eqclass.ClassUnknown {
-			cl += string(c)
-		}
-		if cl != "" {
-			lines = append(lines, th.fg(th.dim).Render(truncate(cl, w)))
-		}
-		if z := tr.Zone(); z != "" {
-			lines = append(lines, th.fg(th.accent).Render(truncate("◆ "+z, w)))
-		}
-		if k, ph, _ := tr.ZoneKillStats(time.Now().Unix()); k > 0 {
-			lines = append(lines, th.fg(th.dim).Render(fmt.Sprintf("%d kills · %d/hr", k, ph)))
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 // sessionsList: the fight list, newest last, with the selected one a gold

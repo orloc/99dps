@@ -258,7 +258,7 @@ func TestPanelsRenderLiveData(t *testing.T) {
 		"99dps",           // banner
 		"a sand giant",    // sessions list + damage title
 		"You", "Gabnador", // damage rows
-		"Now", "Sessions", "Spell Timers", "Mob Tracker", // panel titles
+		"Sessions", "Spell Timers", "Mob Tracker", // panel titles
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered layout missing %q", want)
