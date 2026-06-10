@@ -839,7 +839,14 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(name, nameW)),
 			hit, crit, float64(d.Total)/float64(maxTotal), from, to, col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
 
-		// the pet, rolled up under You as an indented child (dim, no rank)
+		// rolled up under You as dim, indented children: spell/proc/DoT damage
+		// (EQ shows you only your own non-melee, so it's almost always yours) and
+		// the pet.
+		if you && magic > 0 {
+			b.WriteString(row("", th.fg(th.dim).Width(nameW).Render(truncate("↳ spells", nameW)),
+				"-", "-", float64(magic)/float64(maxTotal), th.dim, th.dim, th.dim,
+				magic, magic/int(span), pct(magic, encTotal)) + "\n")
+		}
 		if petChild && you {
 			phit, pcrit := acc(pet)
 			b.WriteString(row("", th.fg(th.dim).Width(nameW).Render(truncate("↳ "+pet.Dealer, nameW)),
@@ -848,9 +855,8 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		}
 	}
 
-	// unattributed spell/proc/DoT damage — EQ names no caster, so it's its own
-	// (n/a) line folded into the encounter total.
-	if magic > 0 {
+	// no You row to attribute spells to → show them as an unattributed lump.
+	if magic > 0 && !hasYou {
 		b.WriteString(row(strings.Repeat(" ", rankW), th.fg(th.dim).Width(nameW).Render(truncate("spells n/a", nameW)),
 			"-", "-", float64(magic)/float64(maxTotal), th.dim, th.dim, th.dim, magic, magic/int(span), pct(magic, encTotal)) + "\n")
 	}

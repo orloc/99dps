@@ -466,6 +466,37 @@ func TestPetRollup(t *testing.T) {
 	}
 }
 
+// TestSpellsAttributedToYou: non-melee damage is credited to You (a "↳ spells"
+// child), not shown as an unattributed lump, when a You row is present.
+func TestSpellsAttributedToYou(t *testing.T) {
+	sm := sampleManager()
+	sm.ApplyMagic(&combat.Magic{ActionTime: 1042, Dmg: 240_000, Target: "a sand giant"})
+	var m tea.Model = New(sm, nil, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	if !strings.Contains(out, "↳ spells") {
+		t.Fatalf("spell damage should be a \"↳ spells\" child of You; got:\n%s", out)
+	}
+	if strings.Contains(out, "spells n/a") {
+		t.Error("should not show an unattributed spells line when You is present")
+	}
+	lines := strings.Split(out, "\n")
+	youIdx, spIdx := -1, -1
+	for i, l := range lines {
+		if youIdx < 0 && strings.Contains(l, "You") {
+			youIdx = i
+		}
+		if strings.Contains(l, "spells") {
+			spIdx = i
+		}
+	}
+	if youIdx < 0 || spIdx != youIdx+1 {
+		t.Errorf("spells should sit directly under You (you=%d spells=%d)", youIdx, spIdx)
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
