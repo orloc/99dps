@@ -1,7 +1,7 @@
 /99dps
 /99dps.exe
 /99dps.exe.sha256
-/resource_windows_amd64.syso
+/cmd/99dps/resource_windows_amd64.syso
 *.png
 .idea/
 /dist/

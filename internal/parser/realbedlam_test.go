@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"99dps/gamestate"
+	"99dps/internal/gamestate"
 	"os"
 	"testing"
 )

@@ -3,7 +3,7 @@ package gamestate
 import (
 	"testing"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 func TestMendCooldown(t *testing.T) {

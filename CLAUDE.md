@@ -6,37 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A terminal DPS meter for classic EverQuest (P99). It tails the active EQ log file, parses combat lines as they appear, and renders live per-dealer damage, accuracy/avoidance, crits, specials, spell estimates, and a damage-bar graph in a `gocui` TUI.
 
-Go 1.25. Tests live next to the code (`parser`, `session`, `common`, `cli`); run `go test ./...`.
+Go 1.25. Tests live next to the code; run `go test ./...`.
+
+**Layout** (standard Go): `cmd/99dps/` holds `package main` (`main.go` + `cli.go` wiring); all library packages live under `internal/` (`common`, `loader`, `parser`, `session`, `gamestate`, `cli`) so they can't be imported externally. Import paths are `99dps/internal/<pkg>`.
 
 ## Commands
 
 - `make` — list all targets with descriptions (the default goal is `help`).
-- `make build` — build, keeping the `99dps` binary (`go build -trimpath -ldflags="-s -w" -o 99dps .`).
+- `make build` — build, keeping the `99dps` binary (`go build -trimpath -ldflags="-s -w" -o 99dps ./cmd/99dps`).
 - `make all` — `build` then `clean` (builds, then deletes the binary; useful as a compile check).
-- `go run . -logdir <path>` — fastest dev iteration. Log dir also reads `EQ_LOG_DIR`, else `loader.DefaultLogDir`.
-- `go test ./...` — all tests. Single test: `go test ./parser -run TestParseCast`. Coverage: `go test ./... -cover`.
+- `go run ./cmd/99dps -logdir <path>` — fastest dev iteration. Log dir also reads `EQ_LOG_DIR`, else `loader.DefaultLogDir`.
+- `go test ./...` — all tests. Single test: `go test ./internal/parser -run TestParseCast`. Coverage: `go test ./... -cover`.
 - `gofmt -l .` must be empty; `go vet ./...` must be clean before finishing a change.
 - `make windows` — cross-compile `99dps.exe` (`GOOS=windows GOARCH=amd64`). Pure Go / no cgo, so it builds from any host. `make release-windows` adds version metadata + a SHA-256; `make lint-windows` lints the build-tagged Windows code. See `docs/windows-release.md` (incl. the deliberate no-code-signing decision).
 
 ## Cross-platform (Windows)
 
 The app is portable: pure-Go deps (no cgo), `gocui`→`termbox-go` which renders via the Win32 console API (so the ANSI SGR codes the renderer emits are interpreted by gocui, not the terminal — colors/mouse work in `conhost` or Windows Terminal), and CRLF is already stripped (`TrimRight(…, "\r\n")`). Platform-specific pieces are isolated by build tags:
-- **`loader/defaultdir_{unix,windows}.go`** — `DefaultLogDir`. The EQ folder layout is identical on every OS, so once the log dir is known everything else (e.g. `spells_us.txt` at `<logdir>/../spells_us.txt`) is located relative to it.
-- **Log-dir resolution** (`resolveLogDir` in `99dps.go`, identical flow on every OS): `-logdir` flag (saved) → `EQ_LOG_DIR` → saved choice (`os.UserConfigDir()/99dps/logdir.txt`) → platform default if it already holds logs → **auto-detect + prompt** (the chosen dir is saved). Detection (`loader/locate.go` cross-platform core; `scanForEQ`/`eqLogDirFrom`/`logDirFromChoice`) scans candidate roots one level deep for an EQ marker (`eqgame.exe`/`eqclient.ini`/`spells_us.txt` or `eqlog_*.txt`). The platform files supply the roots + prompt UX:
+- **`internal/loader/defaultdir_{unix,windows}.go`** — `DefaultLogDir`. The EQ folder layout is identical on every OS, so once the log dir is known everything else (e.g. `spells_us.txt` at `<logdir>/../spells_us.txt`) is located relative to it.
+- **Log-dir resolution** (`resolveLogDir` in `cmd/99dps/main.go`, identical flow on every OS): `-logdir` flag (saved) → `EQ_LOG_DIR` → saved choice (`os.UserConfigDir()/99dps/logdir.txt`) → platform default if it already holds logs → **auto-detect + prompt** (the chosen dir is saved). Detection (`internal/loader/locate.go` cross-platform core; `scanForEQ`/`eqLogDirFrom`/`logDirFromChoice`) scans candidate roots one level deep for an EQ marker (`eqgame.exe`/`eqclient.ini`/`spells_us.txt` or `eqlog_*.txt`). The platform files supply the roots + prompt UX:
   - `locate_windows.go`: roots = `C:\P99`, Sony/Daybreak dirs, Desktop/Downloads/Games/My Games, the exe folder; prompt = **native Yes/No box** to confirm a find, else a **folder picker** (PowerShell WinForms).
   - `locate_unix.go`: roots = `~/Desktop|Downloads|Games|Documents`, `~/.wine/drive_c`, `/mnt`, `/opt`, the exe folder; prompt = **console** (list+confirm or type a path), since the app launches from a terminal.
   Both persist the pick to the same config file, so it's a one-time question. Saving is unified; only the candidate roots and prompt mechanism differ by OS.
-- **`cli/speech_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
+- **`internal/cli/speech_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
 The Linux-only log-rotation tooling (`scripts/`, systemd) has no Windows equivalent; on Windows logs just grow (or wire a Task Scheduler + PowerShell job).
 
 ## Data flow (three concurrent pieces)
 
-`launchCLI` (`cli.go`) wires these together and orchestrates graceful shutdown (stop the repaint loop → `App.Close()` the gui → `Tail.Stop()` to end the parser):
+`launchCLI` (`cmd/99dps/cli.go`) wires these together and orchestrates graceful shutdown (stop the repaint loop → `App.Close()` the gui → `Tail.Stop()` to end the parser):
 
 1. **`loader.LoadFile(dir)`** — picks the most-recently-modified `eqlog_*.txt` under `dir` and follows it (`loader.Latest` finds it, `loader.Follow` opens the tail). Character is parsed from the filename.
 2. **`parser.DoParse(tail, sink, character)`** (goroutine) — for each line, `dispatch` runs a cheap `has*` screen, then one `parse*` regex, then forwards a typed event to a `Sink`. The parser depends on the `Sink` interface, **not** on the `session` package — `*session.SessionManager` satisfies it.
 3. **`App.Sync(stop)`** (goroutine) — once per second, `refresh()` snapshots all sessions, resolves the selected one, and repaints. `App.Loop()` runs the blocking gocui main loop on the main goroutine.
-4. **`logController.watch`** (goroutine, `cli.go`) — polls `loader.Latest` every few seconds; when a *different* eqlog becomes the most-recently-written (you switched characters in-game), it hot-swaps: opens the new tail from end-of-file, stops the old one (ending its parser goroutine), `Clear`s the manager + tracker, replays the new log into the tracker only (`parser.RebuildTrackerFromFile` — recovers active spell timers / class / zone, since the live tail starts at end-of-file), and calls `App.SetCharacter` (updates the panel title + flashes a banner). No restart needed.
+4. **`logController.watch`** (goroutine, `cmd/99dps/cli.go`) — polls `loader.Latest` every few seconds; when a *different* eqlog becomes the most-recently-written (you switched characters in-game), it hot-swaps: opens the new tail from end-of-file, stops the old one (ending its parser goroutine), `Clear`s the manager + tracker, replays the new log into the tracker only (`parser.RebuildTrackerFromFile` — recovers active spell timers / class / zone, since the live tail starts at end-of-file), and calls `App.SetCharacter` (updates the panel title + flashes a banner). No restart needed.
 
 ## Parsing model and the central limitation
 
@@ -52,7 +54,7 @@ Line categories in `dispatch` (order matters — see the `hasDamage` gotcha belo
 
 `SessionManager` holds an append-only `[]*CombatSession` and an `activeSession` index.
 
-- **Segmentation is adaptive-cadence** (`activeForLocked`). Combat *exchanges* — melee `Apply`, `ApplyMagic`, and `ApplySwing` — drive it: a fight rolls to a new session when the gap since the last exchange exceeds `segPulseK × pulse`, clamped to `[segGapFloor, segGapCeil]` seconds, where `pulse` is an EWMA of recent inter-exchange gaps. Dense melee pins the threshold to the floor; slow/sparse caster fights widen it toward the ceiling. `ApplyCrit` and the non-death `ApplyEvent` cases are **annotate-only** (kills/xp/crits are punctuation, never boundaries), so a multi-mob pull with several kills stays one encounter; death and zone/camp are the exception — they force a hard boundary. Constants are tuned against real logs — see their comment in `session/sessionManager.go`.
+- **Segmentation is adaptive-cadence** (`activeForLocked`). Combat *exchanges* — melee `Apply`, `ApplyMagic`, and `ApplySwing` — drive it: a fight rolls to a new session when the gap since the last exchange exceeds `segPulseK × pulse`, clamped to `[segGapFloor, segGapCeil]` seconds, where `pulse` is an EWMA of recent inter-exchange gaps. Dense melee pins the threshold to the floor; slow/sparse caster fights widen it toward the ceiling. `ApplyCrit` and the non-death `ApplyEvent` cases are **annotate-only** (kills/xp/crits are punctuation, never boundaries), so a multi-mob pull with several kills stays one encounter; death and zone/camp are the exception — they force a hard boundary. Constants are tuned against real logs — see their comment in `internal/session/sessionManager.go`.
 - **Damage is keyed by dealer** in `aggressors map[string]DamageStat` (dealer name with spaces→underscores as the key).
 - **The session *name* comes from the target, not the dealer** — `Name()` picks the enemy taking the most damage (the thing being fought), falling back to the heaviest non-player dealer, then "Solo".
 - **Offense vs defense are separate axes** (`recordOutcome`): an attacker's accuracy counts only hit/miss; dodge/parry/block/riposte are the *defender's* doing and only land in the defender's tally (the avoidance table). Rune absorbs are tracked but excluded from `Avoided()` (the blow connected).
@@ -65,14 +67,14 @@ Line categories in `dispatch` (order matters — see the `hasDamage` gotcha belo
 
 ## Rendering layer
 
-- **`cli/render.go`** is the pure layer: free functions `data → string` (`renderDamage`, `renderSessions`, `renderAvoidance`, `renderBars`, formatters). No gui state, so they're unit-tested directly.
-- **`cli/app.go`** holds the gui-coupled `App`: lifecycle and the thin `update*` wrappers that fetch panel width via `viewInnerWidth`, call a `render*` function, and push the result onto the gocui loop. **`cli/input.go`** holds the keybinding/mouse handler methods (bound in `keys.go`) and the selection/scroll bookkeeping they drive.
+- **`internal/cli/render.go`** is the pure layer: free functions `data → string` (`renderDamage`, `renderSessions`, `renderAvoidance`, `renderBars`, formatters). No gui state, so they're unit-tested directly.
+- **`internal/cli/app.go`** holds the gui-coupled `App`: lifecycle and the thin `update*` wrappers that fetch panel width via `viewInnerWidth`, call a `render*` function, and push the result onto the gocui loop. **`internal/cli/input.go`** holds the keybinding/mouse handler methods (bound in `keys.go`) and the selection/scroll bookkeeping they drive.
 - Tables are **width-aware** — optional columns (Hit%, Crit%, the labelled avoidance table) only appear when they fit, because gocui doesn't wrap and would clip the right edge.
 - gocui `OutputNormal` only honours ANSI colors **30–37/40–47** plus bold(1)/underline(4)/reverse(7). Bright codes (90–97) are silently ignored — stay in range.
 
 ## Spell timers and live state (`gamestate` package)
 
-A separate subsystem from DPS: tracks durations of spells the player casts (debuffs on mobs, buffs on self/others). `gamestate.Load` parses the client's `spells_us.txt` (217 `^`-delimited fields; `-spells` flag or `<logdir>/../spells_us.txt`) into a `Book`; `gamestate.Tracker` holds the live timers. The `Tracker` is the package's central stateful object — fed one log line at a time via `Observe` (a deliberate *fan-out*: one line can matter to several subsystems, e.g. a kill both expires the victim's debuffs and records a repop) and read lock-free by the UI. Its state is grouped into composed, caller-locked sub-trackers under one mutex: `cooldownTracker` (reuse/feign/bind, `cooldown.go`), `zoneTracker` (zone/repops/kills, `zone.go`), and `canniMeter` (`canni.go`); spell timers + class/level stay on the core (`tracker.go`). Subsystems that detect the class return it for `inferClassLocked` to apply (a `/who` title always wins). The parser feeds it (via `DmgParser.observeSpells`): `You begin casting X` → pending; a later line that `EndsWith` the spell's `cast_on_other` emote identifies the **target** (the prefix) and starts a timer of `Spell.DurationSeconds(level)` (the EQ buffduration formula). Caster level **and class** come from `/who` self lines (level-ups give level only) via `DmgParser.parseLevel`. EQ `/who` prints a level-based *title* (`[60 Warlord]`), not the class name, so `common.ClassFromTitle` maps the title→class (see `common/class.go`); the `Tracker` stores it (`SetClass`/`Category`). Timers expire on timeout, the `spell_fades` message, a resist, or the target being slain. **Crowd control** (mez + charm) is flagged on the spell (`Spell.Mez` from the `mesmeriz`/`enthrall` landing emote; `Spell.Charm`) and rendered in a pinned **CROWD CONTROL** section at the top of the timer panel, apart from buffs/debuffs. A mezzed mob breaks with no log message when it takes damage, so the parser calls `Tracker.BreakMezOnTarget` on every damage line (names normalized — the mez emote drops the article that the damage line keeps). The tracker is cleared on a character switch. It degrades gracefully (no panel data) if `spells_us.txt` is absent.
+A separate subsystem from DPS: tracks durations of spells the player casts (debuffs on mobs, buffs on self/others). `gamestate.Load` parses the client's `spells_us.txt` (217 `^`-delimited fields; `-spells` flag or `<logdir>/../spells_us.txt`) into a `Book`; `gamestate.Tracker` holds the live timers. The `Tracker` is the package's central stateful object — fed one log line at a time via `Observe` (a deliberate *fan-out*: one line can matter to several subsystems, e.g. a kill both expires the victim's debuffs and records a repop) and read lock-free by the UI. Its state is grouped into composed, caller-locked sub-trackers under one mutex: `cooldownTracker` (reuse/feign/bind, `cooldown.go`), `zoneTracker` (zone/repops/kills, `zone.go`), and `canniMeter` (`canni.go`); spell timers + class/level stay on the core (`tracker.go`). Subsystems that detect the class return it for `inferClassLocked` to apply (a `/who` title always wins). The parser feeds it (via `DmgParser.observeSpells`): `You begin casting X` → pending; a later line that `EndsWith` the spell's `cast_on_other` emote identifies the **target** (the prefix) and starts a timer of `Spell.DurationSeconds(level)` (the EQ buffduration formula). Caster level **and class** come from `/who` self lines (level-ups give level only) via `DmgParser.parseLevel`. EQ `/who` prints a level-based *title* (`[60 Warlord]`), not the class name, so `common.ClassFromTitle` maps the title→class (see `internal/common/class.go`); the `Tracker` stores it (`SetClass`/`Category`). Timers expire on timeout, the `spell_fades` message, a resist, or the target being slain. **Crowd control** (mez + charm) is flagged on the spell (`Spell.Mez` from the `mesmeriz`/`enthrall` landing emote; `Spell.Charm`) and rendered in a pinned **CROWD CONTROL** section at the top of the timer panel, apart from buffs/debuffs. A mezzed mob breaks with no log message when it takes damage, so the parser calls `Tracker.BreakMezOnTarget` on every damage line (names normalized — the mez emote drops the article that the damage line keeps). The tracker is cleared on a character switch. It degrades gracefully (no panel data) if `spells_us.txt` is absent.
 
 ## Class-aware bottom-right panel
 
@@ -86,9 +88,9 @@ The panel title (`App.panelTitle`) and content both switch on the category.
 
 ## Zone awareness and repop tracking
 
-The `Tracker` also derives zone state from the log (`gamestate/zone.go`): a "You have
+The `Tracker` also derives zone state from the log (`internal/gamestate/zone.go`): a "You have
 entered X" line sets the current zone and looks up its default respawn in
-`common.ZoneRespawn` (data in `common/zonetimers.go`, transcribed from the P99
+`common.ZoneRespawn` (data in `internal/common/zonetimers.go`, transcribed from the P99
 wiki — see `docs/zone-spawn-timers.md`). Every mob death — the player's own ("You have slain X!") *and* group/others'
 ("X has been slain by &lt;player&gt;!", with a killer-is-mob heuristic to skip
 player deaths) — starts a repop timer at the zone default (`Respawns()`). Each
@@ -112,7 +114,7 @@ differ.
 
 ## Views and input
 
-`cli/view.go` defines the views (`status`, `sessions`, `dmg`, `graph`, `timers`, `cc`, `repops`, `shortcuts`) — the bottom-row split (Spell Timers | [Crowd Control] | Mob Tracker) is placed dynamically in `Layout`: enchanters get the dedicated `cc` column, everyone else gets two tiles and no `cc` view in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `cli/view.go`, keeping the shared `common` package free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `cli/keys.go`.
+`internal/cli/view.go` defines the views (`status`, `sessions`, `dmg`, `graph`, `timers`, `cc`, `repops`, `shortcuts`) — the bottom-row split (Spell Timers | [Crowd Control] | Mob Tracker) is placed dynamically in `Layout`: enchanters get the dedicated `cc` column, everyone else gets two tiles and no `cc` view in `vp` with fractional coords translated by `GetScreenDims` (both the `ViewProperties` type and `GetScreenDims` live in `internal/cli/view.go`, keeping the shared `common` package free of the gocui dependency). The `sessions` panel is interactive: arrow keys / click select a fight (which drives the other panels), `End` jumps to live, and the mouse wheel scrolls it (selection scrolls into view; autoscroll is off and origin is managed manually). Keybindings live in `internal/cli/keys.go`.
 
 ## Gotchas
 

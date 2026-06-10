@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // hit is a tiny helper to push a melee damage line through the manager.

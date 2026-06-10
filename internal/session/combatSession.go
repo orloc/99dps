@@ -1,7 +1,7 @@
 package session
 
 import (
-	"99dps/common"
+	"99dps/internal/common"
 	"maps"
 	"sort"
 	"strings"

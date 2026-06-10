@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // fallbackLevel is used to compute durations before we've seen the player's

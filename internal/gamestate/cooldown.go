@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // Cooldown is a class skill with a fixed reuse timer, detected from a self log

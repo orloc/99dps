@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // Swing attribution: an attacker's accuracy (offense) counts only hits and

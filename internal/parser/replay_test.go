@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"99dps/common"
-	"99dps/session"
+	"99dps/internal/common"
+	"99dps/internal/session"
 	"bufio"
 	"os"
 	"testing"

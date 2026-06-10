@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"99dps/common"
+	"99dps/internal/common"
 	"fmt"
 	"github.com/jroimartin/gocui"
 )

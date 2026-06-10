@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"99dps/gamestate"
+	"99dps/internal/gamestate"
 )
 
 func TestDueAnnouncements(t *testing.T) {

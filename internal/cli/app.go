@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"99dps/common"
-	"99dps/gamestate"
-	"99dps/session"
+	"99dps/internal/common"
+	"99dps/internal/gamestate"
+	"99dps/internal/session"
 	"fmt"
 	"github.com/jroimartin/gocui"
 	"sort"

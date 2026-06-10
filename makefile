@@ -18,21 +18,22 @@ help: ## Show this help (the default target)
 all: build clean ## Build then clean (a quick compile check)
 
 build: ## Build the Linux binary (./99dps)
-	go build $(BUILDFLAGS) -o 99dps .
+	go build $(BUILDFLAGS) -o 99dps ./cmd/99dps
 
 # winres embeds Windows version metadata (ProductName/Version/Description, shown
-# in Explorer → Properties and Task Manager) from versioninfo.json. The
-# _windows_amd64 suffix scopes the .syso to that target, so non-Windows builds
-# ignore it. No-op (with a note) if goversioninfo isn't installed.
+# in Explorer → Properties and Task Manager) from versioninfo.json. The .syso
+# must sit in the main package dir (cmd/99dps) for the linker to pick it up; the
+# _windows_amd64 suffix scopes it to that target, so non-Windows builds ignore
+# it. No-op (with a note) if goversioninfo isn't installed.
 winres: ## (internal) Generate the Windows version+icon resource
 	@if command -v goversioninfo >/dev/null 2>&1; then \
-		goversioninfo -64 -o resource_windows_amd64.syso versioninfo.json && echo "embedded version metadata"; \
+		goversioninfo -64 -o cmd/99dps/resource_windows_amd64.syso versioninfo.json && echo "embedded version metadata"; \
 	else \
 		echo "goversioninfo not found — building without version metadata (run 'make tools')"; \
 	fi
 
 windows: winres ## Cross-compile the Windows binary (99dps.exe)
-	GOOS=windows GOARCH=amd64 go build $(BUILDFLAGS) -o 99dps.exe .
+	GOOS=windows GOARCH=amd64 go build $(BUILDFLAGS) -o 99dps.exe ./cmd/99dps
 
 release-windows: windows ## Windows binary + SHA-256 (for your own VirusTotal/records)
 	@sha256sum 99dps.exe | tee 99dps.exe.sha256
@@ -48,7 +49,7 @@ dist-windows: windows ## Friend-ready zip: exe + plain-language readme (send thi
 clean: ## Remove all build artifacts
 	${GOCLEAN}
 	rm -rf dist 99dps-windows.zip
-	rm -f 99dps 99dps.exe 99dps.exe.sha256 resource_windows_amd64.syso
+	rm -f 99dps 99dps.exe 99dps.exe.sha256 cmd/99dps/resource_windows_amd64.syso
 
 test: ## Run all tests
 	go test ./...

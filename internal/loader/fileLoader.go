@@ -1,7 +1,7 @@
 package loader
 
 import (
-	"99dps/common"
+	"99dps/internal/common"
 	"fmt"
 	"io"
 	"os"

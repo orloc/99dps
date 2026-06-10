@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // Regression for bug #3: Apply takes the write lock for the duration of the

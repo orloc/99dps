@@ -1,7 +1,7 @@
 package main
 
 import (
-	"99dps/loader"
+	"99dps/internal/loader"
 	"flag"
 	"os"
 	"path/filepath"

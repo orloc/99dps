@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"99dps/common"
+	"99dps/internal/common"
 )
 
 // respawnKeepUpSec keeps a repopped mob listed (shown as "up") this long after

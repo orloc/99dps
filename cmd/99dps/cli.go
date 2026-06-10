@@ -1,11 +1,11 @@
 package main
 
 import (
-	app "99dps/cli"
-	"99dps/gamestate"
-	"99dps/loader"
-	"99dps/parser"
-	"99dps/session"
+	app "99dps/internal/cli"
+	"99dps/internal/gamestate"
+	"99dps/internal/loader"
+	"99dps/internal/parser"
+	"99dps/internal/session"
 	"fmt"
 	"path/filepath"
 	"sync"

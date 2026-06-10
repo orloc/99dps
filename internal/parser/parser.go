@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"99dps/common"
-	"99dps/gamestate"
+	"99dps/internal/common"
+	"99dps/internal/gamestate"
 	"bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
