@@ -252,6 +252,17 @@ func TestViewFitsWindow(t *testing.T) {
 	}
 }
 
+// TestResistBadgeRendered verifies a target-resisted cast surfaces as a badge in
+// the class panel (the user-facing "show when the spell doesn't land" cue).
+func TestResistBadgeRendered(t *testing.T) {
+	sm, tr := casterScene()
+	tr.Observe("Your target resisted the Aegolism spell.", time.Now().Unix())
+	out := renderAtTr(sm, tr, 0, 120, 40)
+	if !strings.Contains(out, "Aegolism") || !strings.Contains(out, "resisted") {
+		t.Errorf("expected an \"Aegolism resisted\" badge in the rendered view")
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
