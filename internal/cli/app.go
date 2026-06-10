@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +22,10 @@ type App struct {
 	gui     *gocui.Gui
 	manager *session.SessionManager
 	tracker *gamestate.Tracker
+
+	// set on shutdown so a late repaint tick (Sync goroutine) doesn't enqueue a
+	// gui.Update once the main loop has stopped draining its event channel.
+	shuttingDown atomic.Bool
 
 	// selection + scroll state for the session side panel, guarded by mu.
 	// selected is the pinned session index; follow keeps it glued to the newest
@@ -124,6 +129,13 @@ func (a *App) Sync(stop <-chan struct{}) {
 	}
 }
 
+// BeginShutdown marks the app as shutting down so any in-flight repaint tick
+// returns without enqueuing a gui.Update. Call it before signalling the Sync
+// goroutine to stop.
+func (a *App) BeginShutdown() {
+	a.shuttingDown.Store(true)
+}
+
 // Close tears down the gui, restoring the terminal. Call it after Sync has
 // stopped so no repaint races the teardown.
 func (a *App) Close() {
@@ -133,6 +145,9 @@ func (a *App) Close() {
 // refresh snapshots all sessions once, resolves which one is selected, and
 // repaints every panel from that single consistent view of the data.
 func (a *App) refresh() {
+	if a.shuttingDown.Load() {
+		return // main loop has stopped; don't enqueue a doomed gui.Update
+	}
 	all := a.manager.All()
 	sel := a.resolveSelection(len(all))
 

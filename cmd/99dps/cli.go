@@ -57,6 +57,7 @@ func launchCLI(logDir, spellsPath string, tts bool) {
 
 	a.Loop() // blocks on the gocui main loop until the user quits
 
+	a.BeginShutdown() // stop repaints before the main loop's event drain ends
 	close(stop)
 	bg.Wait()
 	a.Close()
