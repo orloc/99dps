@@ -822,10 +822,8 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	}
 
 	for i, d := range stats {
-		from, to := th.barFrom, th.barTo
-		if i > 0 {
-			from, to = th.accent, th.accentLo
-		}
+		// bar hue encodes DPS: hot red for the top dealer, cooling to violet.
+		from, to := rainbowBar(float64(d.Total) / float64(maxTotal))
 		nameStyle, col := th.fg(th.text), th.text
 		you := strings.EqualFold(d.Dealer, "you")
 		if you {
