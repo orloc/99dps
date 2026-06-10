@@ -775,10 +775,17 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	b.WriteString(strings.Repeat(" ", max(width-num, 0)) +
 		numBlockLabels(th, showPct, showHit, showCrit, pctW, totW, dpsW) + "\n")
 
+	// from=="rainbow" → a horizontal red→violet rainbow across the bar (every
+	// ranked meter shares the spectrum); otherwise a solid from→to gradient (the
+	// dim breakdown children).
 	row := func(rankStr string, nameCell, hit, crit string, frac float64, from, to, col string, total, dps, pctv int) string {
 		mid := ""
 		if showBar {
-			mid = gradientBar(frac, barCells, from, to, th.track) + " "
+			if from == "rainbow" {
+				mid = rainbowBarH(frac, barCells, th.track) + " "
+			} else {
+				mid = gradientBar(frac, barCells, from, to, th.track) + " "
+			}
 		}
 		return rightCell(rankStr, rankW, th.dim) + " " + nameCell + " " + mid +
 			numBlock(pctv, total, dps, hit, crit, col)
@@ -822,8 +829,6 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	}
 
 	for i, d := range stats {
-		// bar hue encodes DPS: hot red for the top dealer, cooling to violet.
-		from, to := rainbowBar(float64(d.Total) / float64(maxTotal))
 		nameStyle, col := th.fg(th.text), th.text
 		you := strings.EqualFold(d.Dealer, "you")
 		if you {
@@ -835,7 +840,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		}
 		hit, crit := acc(d)
 		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(name, nameW)),
-			hit, crit, float64(d.Total)/float64(maxTotal), from, to, col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
+			hit, crit, float64(d.Total)/float64(maxTotal), "rainbow", "", col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
 
 		// rolled up under You as dim, indented children: spell/proc/DoT damage
 		// (EQ shows you only your own non-melee, so it's almost always yours) and

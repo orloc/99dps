@@ -81,18 +81,41 @@ func hsvHex(h, s, v float64) string {
 	return fmt.Sprintf("#%02x%02x%02x", int((r+m)*255), int((g+m)*255), int((b+m)*255))
 }
 
-// rainbowBar maps a 0..1 DPS magnitude (share of the top dealer) to a heat-map
-// bar gradient: hot red for the highest, cooling through orange/yellow/green to
-// violet for the lowest — so a bar's hue encodes its DPS.
-func rainbowBar(frac float64) (light, dark string) {
+// rainbowBarH draws a bar filled to frac (0..1) with a horizontal red→violet
+// rainbow across its full width — so every meter shows the same left-to-right
+// spectrum (DPS is encoded by length, not hue). Soft saturation for the dark
+// palette; the unfilled tail is the track color.
+func rainbowBarH(frac float64, cells int, track string) string {
 	if frac < 0 {
 		frac = 0
 	}
 	if frac > 1 {
 		frac = 1
 	}
-	h := (1 - frac) * 280 // frac=1 → 0° (red), frac=0 → 280° (violet)
-	return hsvHex(h, 0.52, 0.96), hsvHex(h, 0.66, 0.60)
+	eighths := []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+	fill := frac * float64(cells)
+	whole := int(fill)
+	var sb strings.Builder
+	for i := 0; i < cells; i++ {
+		t := 0.0
+		if cells > 1 {
+			t = float64(i) / float64(cells-1)
+		}
+		col := lipgloss.Color(hsvHex(t*280, 0.55, 0.92)) // 0°(red) → 280°(violet)
+		switch {
+		case i < whole:
+			sb.WriteString(lipgloss.NewStyle().Foreground(col).Render("█"))
+		case i == whole:
+			if idx := int((fill - float64(whole)) * 8); idx > 0 {
+				sb.WriteString(lipgloss.NewStyle().Foreground(col).Render(eighths[idx]))
+			} else {
+				sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(track)).Render("░"))
+			}
+		default:
+			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(track)).Render("░"))
+		}
+	}
+	return sb.String()
 }
 
 func blend(a, b string, t float64) lipgloss.Color {
