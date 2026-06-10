@@ -53,3 +53,11 @@ func rightCell(s string, w int, color string) string {
 
 // mmss formats a seconds count as m:ss (or h:mm:ss past an hour).
 func mmss(sec int64) string { return fmtDuration(time.Duration(sec) * time.Second) }
+
+// displayName renders the player's normalized "YOU" token as "You" for the UI.
+func displayName(name string) string {
+	if name == "YOU" {
+		return "You"
+	}
+	return name
+}

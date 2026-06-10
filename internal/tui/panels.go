@@ -56,8 +56,9 @@ func nowBox(th theme, character string, tr *gamestate.Tracker, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// sessionsList: the fight list, newest last, with the selected one a gold plaque.
-func sessionsList(th theme, sessions []*session.CombatSession, selected, w, h int) string {
+// sessionsList: the fight list, newest last, with the selected one a gold
+// plaque. The full list is returned (no clip) — the Sessions viewport scrolls it.
+func sessionsList(th theme, sessions []*session.CombatSession, selected, w int) string {
 	if len(sessions) == 0 {
 		return th.fg(th.dim).Render("No fights yet.\nFight something!")
 	}
@@ -78,9 +79,6 @@ func sessionsList(th theme, sessions []*session.CombatSession, selected, w, h in
 		meta := fmt.Sprintf("  %s · %s", fmtDuration(s.Duration()), humanize(s.Total()+s.MagicTotal()))
 		lines = append(lines, th.fg(th.dim).Render(truncate(meta, w)))
 	}
-	if len(lines) > h {
-		lines = lines[:h] // simple clip; per-panel scroll is a later phase
-	}
 	return strings.Join(lines, "\n")
 }
 
@@ -98,6 +96,30 @@ func splitCCtimers(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
 
 func bySoonest(ts []gamestate.Timer) {
 	sort.SliceStable(ts, func(i, j int) bool { return ts[i].Expiry < ts[j].Expiry })
+}
+
+// groupByTargetTimers buckets timers by who they're on, ordering the targets by
+// their soonest-to-expire timer (so the group about to drop floats up).
+func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []string) {
+	groups := map[string][]gamestate.Timer{}
+	for _, tm := range ts {
+		groups[tm.Target] = append(groups[tm.Target], tm)
+	}
+	soonest := func(g []gamestate.Timer) int64 {
+		m := g[0].Expiry
+		for _, t := range g {
+			if t.Expiry < m {
+				m = t.Expiry
+			}
+		}
+		return m
+	}
+	order := make([]string, 0, len(groups))
+	for t := range groups {
+		order = append(order, t)
+	}
+	sort.SliceStable(order, func(i, j int) bool { return soonest(groups[order[i]]) < soonest(groups[order[j]]) })
+	return groups, order
 }
 
 func urgencyColor(th theme, frac float64) string {
@@ -188,9 +210,16 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool) string {
 		}
 		return strings.Join(lines, "\n")
 	}
-	bySoonest(rest)
-	for _, tm := range rest {
-		lines = append(lines, timerLine(th, tm, now, w))
+	// buffs/debuffs grouped by who they're on — a bold target header, then that
+	// target's spells indented beneath it (matches the gocui renderTimers layout).
+	groups, order := groupByTargetTimers(rest)
+	for _, tgt := range order {
+		lines = append(lines, th.fg(th.text).Bold(true).Render(truncate(displayName(tgt), w)))
+		g := groups[tgt]
+		bySoonest(g)
+		for _, tm := range g {
+			lines = append(lines, "  "+timerLine(th, tm, now, w-2))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

@@ -36,7 +36,14 @@ type Model struct {
 	selected int                      // pinned session index
 	follow   bool                     // glue selection to the live fight
 
-	vp    viewport.Model // the scrollable Damage panel
+	// every overflowing panel is independently scrollable (mirrors the gocui
+	// per-panel scroll). The mouse wheel scrolls whichever panel it's over.
+	vpSessions viewport.Model
+	vpDamage   viewport.Model
+	vpClass    viewport.Model // spell timers / skills (class-aware bottom panel)
+	vpMob      viewport.Model
+	vpCC       viewport.Model // enchanter-only Crowd Control column
+
 	w, h  int
 	ready bool
 }
@@ -48,14 +55,16 @@ func New(sm *session.SessionManager, tracker *gamestate.Tracker, character strin
 
 func (m Model) Init() tea.Cmd { return tick() }
 
-// layout holds the computed panel rectangles for the current window size.
+// layout holds the computed panel rectangles for the current window size. The
+// bottom row splits differently for enchanters (a dedicated Crowd Control
+// column), so its widths are computed here once and shared by sizing + render.
 type layout struct {
-	leftW, rightW        int
-	nowH, sessH          int
-	dmgH, botH           int
-	timersW, mobW        int
-	dmgInnerW, dmgInnerH int // the Damage card's body area (the viewport)
-	areaH                int
+	leftW, rightW     int
+	nowH, sessH       int
+	dmgH, botH        int
+	classW, ccW, mobW int // bottom row: class panel | [CC] | mob tracker
+	ench              bool
+	areaH             int
 }
 
 func (m Model) layout() layout {
@@ -76,14 +85,25 @@ func (m Model) layout() layout {
 		dmgH = 5
 	}
 	botH := areaH - dmgH - 1
-	timersW := rightW / 2
-	mobW := rightW - timersW - 1
-	return layout{
+
+	ld := layout{
 		leftW: leftW, rightW: rightW, nowH: nowH, sessH: sessH,
-		dmgH: dmgH, botH: botH, timersW: timersW, mobW: mobW, areaH: areaH,
-		dmgInnerW: rightW - 4, dmgInnerH: dmgH - 3, // card body inside border+title
+		dmgH: dmgH, botH: botH, areaH: areaH, ench: m.isEnchanter(),
 	}
+	if ld.ench {
+		ld.classW = rightW * 38 / 100
+		ld.ccW = rightW * 30 / 100
+		ld.mobW = rightW - ld.classW - ld.ccW - 2
+	} else {
+		ld.classW = rightW / 2
+		ld.mobW = rightW - ld.classW - 1
+	}
+	return ld
 }
+
+// cardInner returns the body width/height inside a card of total size w×h
+// (border 2 + padding 2 horizontally; border 2 + title line 1 vertically).
+func cardInner(w, h int) (int, int) { return w - 4, h - 3 }
 
 // effectiveSel resolves the selection against the current session count.
 func (m Model) effectiveSel() int {
@@ -108,7 +128,33 @@ func (m *Model) refresh() {
 		cur = m.sessions[sel]
 	}
 	live := cur != nil && cur.EndTime().IsZero()
-	m.vp.SetContent(m.damageContent(cur, live, m.vp.Width))
+	th := themes[m.theme]
+
+	m.vpDamage.SetContent(m.damageContent(cur, live, m.vpDamage.Width))
+	m.vpSessions.SetContent(sessionsList(th, m.sessions, sel, m.vpSessions.Width))
+	m.vpClass.SetContent(m.classPanel(cur, m.vpClass.Width))
+	m.vpMob.SetContent(mobTracker(th, m.tracker, m.vpMob.Width))
+	if m.isEnchanter() {
+		m.vpCC.SetContent(ccBody(th, m.tracker, m.vpCC.Width))
+	}
+	m.ensureSelVisible(sel)
+}
+
+// ensureSelVisible scrolls the Sessions viewport so the selected fight (2 lines
+// per fight) stays in view — only nudging when it's off-screen, like the gocui
+// ensureVisible (wheel scrolling is otherwise left alone).
+func (m *Model) ensureSelVisible(sel int) {
+	if sel < 0 {
+		return
+	}
+	line := sel * 2
+	top, h := m.vpSessions.YOffset, m.vpSessions.Height
+	switch {
+	case line < top:
+		m.vpSessions.SetYOffset(line)
+	case line >= top+h:
+		m.vpSessions.SetYOffset(line - h + 2)
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -141,22 +187,74 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		ld := m.layout()
-		if !m.ready {
-			m.vp = viewport.New(ld.dmgInnerW, ld.dmgInnerH)
-			m.ready = true
-		} else {
-			m.vp.Width, m.vp.Height = ld.dmgInnerW, ld.dmgInnerH
-		}
+		m.resizeViewports()
 		m.refresh()
+	case tea.MouseMsg:
+		// route the wheel to whichever panel the cursor is over (gocui parity).
+		if vp := m.panelAt(msg.X, msg.Y); vp != nil {
+			var cmd tea.Cmd
+			*vp, cmd = vp.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 	case tickMsg:
 		m.refresh()
 		cmds = append(cmds, tick())
 	}
-	var cmd tea.Cmd
-	m.vp, cmd = m.vp.Update(msg) // viewport handles wheel + arrows over the Damage panel
-	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+// resizeViewports (re)sizes every panel's viewport to its card's inner area for
+// the current window. Creates them on the first WindowSizeMsg.
+func (m *Model) resizeViewports() {
+	ld := m.layout()
+	set := func(vp *viewport.Model, w, h int) {
+		iw, ih := cardInner(w, h)
+		if !m.ready {
+			*vp = viewport.New(iw, ih)
+		} else {
+			vp.Width, vp.Height = iw, ih
+		}
+	}
+	set(&m.vpSessions, ld.leftW, ld.sessH)
+	set(&m.vpDamage, ld.rightW, ld.dmgH)
+	set(&m.vpClass, ld.classW, ld.botH)
+	set(&m.vpMob, ld.mobW, ld.botH)
+	set(&m.vpCC, ld.ccW, ld.botH)
+	m.ready = true
+}
+
+// panelAt returns the viewport whose card contains screen cell (x,y), or nil.
+// The geometry mirrors View()'s composition: outer Padding(1,1), a 1-line
+// banner, then the grid (left column | right column) — see the layout comments.
+func (m *Model) panelAt(x, y int) *viewport.Model {
+	ld := m.layout()
+	gridY := 2              // outer pad (1) + banner (1)
+	rightX := ld.leftW + 2  // outer pad (1) + left column + 1-col gap
+	botY := gridY + ld.dmgH // bottom row starts after the Damage card
+	in := func(cx, cw, cy, ch int) bool { return x >= cx && x < cx+cw && y >= cy && y < cy+ch }
+
+	switch {
+	case in(1, ld.leftW, gridY+ld.nowH, ld.sessH):
+		return &m.vpSessions
+	case in(rightX, ld.rightW, gridY, ld.dmgH):
+		return &m.vpDamage
+	case in(rightX, ld.classW, botY, ld.botH):
+		return &m.vpClass
+	}
+	if ld.ench {
+		ccX := rightX + ld.classW + 1
+		mobX := ccX + ld.ccW + 1
+		switch {
+		case in(ccX, ld.ccW, botY, ld.botH):
+			return &m.vpCC
+		case in(mobX, ld.mobW, botY, ld.botH):
+			return &m.vpMob
+		}
+	} else if in(rightX+ld.classW+1, ld.mobW, botY, ld.botH) {
+		return &m.vpMob
+	}
+	return nil
 }
 
 func (m Model) View() string {
@@ -180,37 +278,33 @@ func (m Model) View() string {
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		card(th, ld.leftW, ld.nowH, "Now", nowBox(th, m.character, m.tracker, ld.leftW-4)),
-		card(th, ld.leftW, ld.sessH, "Sessions", sessionsList(th, m.sessions, m.effectiveSel(), ld.leftW-4, ld.sessH-3)))
+		card(th, ld.leftW, ld.sessH, "Sessions", m.vpSessions.View()))
 
-	var cur *session.CombatSession
 	dmgTitle := "Damage"
 	if sel := m.effectiveSel(); sel >= 0 {
-		cur = m.sessions[sel]
-		dmgTitle = "Damage — " + truncate(cur.Name(), ld.rightW-12)
+		dmgTitle = "Damage — " + truncate(m.sessions[sel].Name(), ld.rightW-12)
 	}
 
 	// bottom row: the class-aware panel + Mob Tracker — enchanters get a third,
-	// dedicated Crowd Control column (matching the gocui layout).
+	// dedicated Crowd Control column (matching the gocui layout). Every panel
+	// renders from its own viewport, so each scrolls independently.
 	var bottom string
-	if m.isEnchanter() {
-		classW := ld.rightW * 38 / 100
-		ccW := ld.rightW * 30 / 100
-		mobW := ld.rightW - classW - ccW - 2
+	if ld.ench {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
-			card(th, classW, ld.botH, classPanelTitle(m.tracker), m.classPanel(cur, classW-4)), " ",
-			card(th, ccW, ld.botH, "Crowd Control", ccBody(th, m.tracker, ccW-4)), " ",
-			card(th, mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, mobW-4)))
+			card(th, ld.classW, ld.botH, classPanelTitle(m.tracker), m.vpClass.View()), " ",
+			card(th, ld.ccW, ld.botH, "Crowd Control", m.vpCC.View()), " ",
+			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
 	} else {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
-			card(th, ld.timersW, ld.botH, classPanelTitle(m.tracker), m.classPanel(cur, ld.timersW-4)), " ",
-			card(th, ld.mobW, ld.botH, "Mob Tracker", mobTracker(th, m.tracker, ld.mobW-4)))
+			card(th, ld.classW, ld.botH, classPanelTitle(m.tracker), m.vpClass.View()), " ",
+			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left,
-		card(th, ld.rightW, ld.dmgH, dmgTitle, m.vp.View()),
+		card(th, ld.rightW, ld.dmgH, dmgTitle, m.vpDamage.View()),
 		bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-	footer := th.fg(th.dim).Render("[t] theme   [↑↓] select fight   [wheel] scroll dmg   [end] live   [q] quit")
+	footer := th.fg(th.dim).Render("[t] theme   [↑↓] select fight   [wheel] scroll panel   [end] live   [q] quit")
 
 	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, footer)
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
