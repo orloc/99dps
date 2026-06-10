@@ -77,13 +77,23 @@ type logController struct {
 	parseWG sync.WaitGroup
 }
 
+// observer adapts the optional tracker to the parser's SpellObserver interface,
+// returning a true-nil interface (not a typed-nil) when there's no tracker so
+// the parser's nil check works.
+func (c *logController) observer() parser.SpellObserver {
+	if c.tracker == nil {
+		return nil
+	}
+	return c.tracker
+}
+
 // startParse launches a parser goroutine for src; it exits when src's tail is
 // stopped (which closes the line channel).
 func (c *logController) startParse(src *loader.LogSource) {
 	c.parseWG.Add(1)
 	go func() {
 		defer c.parseWG.Done()
-		parser.DoParse(src.Tail, c.sm, src.Character, c.tracker)
+		parser.DoParse(src.Tail, c.sm, src.Character, c.observer())
 	}()
 }
 

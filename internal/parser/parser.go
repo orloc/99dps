@@ -2,7 +2,6 @@ package parser
 
 import (
 	"99dps/internal/common"
-	"99dps/internal/gamestate"
 	"bufio"
 	"fmt"
 	"github.com/hpcloud/tail"
@@ -24,13 +23,27 @@ type Sink interface {
 	ApplyMagic(*common.Magic)
 }
 
+// SpellObserver is the parser's view of the live game-state tracker: the spell,
+// cast, level/class, feign, and mez signals it feeds. Like Sink, depending on
+// this interface (rather than *gamestate.Tracker) keeps the parser off the
+// gamestate package and testable with a fake. *gamestate.Tracker satisfies it.
+type SpellObserver interface {
+	Observe(body string, at int64)
+	BeginCast(spellName string, at int64)
+	BreakMezOnTarget(target string)
+	SetLevel(level int)
+	SetClass(c common.Class)
+	FeignAttempt(at int64)
+	FeignFailed(at int64)
+}
+
 type DmgParser struct {
 	// character is the log owner's name. Their own crits are logged under that
 	// name rather than "You", so we remap it for attribution.
 	character string
 	// tracker, when non-nil, receives cast/level/landing signals for the spell
 	// timer overlay.
-	tracker *gamestate.Tracker
+	tracker SpellObserver
 }
 
 const COMBAT_VERB_STRING = "gores|gore|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush"
@@ -41,7 +54,7 @@ const LOG_SUBJECT_INDEX_START = 27
 // DoParse tails the log, classifying each line and forwarding the parsed event
 // to sink. tracker (optional) receives spell-timer signals. It blocks until the
 // tail's line channel closes.
-func DoParse(t *tail.Tail, sink Sink, character string, tracker *gamestate.Tracker) {
+func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver) {
 	p := DmgParser{character: character, tracker: tracker}
 	for line := range t.Lines {
 		// EQ writes CRLF; strip the trailing \r so exact/suffix matches (spell
@@ -60,7 +73,7 @@ func DoParse(t *tail.Tail, sink Sink, character string, tracker *gamestate.Track
 // instead of starting blank — the live tail still follows from end-of-file.
 // Already-expired timers fall out via tracker.Active. Cheap because logs are
 // rotated small.
-func RebuildTrackerFromFile(path, character string, tracker *gamestate.Tracker) {
+func RebuildTrackerFromFile(path, character string, tracker SpellObserver) {
 	if tracker == nil {
 		return
 	}
@@ -172,7 +185,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 	case p.hasDamage(line):
 		if set, err := p.parseDamage(line); err == nil {
 			sink.Apply(set)
-			p.tracker.BreakMezOnTarget(set.Target) // damage breaks a mob's mez
+			if p.tracker != nil {
+				p.tracker.BreakMezOnTarget(set.Target) // damage breaks a mob's mez
+			}
 		}
 	case p.hasSwing(line):
 		if sw, err := p.parseSwing(line); err == nil {
@@ -185,7 +200,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 	case p.hasMagic(line):
 		if m, err := p.parseMagic(line); err == nil {
 			sink.ApplyMagic(m)
-			p.tracker.BreakMezOnTarget(m.Target) // non-melee damage breaks mez too
+			if p.tracker != nil {
+				p.tracker.BreakMezOnTarget(m.Target) // non-melee damage breaks mez too
+			}
 		}
 	case p.hasEvent(line):
 		if ev, err := p.parseEvent(line); err == nil {
