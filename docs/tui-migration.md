@@ -58,10 +58,15 @@ drop `gocui` + `termbox-go` at cutover.
 - `q`/`ctrl+c` → `tea.Quit`; the launcher then `Tail.Stop()`s etc. (graceful
   shutdown; Bubble Tea restores the terminal on exit).
 
-## Phases (each shippable; gocui stays the default until cutover)
+## Transition strategy
 
-A `-ui gocui|tui` flag selects the UI during transition, so we can run them
-side-by-side and only cut over at parity.
+The port happens on a dedicated **`feature/tui` branch**. `master` keeps the
+gocui UI — and stays free of the Charm dependencies — until the branch reaches
+parity and merges (the Phase 6 cutover). During the branch's life a `-ui
+gocui|tui` flag can be kept for side-by-side A/B testing, but the branch is the
+isolation boundary; `master` is never half-ported.
+
+## Phases (each a commit on `feature/tui`; gocui stays default until cutover)
 
 - **Phase 0 — skeleton + live Damage panel** (behind `-ui tui`): the `tui`
   package, `Model`, `tick → snapshot`, the Damage panel rendered from **real**
