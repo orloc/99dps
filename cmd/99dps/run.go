@@ -36,6 +36,7 @@ func launchTUI(logDir, spellsPath string, tts bool) {
 	src := loader.LoadFile(logDir)
 	sm := &session.SessionManager{}
 	tracker, spellInfo := loadTracker(spellsPath, logDir)
+	tracker.SetCharacter(src.Character) // for the pet's "My leader is <you>" check
 
 	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, tts)
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
@@ -134,8 +135,9 @@ func (c *logController) switchTo(path string) {
 	c.sm.Clear()     // fresh slate for the new character
 	if c.tracker != nil {
 		c.tracker.Clear()
-		// recover the new character's active spell timers / class / zone from the
-		// log (the live tail below only sees new lines from end-of-file).
+		c.tracker.SetCharacter(next.Character)
+		// recover the new character's active spell timers / class / zone / pet from
+		// the log (the live tail below only sees new lines from end-of-file).
 		parser.RebuildTrackerFromFile(next.Path, next.Character, c.tracker)
 	}
 	c.tui.SwitchCharacter(next.Character)

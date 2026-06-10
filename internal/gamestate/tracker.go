@@ -52,6 +52,12 @@ type Tracker struct {
 	// the UI can flag a cast that didn't land.
 	resistSpell string
 	resistAt    int64
+
+	// character is the tracked player (set by the host), used to confirm the pet's
+	// "My leader is <character>." reply. petName is the player's current pet, learned
+	// from /pet leader and pet command replies (see pet.go).
+	character string
+	petName   string
 }
 
 // resistGraceSec is how long a resist notice stays shown after it lands.
@@ -263,6 +269,7 @@ func (t *Tracker) Observe(body string, at int64) {
 		// emit no spell message at all) — matched by their item-specific line.
 		t.matchClickyLocked(body, at)
 	}
+	t.observePetLocked(body)
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
 	t.inferClassLocked(t.cool.matchLocked(body, at))
@@ -471,6 +478,7 @@ func (t *Tracker) Clear() {
 	t.pending = nil
 	t.level = 0
 	t.class = eqclass.ClassUnknown
+	t.petName = ""
 	t.mu.Unlock()
 }
 

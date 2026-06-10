@@ -783,6 +783,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			numBlock(pctv, total, dps, hit, crit, col)
 	}
 
+	petName := m.tracker.PetName() // your pet's dealer name (or "")
 	for i, d := range stats {
 		from, to := th.barFrom, th.barTo
 		if i > 0 {
@@ -793,6 +794,10 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		if strings.EqualFold(d.Dealer, "you") {
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
+		name := d.Dealer
+		if petName != "" && strings.EqualFold(d.Dealer, petName) {
+			name += " (pet)" // detected via /pet leader or a pet command reply
+		}
 		hit := "-"
 		if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
 			hit = fmt.Sprintf("%d%%", hr)
@@ -801,7 +806,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
 			crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
 		}
-		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(d.Dealer, nameW)),
+		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(name, nameW)),
 			hit, crit, float64(d.Total)/float64(maxTotal), from, to, col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
 	}
 
