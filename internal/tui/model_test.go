@@ -390,6 +390,20 @@ func TestRepopEditFlow(t *testing.T) {
 	}
 }
 
+// TestAvoidanceShowsRiposte: the vertical avoidance breakdown includes Riposte
+// (and full names) for a defender that riposted.
+func TestAvoidanceShowsRiposte(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 50, Target: "a rat"})
+	sm.ApplySwing(&combat.Swing{ActionTime: 1001, Attacker: "You", Defender: "a rat", Outcome: combat.OutcomeRiposte})
+	out := damageAvoidance(themes[0], sm.Current(), 40)
+	for _, want := range []string{"Avoided", "Riposte", "faced"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("avoidance missing full label %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

@@ -393,28 +393,23 @@ func specialKindsByDamage(sp map[string]combat.SpecialStat) []string {
 	return kinds
 }
 
-// damageAvoidance is the per-combatant defensive table: a fully-labelled form
-// when the panel is wide, a compact name + avoid% fallback otherwise. The
-// player's row is bolded. "" when nobody took a swing.
+// damageAvoidance lists each combatant's defensive breakdown. The Specials /
+// Avoidance column is too narrow for a 7-column table, so it's laid out
+// vertically per defender — a "name · N faced" header, then every outcome with
+// its full name (Avoided total, Miss, Dodge, Parry, Block, Riposte). The
+// player's header is bolded. "" when nobody took a swing.
 func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 	defs := cur.Defense()
 	if len(defs) == 0 {
 		return ""
 	}
-	const maxRows = 6
-	full := w >= 56
+	const maxDefenders = 4
 
 	var b strings.Builder
 	b.WriteString(sectionHead(th, "Avoidance", w) + "\n")
-	if full {
-		b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %5s %5s %5s %5s %5s %5s",
-			"Defender", "Faced", "Avoid", "Miss", "Dodge", "Parry", "Block"), w)) + "\n")
-	} else {
-		b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %5s %5s", "Defender", "Avoid", "Faced"), w)) + "\n")
-	}
-	rows := 0
+	shown := 0
 	for _, d := range defs {
-		if rows >= maxRows {
+		if shown >= maxDefenders {
 			break
 		}
 		s := d.Stats
@@ -422,21 +417,21 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 		if faced == 0 {
 			continue
 		}
-		var line string
-		if full {
-			line = fmt.Sprintf("  %-12s %5d %4d%% %4d%% %4d%% %4d%% %4d%%",
-				truncate(displayName(d.Name), 12), faced,
-				pct(s.Avoided(), faced), pct(s.Misses, faced), pct(s.Dodges, faced),
-				pct(s.Parries, faced), pct(s.Blocks, faced))
-		} else {
-			line = fmt.Sprintf("  %-12s %4d%% %5d", truncate(displayName(d.Name), 12), pct(s.Avoided(), faced), faced)
-		}
-		st := th.fg(th.text)
+		head := th.fg(th.text)
 		if strings.EqualFold(d.Name, "you") {
-			st = st.Bold(true)
+			head = head.Bold(true)
 		}
-		b.WriteString(st.Render(truncate(line, w)) + "\n")
-		rows++
+		b.WriteString(head.Render(truncate(fmt.Sprintf("%s · %d faced", displayName(d.Name), faced), w)) + "\n")
+		for _, it := range []struct {
+			name string
+			n    int
+		}{
+			{"Avoided", s.Avoided()}, {"Miss", s.Misses}, {"Dodge", s.Dodges},
+			{"Parry", s.Parries}, {"Block", s.Blocks}, {"Riposte", s.Ripostes},
+		} {
+			b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-8s %3d%%", it.name, pct(it.n, faced)), w)) + "\n")
+		}
+		shown++
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
