@@ -49,8 +49,10 @@ type App struct {
 	logDir    string
 	spellInfo string
 
-	// mouse-wheel scroll offset for the (potentially long) spell-timer panel.
-	timerScrollY int
+	// mouse-wheel scroll offsets for the (potentially long) spell-timer and
+	// damage panels.
+	timerScrollY  int
+	damageScrollY int
 
 	// text-to-speech cues for low buffs. announced tracks which timers have
 	// already been spoken (keyed spell\x00target) so each fires once, re-arming
@@ -209,9 +211,7 @@ func (a *App) updatePanel(cur *session.CombatSession) {
 	}
 
 	a.mu.Lock()
-	// line count = newlines + 1 (stackPanel joins without a trailing newline, so
-	// counting only "\n" is one short and clips the last buff from the scroll range).
-	a.timerScrollY = clampScroll(a.timerScrollY, strings.Count(str, "\n")+1, a.viewInnerHeight(viewTimers))
+	a.timerScrollY = clampScroll(a.timerScrollY, lineCount(str), a.viewInnerHeight(viewTimers))
 	sy := a.timerScrollY
 	a.mu.Unlock()
 
@@ -334,13 +334,9 @@ func (a *App) updateRepops() {
 		lineMobs[line] = r.Mob
 	}
 
-	total := len(respawns)
-	if hasSep {
-		total++
-	}
 	a.mu.Lock()
 	a.repopLineMobs = lineMobs
-	a.repopScrollY = clampScroll(a.repopScrollY, total, a.viewInnerHeight(viewRepops))
+	a.repopScrollY = clampScroll(a.repopScrollY, lineCount(str), a.viewInnerHeight(viewRepops))
 	sy := a.repopScrollY
 	a.mu.Unlock()
 
@@ -541,7 +537,14 @@ func (a *App) initGui() {
 
 func (a *App) updateDamage(cur *session.CombatSession, live bool) {
 	str := renderDamage(cur, live, a.viewInnerWidth(viewDamage))
+	a.mu.Lock()
+	a.damageScrollY = clampScroll(a.damageScrollY, lineCount(str), a.viewInnerHeight(viewDamage))
+	sy := a.damageScrollY
+	a.mu.Unlock()
 	a.writeView(viewDamage, str)
+	if v, err := a.gui.View(viewDamage); err == nil {
+		v.SetOrigin(0, sy)
+	}
 }
 
 // updateStatus repaints the top-left "Now" box: character, class/level, zone,

@@ -12,6 +12,7 @@ type keyConfig struct {
 func (a *App) setKeybindings() error {
 	qView := []string{""}
 	sessionsView := []string{viewSessions}
+	damageView := []string{viewDamage}
 	timersView := []string{viewTimers}
 	repopsView := []string{viewRepops}
 	ccView := []string{viewCC}
@@ -70,6 +71,18 @@ func (a *App) setKeybindings() error {
 			gocui.MouseWheelDown,
 			gocui.ModNone,
 			a.wheelDown,
+		},
+		{
+			&damageView,
+			gocui.MouseWheelUp,
+			gocui.ModNone,
+			a.damageWheelUp,
+		},
+		{
+			&damageView,
+			gocui.MouseWheelDown,
+			gocui.ModNone,
+			a.damageWheelDown,
 		},
 		{
 			&timersView,

@@ -58,6 +58,28 @@ func (a *App) scrollTimers(delta int) {
 	a.refresh()
 }
 
+func (a *App) damageWheelUp(gui *gocui.Gui, view *gocui.View) error {
+	a.scrollDamage(-scrollStep)
+	return nil
+}
+
+func (a *App) damageWheelDown(gui *gocui.Gui, view *gocui.View) error {
+	a.scrollDamage(scrollStep)
+	return nil
+}
+
+// scrollDamage nudges the Damage panel; the clamp to content happens in
+// updateDamage.
+func (a *App) scrollDamage(delta int) {
+	a.mu.Lock()
+	a.damageScrollY += delta
+	if a.damageScrollY < 0 {
+		a.damageScrollY = 0
+	}
+	a.mu.Unlock()
+	a.refresh()
+}
+
 func (a *App) repopWheelUp(gui *gocui.Gui, view *gocui.View) error {
 	a.scrollRepops(-scrollStep)
 	return nil
@@ -338,6 +360,22 @@ func ensureVisible(scrollY, selected, height int) int {
 		return bot - height + 1
 	}
 	return scrollY
+}
+
+// lineCount returns the number of display lines in s: newlines, plus one for a
+// final line that isn't newline-terminated. A trailing newline does NOT add a
+// phantom line — so this is the right total for clampScroll no matter how a
+// renderer ends its output (stackPanel trims the trailing newline; renderDamage
+// keeps it).
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
 }
 
 // clampScroll keeps the offset within [0, total-height].
