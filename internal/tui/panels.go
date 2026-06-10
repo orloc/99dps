@@ -16,6 +16,8 @@ import (
 
 // card wraps body in a themed rounded panel of total size w×h, with a gold
 // title. Lipgloss handles the border/padding/fill; content is clipped to fit.
+// An empty title omits the title line entirely (the body gets the extra row) —
+// used when the body supplies its own section headers.
 func card(th theme, w, h int, title, body string) string {
 	cw, ch := w-2, h-2 // border adds 2 in each axis
 	if cw < 6 {
@@ -24,8 +26,11 @@ func card(th theme, w, h int, title, body string) string {
 	if ch < 1 {
 		ch = 1
 	}
-	titleLine := th.fg(th.accent).Bold(true).Render(truncate(title, cw-2))
-	content := lipgloss.JoinVertical(lipgloss.Left, titleLine, body)
+	content := body
+	if title != "" {
+		titleLine := th.fg(th.accent).Bold(true).Render(truncate(title, cw-2))
+		content = lipgloss.JoinVertical(lipgloss.Left, titleLine, body)
+	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.accent)).
 		Background(lipgloss.Color(th.panel)).

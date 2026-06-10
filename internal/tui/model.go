@@ -268,10 +268,15 @@ func (m *Model) resizeViewports() {
 	}
 	set(&m.vpSessions, ld.leftW, ld.sessH)
 	set(&m.vpDamage, ld.dmgW, ld.dmgH)
-	set(&m.vpExtras, ld.extrasW, ld.dmgH)
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
 	set(&m.vpCC, ld.ccW, ld.botH)
+	// the extras card is title-less, so its body gets one more row (h-2, not h-3)
+	if ew, eh := ld.extrasW-4, ld.dmgH-2; !m.ready {
+		m.vpExtras = viewport.New(ew, eh)
+	} else {
+		m.vpExtras.Width, m.vpExtras.Height = ew, eh
+	}
 	m.ready = true
 }
 
@@ -386,9 +391,10 @@ func (m Model) View() string {
 			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
 	}
 	// top-right: the dealer meter beside its Specials / Avoidance side column.
+	// The side card has no title — its SPECIALS / AVOIDANCE section headers label it.
 	topRight := lipgloss.JoinHorizontal(lipgloss.Top,
 		card(th, ld.dmgW, ld.dmgH, dmgTitle, m.vpDamage.View()), " ",
-		card(th, ld.extrasW, ld.dmgH, "Specials · Avoidance", m.vpExtras.View()))
+		card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))
 	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
