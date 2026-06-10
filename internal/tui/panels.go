@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
@@ -137,7 +138,16 @@ func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []
 	for t := range groups {
 		order = append(order, t)
 	}
-	sort.SliceStable(order, func(i, j int) bool { return soonest(groups[order[i]]) < soonest(groups[order[j]]) })
+	// soonest-to-expire first, breaking ties by name so the order is stable across
+	// repaints (map iteration isn't) — otherwise a hovered row could resolve to a
+	// different target on the next frame and a click would dismiss the wrong one.
+	sort.SliceStable(order, func(i, j int) bool {
+		si, sj := soonest(groups[order[i]]), soonest(groups[order[j]])
+		if si != sj {
+			return si < sj
+		}
+		return order[i] < order[j]
+	})
 	return groups, order
 }
 
@@ -325,6 +335,84 @@ func ccBody(th theme, tr *gamestate.Tracker, w int, hover string) (string, map[i
 		lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 	}
 	return strings.Join(lines, "\n"), targets
+}
+
+// sectionHead renders a compact uppercase gilded section label (the in-app
+// "header" treatment), clipped to width.
+func sectionHead(th theme, label string, w int) string {
+	return th.fg(th.accent).Bold(true).Render(truncate(strings.ToUpper(label), w))
+}
+
+func pct(n, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	return n * 100 / total
+}
+
+// damageSpecials lists dealers who landed activated skills (backstab/bash/kick):
+// that damage, its share of their total, and the hit count. "" when nobody did.
+func damageSpecials(th theme, stats []combat.DamageStat, w int) string {
+	var b strings.Builder
+	for _, v := range stats {
+		if v.SpecialHits == 0 {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString(sectionHead(th, "Specials · backstab/bash/kick", w) + "\n")
+		}
+		b.WriteString(th.fg(th.text).Render(fmt.Sprintf("  %-14s %7s %3d%%  %d hits",
+			truncate(displayName(v.Dealer), 14), humanize(v.SpecialTotal),
+			pct(v.SpecialTotal, v.Total), v.SpecialHits)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// damageAvoidance is the per-combatant defensive table: a fully-labelled form
+// when the panel is wide, a compact name + avoid% fallback otherwise. The
+// player's row is bolded. "" when nobody took a swing.
+func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
+	defs := cur.Defense()
+	if len(defs) == 0 {
+		return ""
+	}
+	const maxRows = 6
+	full := w >= 56
+
+	var b strings.Builder
+	b.WriteString(sectionHead(th, "Avoidance", w) + "\n")
+	if full {
+		b.WriteString(th.fg(th.dim).Render(fmt.Sprintf("  %-12s %5s %5s %5s %5s %5s %5s",
+			"Defender", "Faced", "Avoid", "Miss", "Dodge", "Parry", "Block")) + "\n")
+	}
+	rows := 0
+	for _, d := range defs {
+		if rows >= maxRows {
+			break
+		}
+		s := d.Stats
+		faced := s.Swings()
+		if faced == 0 {
+			continue
+		}
+		var line string
+		if full {
+			line = fmt.Sprintf("  %-12s %5d %4d%% %4d%% %4d%% %4d%% %4d%%",
+				truncate(displayName(d.Name), 12), faced,
+				pct(s.Avoided(), faced), pct(s.Misses, faced), pct(s.Dodges, faced),
+				pct(s.Parries, faced), pct(s.Blocks, faced))
+		} else {
+			line = fmt.Sprintf("  %-12s %3d%% avoid · %d faced",
+				truncate(displayName(d.Name), 12), pct(s.Avoided(), faced), faced)
+		}
+		st := th.fg(th.text)
+		if strings.EqualFold(d.Name, "you") {
+			st = st.Bold(true)
+		}
+		b.WriteString(st.Render(line) + "\n")
+		rows++
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // mobTracker: the zone-aware repop list, the player's kills first.

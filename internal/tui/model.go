@@ -383,8 +383,11 @@ func (m Model) View() string {
 		Width(m.w).Height(m.h).Padding(1, 1).Render(full)
 }
 
-// damageContent is the scrollable dealer bar chart for the selected fight.
-func (m Model) damageContent(cur *session.CombatSession, _ bool, width int) string {
+// damageContent is the scrollable damage breakdown for the selected fight: an
+// encounter summary, a ranked per-dealer table (share bar + DPS/Total/% and
+// width-gated Hit%/Crit%), the unattributed spell line, then the Specials and
+// Avoidance sub-tables — matching the old gocui Damage panel.
+func (m Model) damageContent(cur *session.CombatSession, live bool, width int) string {
 	th := themes[m.theme]
 	if cur == nil {
 		return th.fg(th.dim).Render("No fight selected.\nFight something!")
@@ -392,6 +395,7 @@ func (m Model) damageContent(cur *session.CombatSession, _ bool, width int) stri
 	stats := cur.GetAggressors()
 	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
 	magic := cur.MagicTotal()
+	encTotal := cur.Total() + magic // melee + unattributed spell damage
 	span := cur.LastUnix() - cur.StartTime().Unix()
 	if span < 1 {
 		span = 1
@@ -406,38 +410,106 @@ func (m Model) damageContent(cur *session.CombatSession, _ bool, width int) stri
 		maxTotal = 1
 	}
 
-	const nameW, valW, dpsW = 12, 7, 8
-	barCells := width - nameW - valW - dpsW - 3 - 4
-	if barCells < 6 {
-		barCells = 6
+	// encounter summary: duration · total · dps · live/ended
+	status := th.fg("#5fd37a").Render("● live")
+	if !live {
+		status = th.fg(th.dim).Render("○ ended " + cur.EndTime().Format("15:04:05"))
 	}
-	var rows []string
+	summary := th.fg(th.dim).Render(fmt.Sprintf("%s · %s · %s/s   ",
+		fmtDuration(cur.Duration()), humanize(encTotal), humanize(int(int64(encTotal)/span)))) + status
+
+	// optional accuracy columns appear only when the panel is wide enough.
+	const rankW, nameW, pctW, totW, dpsW = 2, 12, 4, 7, 7
+	showHit := width >= 58
+	showCrit := width >= 66
+	rightCols := pctW + 1 + totW + 1 + dpsW
+	if showHit {
+		rightCols += 1 + 5
+	}
+	if showCrit {
+		rightCols += 1 + 5
+	}
+	// the share bar takes the leftover space; on a narrow panel it's dropped
+	// (rather than forced to a minimum that would overflow the row).
+	barCells := width - (rankW + 1) - (nameW + 1) - 1 - rightCols
+	showBar := barCells >= 4
+	barGap := ""
+	if showBar {
+		barGap = strings.Repeat(" ", barCells+1)
+	}
+
+	// column header aligned to the numeric columns on the right
+	hdr := strings.Repeat(" ", rankW+1+nameW+1) + barGap +
+		rightCell("%", pctW, th.dim) + " " + rightCell("Total", totW, th.dim) + " " + rightCell("DPS", dpsW, th.dim)
+	if showHit {
+		hdr += " " + rightCell("Hit", 5, th.dim)
+	}
+	if showCrit {
+		hdr += " " + rightCell("Crit", 5, th.dim)
+	}
+
+	var b strings.Builder
+	b.WriteString(summary + "\n")
+	b.WriteString(hdr + "\n")
+
 	for i, d := range stats {
 		from, to := th.barFrom, th.barTo
 		if i > 0 {
 			from, to = th.accent, th.accentLo
 		}
-		nameStyle := th.fg(th.text).Width(nameW)
+		nameStyle := th.fg(th.text)
 		if strings.EqualFold(d.Dealer, "you") {
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
-			nameStyle.Render(truncate(d.Dealer, nameW)), " ",
-			gradientBar(float64(d.Total)/float64(maxTotal), barCells, from, to, th.track), " ",
-			rightCell(humanize(d.Total), valW, th.text), " ",
-			rightCell(humanize(d.Total/int(span))+"/s", dpsW, th.dim)))
+		bar := ""
+		if showBar {
+			bar = gradientBar(float64(d.Total)/float64(maxTotal), barCells, from, to, th.track) + " "
+		}
+		row := rightCell(fmt.Sprintf("%d", i+1), rankW, th.dim) + " " +
+			nameStyle.Width(nameW).Render(truncate(d.Dealer, nameW)) + " " + bar +
+			rightCell(fmt.Sprintf("%d%%", pct(d.Total, encTotal)), pctW, th.text) + " " +
+			rightCell(humanize(d.Total), totW, th.text) + " " +
+			rightCell(humanize(d.Total/int(span)), dpsW, th.dim)
+		if showHit {
+			hit := "-"
+			if hr := cur.OffenseFor(d.Dealer).HitRate(); hr >= 0 {
+				hit = fmt.Sprintf("%d%%", hr)
+			}
+			row += " " + rightCell(hit, 5, th.dim)
+		}
+		if showCrit {
+			crit := "-"
+			if c := cur.CritFor(d.Dealer); c.Count > 0 && d.Hits > 0 {
+				crit = fmt.Sprintf("%d%%", critPct(c.Count, d.Hits))
+			}
+			row += " " + rightCell(crit, 5, th.dim)
+		}
+		b.WriteString(row + "\n")
 	}
+
+	// unattributed spell/proc/DoT damage — EQ names no caster, so it's its own
+	// (n/a) line folded into the encounter total.
 	if magic > 0 {
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
-			th.fg(th.dim).Width(nameW).Render("spells n/a"), " ",
-			gradientBar(float64(magic)/float64(maxTotal), barCells, th.dim, th.dim, th.track), " ",
-			rightCell(humanize(magic), valW, th.dim), " ",
-			rightCell(humanize(magic/int(span))+"/s", dpsW, th.dim)))
+		bar := ""
+		if showBar {
+			bar = gradientBar(float64(magic)/float64(maxTotal), barCells, th.dim, th.dim, th.track) + " "
+		}
+		row := strings.Repeat(" ", rankW) + " " +
+			th.fg(th.dim).Width(nameW).Render("spells n/a") + " " + bar +
+			rightCell(fmt.Sprintf("%d%%", pct(magic, encTotal)), pctW, th.dim) + " " +
+			rightCell(humanize(magic), totW, th.dim) + " " +
+			rightCell(humanize(magic/int(span)), dpsW, th.dim)
+		b.WriteString(row + "\n")
 	}
-	if len(rows) == 0 {
-		return th.fg(th.dim).Render("No damage yet.")
+
+	body := strings.TrimRight(b.String(), "\n")
+	if sp := damageSpecials(th, stats, width); sp != "" {
+		body += "\n\n" + sp
 	}
-	return strings.Join(rows, "\n")
+	if av := damageAvoidance(th, cur, width); av != "" {
+		body += "\n\n" + av
+	}
+	return body
 }
 
 // Run launches the Bubble Tea program; blocks until the user quits.
