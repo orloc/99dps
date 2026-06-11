@@ -131,11 +131,15 @@ func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []
 	return groups, order
 }
 
-func urgencyColor(th theme, frac float64) string {
-	switch {
-	case frac <= gamestate.StaleFrac:
-		return "#e0564e" // red — about to fade (same threshold as a refresh-vs-new-mob "stale")
-	case frac <= 0.5:
+// urgencyColor tints a countdown by how close it is to fading, using the shared
+// gamestate.TimerUrgency classifier (fractional, but absolute-capped so a long
+// buff isn't orange with an hour left). Red here is exactly the tracker's
+// refresh-vs-new-mob "stale".
+func urgencyColor(th theme, remaining, total int64) string {
+	switch gamestate.TimerUrgency(remaining, total) {
+	case gamestate.Expiring:
+		return "#e0564e" // red — about to fade
+	case gamestate.Low:
 		return th.accent // gold
 	default:
 		return "#5fd37a" // green
@@ -171,11 +175,7 @@ func timerLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
 	if v := lipgloss.Width(timeStr); v > tw {
 		tw = v
 	}
-	frac := 1.0
-	if total > 0 {
-		frac = float64(rem) / float64(total)
-	}
-	col := urgencyColor(th, frac)
+	col := urgencyColor(th, rem, total)
 
 	nameW := w - tw - 1 // the rest, minus the gap before the time
 	if nameW < 1 {

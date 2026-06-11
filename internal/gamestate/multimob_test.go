@@ -92,3 +92,24 @@ func TestTimer_SlainClearsOneInstance(t *testing.T) {
 		t.Fatalf("slaying one same-named mob should clear one instance, got %d", len(act))
 	}
 }
+
+// TestTimer_BuffRecastAlwaysRefreshes: a buff lands on a unique target (you),
+// so re-casting it — even while it's still fresh (green) — refreshes the one
+// timer rather than spawning a duplicate. Only detrimental spells on same-named
+// mobs split into instances.
+func TestTimer_BuffRecastAlwaysRefreshes(t *testing.T) {
+	book := loadBook(t, row(map[int]string{
+		fName: "Aegolism", fCastOnYou: "You feel the strength of the gods.",
+		fCastTime: "0", fDurFormula: "5", fDurCap: "600", fGoodEffect: "1", // beneficial
+	}))
+	tr := NewTracker(book)
+	tr.SetLevel(60)
+	tr.BeginCast("Aegolism", 1000)
+	tr.Observe("You feel the strength of the gods.", 1000)
+	tr.BeginCast("Aegolism", 1005) // re-cast while still fresh
+	tr.Observe("You feel the strength of the gods.", 1005)
+
+	if act := tr.Active(1006); len(act) != 1 {
+		t.Fatalf("re-casting a buff on yourself should refresh one timer, not duplicate; got %d", len(act))
+	}
+}

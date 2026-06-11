@@ -8,15 +8,6 @@ import (
 	"sync"
 )
 
-// StaleFrac is the fraction of a timer's full duration at/below which it counts
-// as "stale" — the SAME point the TUI tints the countdown red (see urgencyColor).
-// EQ logs carry no entity IDs, so a repeat landing of one spell on a same-named
-// mob is ambiguous: a re-cast refreshing that mob, or a cast on a second
-// identical mob. We resolve it by what the panel already shows the eye — a
-// landing while the existing copy is stale (red) refreshes it; while it's still
-// gold/green it's taken to be a distinct same-named mob and gets its own timer.
-const StaleFrac = 0.2
-
 // fallbackLevel is used to compute durations before we've seen the player's
 // real level in the log. It's the max classic level, so level-capped formulas
 // resolve to the spell's cap (its full duration).
@@ -371,10 +362,12 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 }
 
 // addOrRefreshTimerLocked stores a freshly-landed timer, deciding whether it
-// refreshes an existing same-named copy or is a distinct same-named mob (see
-// StaleFrac). It refreshes the soonest existing copy of this spell on this
-// target only when that copy is stale (red); otherwise the copy still up means a
-// different mob, so the new one gets its own instance under a unique key (the
+// refreshes an existing same-named copy or is a distinct same-named mob. A
+// beneficial buff lands on a unique target (you or a named ally), so a re-cast
+// is ALWAYS a refresh. Only a detrimental spell on a same-named mob can be a
+// *second* mob — and only when the existing copy isn't already expiring (the red
+// zone, via the shared TimerUrgency): see the panel, refresh what's red, treat a
+// still-healthy copy as another mob. The new instance gets a unique key (the
 // Target stays the plain name, so grouping/break/slay/dismiss are unaffected).
 // This mirrors the Mob Tracker, which keeps one repop entry per kill. Caller
 // holds the lock.
@@ -389,8 +382,8 @@ func (t *Tracker) addOrRefreshTimerLocked(tm Timer, at int64) {
 	}
 	if soonestKey != "" {
 		ex := t.timers[soonestKey]
-		if total := ex.Expiry - ex.Start; total <= 0 || float64(ex.Expiry-at) <= StaleFrac*float64(total) {
-			t.timers[soonestKey] = tm // stale (red) → a re-cast refreshing the same mob
+		if !tm.Detrimental || TimerUrgency(ex.Expiry-at, ex.Expiry-ex.Start) == Expiring {
+			t.timers[soonestKey] = tm // a buff (unique target) or a stale (red) debuff → refresh
 			return
 		}
 	}
