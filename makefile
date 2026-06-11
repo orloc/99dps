@@ -39,8 +39,10 @@ release-windows: windows ## Windows binary + SHA-256 (for your own VirusTotal/re
 	@sha256sum 99dps.exe | tee 99dps.exe.sha256
 	@echo "Built 99dps.exe. Before sending: scan at https://www.virustotal.com and share the .sha256."
 
-dist-windows: windows ## Friend-ready zip: exe + plain-language readme (send this)
-	@rm -rf dist 99dps-windows.zip && mkdir dist
+dist-windows: winres ## Friend-ready zip: exe + plain-language readme (send this)
+	@rm -rf dist 99dps-windows.zip 99dps.exe 99dps.exe.sha256   # clean slate first
+	GOOS=windows GOARCH=amd64 go build $(BUILDFLAGS) -o 99dps.exe ./cmd/99dps
+	@mkdir dist
 	@cp 99dps.exe dist/
 	@cp packaging/windows-readme.txt "dist/READ-ME-FIRST.txt"
 	@cd dist && zip -q -r ../99dps-windows.zip .
