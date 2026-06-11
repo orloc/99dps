@@ -841,3 +841,22 @@ func TestCanniFooterIdleAndEmpty(t *testing.T) {
 		t.Errorf("idle footer should be a 4-line muted summary with best%%, got %d lines:\n%s", n, s)
 	}
 }
+
+// TestBuffsPanelNoRedundantHeader: the dedicated Buffs column (only wantBuffs)
+// drops the inner "BUFFS" header — the card title already says it — but the
+// buffs themselves and their target headers remain. The full stack keeps it.
+func TestBuffsPanelNoRedundantHeader(t *testing.T) {
+	_, tr := casterScene()
+	solo, _ := timerColumn(themes[0], tr, 40, "", false, false, true)
+	if strings.Contains(solo, "BUFFS") {
+		t.Errorf("dedicated Buffs panel should omit the inner BUFFS header;\n%s", solo)
+	}
+	for _, want := range []string{"Aragorn", "Aegolism"} {
+		if !strings.Contains(solo, want) {
+			t.Errorf("buffs content should still render %q;\n%s", want, solo)
+		}
+	}
+	if full, _ := timerColumn(themes[0], tr, 40, "", true, true, true); !strings.Contains(full, "BUFFS") {
+		t.Error("the full CC+DEBUFFS+BUFFS stack should keep the BUFFS header to disambiguate")
+	}
+}

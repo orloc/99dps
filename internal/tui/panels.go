@@ -282,7 +282,9 @@ func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, w
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, th.fg(th.accent).Bold(true).Render(label))
+		if label != "" { // a "" label means the panel title already says it (Buffs)
+			lines = append(lines, th.fg(th.accent).Bold(true).Render(label))
+		}
 		groups, order := groupByTargetTimers(ts)
 		for gi, tgt := range order {
 			if gi > 0 {
@@ -311,7 +313,13 @@ func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, w
 		section("DEBUFFS", debuffs)
 	}
 	if wantBuffs {
-		section("BUFFS", buffs)
+		// when buffs are the whole panel (the dedicated "Buffs" column), the card
+		// title already labels it — drop the redundant inner header.
+		label := "BUFFS"
+		if !wantCC && !wantDebuffs {
+			label = ""
+		}
+		section(label, buffs)
 	}
 
 	if len(lines) == 0 {
