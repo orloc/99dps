@@ -779,7 +779,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		}
 		s += rightCell(humanize(total), totW, col) + " " + rightCell(humanize(dps), dpsW, th.dim)
 		if showHit {
-			s += " " + rightCell(hit, 5, th.dim)
+			s += " " + rightCell(hit, 5, col) // normal color, not faded
 		}
 		if showCrit {
 			s += " " + rightCell(crit, 5, th.dim)
