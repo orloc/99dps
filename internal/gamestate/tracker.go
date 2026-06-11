@@ -372,6 +372,21 @@ func (t *Tracker) startCharmLocked(at int64) {
 	t.pending = nil
 }
 
+// expireSoonestLocked removes the soonest-to-expire active timer for spell (a
+// single instance), if any. Caller holds the lock.
+func (t *Tracker) expireSoonestLocked(spell string) {
+	bestK := ""
+	var bestE int64
+	for k, tm := range t.timers {
+		if tm.Spell == spell && (bestK == "" || tm.Expiry < bestE) {
+			bestK, bestE = k, tm.Expiry
+		}
+	}
+	if bestK != "" {
+		delete(t.timers, bestK)
+	}
+}
+
 func (t *Tracker) expireByMessageLocked(body string) {
 	if len(t.timers) == 0 {
 		return // nothing to expire — skip the charm check and the per-timer scan
@@ -382,6 +397,17 @@ func (t *Tracker) expireByMessageLocked(body string) {
 			if tm.Charm {
 				delete(t.timers, k)
 			}
+		}
+	}
+
+	// "Your <Spell> spell has worn off." — the caster-side end message. It fires on
+	// an EARLY break (a root the mob shakes off, a debuff that drops) as well as a
+	// full-duration expiry, and is the most reliable signal that one of your spells
+	// ended. It names no target, so clear the soonest-expiring instance of that
+	// spell (one wear-off line = one instance ended).
+	if rest, ok := strings.CutPrefix(body, "Your "); ok {
+		if i := strings.Index(rest, " spell has worn off"); i > 0 {
+			t.expireSoonestLocked(rest[:i])
 		}
 	}
 

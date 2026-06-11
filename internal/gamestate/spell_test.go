@@ -260,6 +260,39 @@ func TestTracker_ResistRecorded(t *testing.T) {
 	}
 }
 
+// TestTracker_EarlyWearOff: "Your <Spell> spell has worn off." clears the timer
+// before its max duration — an early break (root/mez shaken off, debuff dropped).
+func TestTracker_EarlyWearOff(t *testing.T) {
+	tr := NewTracker(loadBook(t, envenomedBolt()))
+	tr.SetLevel(43)
+	tr.BeginCast("Envenomed Bolt", 1000)
+	tr.Observe("a sand giant's body convulses with the poison.", 1008) // expiry 1056
+	if len(tr.Active(1010)) != 1 {
+		t.Fatal("timer should be active")
+	}
+	tr.Observe("Your Envenomed Bolt spell has worn off.", 1020) // breaks at 1020 << 1056
+	if act := tr.Active(1021); len(act) != 0 {
+		t.Errorf("early wear-off should clear the timer, got %d", len(act))
+	}
+}
+
+// TestTracker_EarlyWearOff_OneInstance: with the same spell up on two mobs, one
+// wear-off line clears exactly one instance (the line names no target).
+func TestTracker_EarlyWearOff_OneInstance(t *testing.T) {
+	tr := NewTracker(loadBook(t, envenomedBolt()))
+	tr.SetLevel(43)
+	tr.BeginCast("Envenomed Bolt", 1000)
+	tr.Observe("a sand giant's body convulses with the poison.", 1008)
+	tr.Observe("a cliff golem's body convulses with the poison.", 1008)
+	if len(tr.Active(1010)) != 2 {
+		t.Fatal("two instances expected")
+	}
+	tr.Observe("Your Envenomed Bolt spell has worn off.", 1020)
+	if act := tr.Active(1021); len(act) != 1 {
+		t.Errorf("one wear-off should clear exactly one instance, got %d", len(act))
+	}
+}
+
 // TestTracker_AoEMultipleTargets: one cast whose landing emote appears for
 // several mobs (an AoE/PBAoE) starts a timer on each.
 func TestTracker_AoEMultipleTargets(t *testing.T) {
