@@ -809,30 +809,36 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			numBlock(pctv, total, dps, hit, crit, col)
 	}
 
-	// roll the pet up under the "You" row: pull it out of the rank list and render
-	// it as an indented child of You, so its contribution still shows but it isn't
-	// scattered among the other dealers. (No You row → keep it inline, tagged.)
-	petName := m.tracker.PetName()
-	hasYou := false
+	// attribute each pet under its OWNER (from the pet→owner map): a pet whose
+	// owner is also a dealer here is pulled out of the ranking and nested as a
+	// "↳ <pet>" child of that owner — your own pet under You, a group-mate's pet
+	// under them. A pet whose owner dealt no damage stays ranked, tagged "(<owner>'s
+	// pet)" so it's never silently lumped under you.
+	present := map[string]bool{}
 	for _, d := range stats {
-		if strings.EqualFold(d.Dealer, "you") {
-			hasYou = true
-			break
-		}
+		present[strings.ToLower(d.Dealer)] = true
 	}
-	var pet combat.DamageStat
-	petChild := false
-	if hasYou && petName != "" {
-		kept := stats[:0]
-		for _, d := range stats {
-			if !petChild && strings.EqualFold(d.Dealer, petName) {
-				pet, petChild = d, true
-				continue
-			}
-			kept = append(kept, d)
+	hasYou := present["you"]
+	ownerRow := func(dealer string) string { // the dealer a pet nests under, or ""
+		o := m.tracker.PetOwner(dealer)
+		if o == "" {
+			return ""
 		}
-		stats = kept
+		if strings.EqualFold(o, m.character) {
+			return "You"
+		}
+		return o
 	}
+	children := map[string][]combat.DamageStat{} // owner (lower) → its pets
+	kept := stats[:0]
+	for _, d := range stats {
+		if owner := ownerRow(d.Dealer); owner != "" && present[strings.ToLower(owner)] {
+			children[strings.ToLower(owner)] = append(children[strings.ToLower(owner)], d)
+			continue
+		}
+		kept = append(kept, d)
+	}
+	stats = kept
 
 	// acc returns the hit%/crit% cells for a dealer (its own DamageStat for crits).
 	acc := func(d combat.DamageStat) (hit, crit string) {
@@ -845,6 +851,12 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		}
 		return hit, crit
 	}
+	// child renders a dim, indented "↳ <label>" breakdown row.
+	childRow := func(label string, total int, hit, crit string) string {
+		return row("", th.fg(th.dim).Width(nameW).Render(truncate(label, nameW)),
+			hit, crit, float64(total)/float64(maxTotal), th.dim, th.dim, th.dim,
+			total, total/int(span), pct(total, encTotal))
+	}
 
 	for i, d := range stats {
 		nameStyle, col := th.fg(th.text), th.text
@@ -853,26 +865,26 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
 		name := d.Dealer
-		if !petChild && petName != "" && strings.EqualFold(d.Dealer, petName) {
-			name += " (pet)" // pet without a You row to nest under — tag it inline
+		if o := m.tracker.PetOwner(d.Dealer); o != "" { // orphan pet — credit its owner
+			if strings.EqualFold(o, m.character) {
+				name = "your pet"
+			} else {
+				name = o + "'s pet"
+			}
 		}
 		hit, crit := acc(d)
 		b.WriteString(row(fmt.Sprintf("%d", i+1), nameStyle.Width(nameW).Render(truncate(name, nameW)),
 			hit, crit, float64(d.Total)/float64(maxTotal), "rainbow", "", col, d.Total, d.Total/int(span), pct(d.Total, encTotal)) + "\n")
 
-		// rolled up under You as dim, indented children: spell/proc/DoT damage
-		// (EQ shows you only your own non-melee, so it's almost always yours) and
-		// the pet.
+		// your own unattributed spell/proc/DoT damage, under You (EQ shows you only
+		// your own non-melee, so it's almost always yours)
 		if you && magic > 0 {
-			b.WriteString(row("", th.fg(th.dim).Width(nameW).Render(truncate("↳ spells", nameW)),
-				"-", "-", float64(magic)/float64(maxTotal), th.dim, th.dim, th.dim,
-				magic, magic/int(span), pct(magic, encTotal)) + "\n")
+			b.WriteString(childRow("↳ spells", magic, "-", "-") + "\n")
 		}
-		if petChild && you {
-			phit, pcrit := acc(pet)
-			b.WriteString(row("", th.fg(th.dim).Width(nameW).Render(truncate("↳ "+pet.Dealer, nameW)),
-				phit, pcrit, float64(pet.Total)/float64(maxTotal), th.dim, th.dim, th.dim,
-				pet.Total, pet.Total/int(span), pct(pet.Total, encTotal)) + "\n")
+		// this dealer's pets, nested as dim children
+		for _, p := range children[strings.ToLower(d.Dealer)] {
+			phit, pcrit := acc(p)
+			b.WriteString(childRow("↳ "+p.Dealer, p.Total, phit, pcrit) + "\n")
 		}
 	}
 

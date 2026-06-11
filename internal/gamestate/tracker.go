@@ -54,11 +54,13 @@ type Tracker struct {
 	resistSpell string
 	resistAt    int64
 
-	// character is the tracked player (set by the host), used to confirm the pet's
-	// "My leader is <character>." reply. petName is the player's current pet, learned
-	// from /pet leader and pet command replies (see pet.go).
+	// character is the tracked player (set by the host), used to flag the player's
+	// own pet. petName is the player's current pet; petOwners maps every seen pet
+	// (lowercased name) to its owner, from "My leader is <Owner>." lines (see
+	// pet.go) — for the whole group, so a pet's damage can be attributed correctly.
 	character string
 	petName   string
+	petOwners map[string]string
 }
 
 // resistGraceSec is how long a resist notice stays shown after it lands.
@@ -510,6 +512,7 @@ func (t *Tracker) Clear() {
 	t.level = 0
 	t.class = eqclass.ClassUnknown
 	t.petName = ""
+	t.petOwners = nil
 	t.mu.Unlock()
 }
 

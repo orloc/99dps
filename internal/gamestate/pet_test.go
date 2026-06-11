@@ -26,19 +26,42 @@ func TestPet_LeaderReply(t *testing.T) {
 	}
 }
 
-// TestPet_CommandReplies: the "Master" command replies also reveal the pet.
-func TestPet_CommandReplies(t *testing.T) {
+// TestPet_CommandRepliesIgnored: the "...Master." command replies must NOT set
+// your pet — they leak into nearby players' logs, so a group-mate's pet saying
+// "Following you, Master." would otherwise be mis-attributed to you.
+func TestPet_CommandRepliesIgnored(t *testing.T) {
 	for _, line := range []string{
-		"Xenab says 'Following you, Master.'",
-		"Xenab says 'At your service Master.'",
-		"Xenab says 'Changing position, Master.'",
-		"Xenab says 'Sorry, Master..calming down.'",
+		"Zarekab says 'Following you, Master.'",
+		"Zarekab says 'At your service Master.'",
+		"Zarekab says 'Sorry, Master..calming down.'",
 	} {
-		tr := newPetTracker(t, "Yatiri")
+		tr := newPetTracker(t, "Kelkix")
 		tr.Observe(line, 1000)
-		if got := tr.PetName(); got != "Xenab" {
-			t.Errorf("%q → PetName %q, want Xenab", line, got)
+		if got := tr.PetName(); got != "" {
+			t.Errorf("%q should not set your pet, got %q", line, got)
 		}
+	}
+}
+
+// TestPet_OwnerMap: "My leader is <Owner>." links a pet to its owner for the
+// whole group — your own (owner == character) sets PetName; a group-mate's only
+// fills the owner map (so its damage can be attributed to them, not you).
+func TestPet_OwnerMap(t *testing.T) {
+	tr := newPetTracker(t, "Kelkix")
+	tr.Observe("Zarekab says 'My leader is Sensive.'", 1000) // a group-mate's pet
+	tr.Observe("Xenab says 'My leader is Kelkix.'", 1001)    // your own pet
+
+	if got := tr.PetOwner("Zarekab"); got != "Sensive" {
+		t.Errorf("PetOwner(Zarekab) = %q, want Sensive", got)
+	}
+	if got := tr.PetOwner("zarekab"); got != "Sensive" { // case-insensitive
+		t.Errorf("PetOwner is case-sensitive: %q", got)
+	}
+	if got := tr.PetName(); got != "Xenab" {
+		t.Errorf("PetName = %q, want Xenab (your own)", got)
+	}
+	if tr.PetOwner("Zarekab") == "Kelkix" {
+		t.Error("a group-mate's pet must not be attributed to you")
 	}
 }
 

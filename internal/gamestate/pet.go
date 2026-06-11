@@ -3,18 +3,21 @@ package gamestate
 import "strings"
 
 // Pet detection: EQ gives summoned/charmed pets a generated name (e.g. "Xenab")
-// and logs their damage under it, with no link back to the owner. But a pet
-// announces itself in two ways we can read:
+// and logs their damage under it, with no link back to the owner. A pet names
+// its owner only via `/pet leader`:
 //
-//   - `/pet leader` →  "<Pet> says 'My leader is <Owner>.'"
-//   - any pet command reply →  "<Pet> says 'Following you, Master.'" /
-//     "...At your service Master." / "Changing position, Master." /
-//     "Sorry, Master..calming down." (and friends — all addressed to "Master")
+//	"<Pet> says 'My leader is <Owner>.'"
 //
-// In your own log you only see *your* pet's command replies, so the speaker of
-// either line is your pet. The "My leader is" form is the strongest: we accept
-// it only when the named owner is the tracked character. A re-summon/re-charm
-// renames the pet (Yatiri's log shows Xaber → Xenab), so the latest wins.
+// This is the one reliable ownership signal, so we build a pet→owner map from
+// every such line — for the whole group, not just you (a group-mate's
+// `/pet leader` reveals their pet too). Yatiri's log shows a re-summon renames
+// the pet (Xaber → Xenab), so the latest leader line wins.
+//
+// We do NOT use the "...Master." command replies: those leak into nearby
+// players' logs (you see a group-mate's pet say "Following you, Master."), so
+// they can't tell whose pet it is — relying on them mis-attributes others' pets
+// to you. PetName (your own pet) is just the pet whose owner is the tracked
+// character.
 
 // SetCharacter records the tracked player (for the "My leader is <you>" check).
 func (t *Tracker) SetCharacter(name string) {
@@ -36,6 +39,17 @@ func (t *Tracker) PetName() string {
 	return t.petName
 }
 
+// PetOwner returns the owner of a pet (by its dealer name), or "" if it isn't a
+// known pet. Case-insensitive.
+func (t *Tracker) PetOwner(pet string) string {
+	if t == nil || pet == "" {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.petOwners[strings.ToLower(pet)]
+}
+
 // parsePetSays splits "<Speaker> says '<message>'" (note: no comma after "says"
 // on P99). Returns ("","",false) for any other line.
 func parsePetSays(body string) (speaker, msg string, ok bool) {
@@ -47,24 +61,27 @@ func parsePetSays(body string) (speaker, msg string, ok bool) {
 	return body[:i], body[i+len(sep) : len(body)-1], true
 }
 
-// observePetLocked learns the player's pet name from a /pet leader reply or a pet
-// command reply. Caller holds the lock.
+// observePetLocked records a "<Pet> says 'My leader is <Owner>.'" line into the
+// pet→owner map (for the whole group), and flags the player's own pet when the
+// owner is the tracked character. Caller holds the lock.
 func (t *Tracker) observePetLocked(body string) {
 	speaker, msg, ok := parsePetSays(body)
 	if !ok {
 		return
 	}
-	// "My leader is <owner>." — accept only when the owner is us (or we don't yet
-	// know our own name), so a nearby pet's reply can't claim us.
-	if owner, isLeader := strings.CutPrefix(msg, "My leader is "); isLeader {
-		owner = strings.TrimSuffix(owner, ".")
-		if t.character == "" || strings.EqualFold(owner, t.character) {
-			t.petName = speaker
-		}
+	owner, isLeader := strings.CutPrefix(msg, "My leader is ")
+	if !isLeader {
 		return
 	}
-	// a command reply addressed to "Master" — only your own pet's are shown to you.
-	if strings.Contains(msg, "Master") {
-		t.petName = speaker
+	owner = strings.TrimSuffix(owner, ".")
+	if owner == "" || speaker == "" {
+		return
+	}
+	if t.petOwners == nil {
+		t.petOwners = map[string]string{}
+	}
+	t.petOwners[strings.ToLower(speaker)] = owner
+	if t.character != "" && strings.EqualFold(owner, t.character) {
+		t.petName = speaker // the player's own pet
 	}
 }

@@ -521,6 +521,69 @@ func TestTimerGroupDivider(t *testing.T) {
 	}
 }
 
+// TestPetAttributedToOwner: a group-mate's pet nests under its owner's row (not
+// under You) when the owner also dealt damage.
+func TestPetAttributedToOwner(t *testing.T) {
+	sm := sampleManager()
+	sm.Apply(&combat.DamageSet{ActionTime: 1041, Dealer: "Sensive", Dmg: 300_000, Target: "a sand giant"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1042, Dealer: "Zarekab", Dmg: 150_000, Target: "a sand giant"})
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetCharacter("Kelkix")
+	tr.Observe("Zarekab says 'My leader is Sensive.'", time.Now().Unix())
+
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	if !strings.Contains(out, "↳ Zarekab") {
+		t.Fatalf("Zarekab should nest under its owner; got:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	si, zi, yi := -1, -1, -1
+	for i, l := range lines {
+		if si < 0 && strings.Contains(l, "Sensive") {
+			si = i
+		}
+		if strings.Contains(l, "Zarekab") {
+			zi = i
+		}
+		if yi < 0 && strings.Contains(l, "You") {
+			yi = i
+		}
+	}
+	if si < 0 || zi != si+1 {
+		t.Errorf("Zarekab should be Sensive's child (sensive=%d zarekab=%d)", si, zi)
+	}
+	if zi == yi+1 {
+		t.Error("Zarekab must NOT nest under You")
+	}
+}
+
+// TestPetTaggedWhenOwnerAbsent: a pet whose owner dealt no damage stays a ranked
+// row, tagged with the owner — never silently lumped under You.
+func TestPetTaggedWhenOwnerAbsent(t *testing.T) {
+	sm := sampleManager() // no "Sensive" dealer
+	sm.Apply(&combat.DamageSet{ActionTime: 1042, Dealer: "Zarekab", Dmg: 150_000, Target: "a sand giant"})
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetCharacter("Kelkix")
+	tr.Observe("Zarekab says 'My leader is Sensive.'", time.Now().Unix())
+
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	if !strings.Contains(out, "Sensive's pet") {
+		t.Errorf("an orphan pet should be credited to its owner; got:\n%s", out)
+	}
+	if strings.Contains(out, "↳ Zarekab") {
+		t.Error("with no owner row, the pet should stay ranked, not nested")
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
