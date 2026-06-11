@@ -421,9 +421,11 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 		if faced == 0 {
 			continue
 		}
-		head := th.fg(th.text)
+		// match the Specials treatment: a bright/bold defender name (accent for You),
+		// the stat lines in normal text rather than faded dim.
+		head := th.fg(th.text).Bold(true)
 		if strings.EqualFold(d.Name, "you") {
-			head = head.Bold(true)
+			head = th.fg(th.accent).Bold(true)
 		}
 		b.WriteString(head.Render(truncate(fmt.Sprintf("%s · %d faced", displayName(d.Name), faced), w)) + "\n")
 		for _, it := range []struct {
@@ -433,7 +435,7 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 			{"Avoided", s.Avoided()}, {"Miss", s.Misses}, {"Dodge", s.Dodges},
 			{"Parry", s.Parries}, {"Block", s.Blocks}, {"Riposte", s.Ripostes},
 		} {
-			b.WriteString(th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-8s %3d%%", it.name, pct(it.n, faced)), w)) + "\n")
+			b.WriteString(th.fg(th.text).Render(truncate(fmt.Sprintf("  %-8s %3d%%", it.name, pct(it.n, faced)), w)) + "\n")
 		}
 		shown++
 	}
