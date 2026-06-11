@@ -41,7 +41,14 @@ type Clicky struct {
 //	eqclass.ClassUnknown: { // usable by anyone, regardless of detected class
 //	    {Item: "Some Universal Clicky", Effect: "Some Buff", Message: "..."},
 //	},
-var clickyRegistry = map[eqclass.Class][]Clicky{}
+var clickyRegistry = map[eqclass.Class][]Clicky{
+	eqclass.ClassShaman: {
+		// Black Fur Boots — instant-click Spirit of Wolf. The worn SoW spell has a
+		// cast time, so it isn't in the byEmote instant-clicky index; this catches
+		// the click, which logs the SoW self-emote with no "You begin casting" line.
+		{Item: "Black Fur Boots", Effect: "Spirit of Wolf", Message: "You feel the spirit of wolf enter you."},
+	},
+}
 
 // RegisterClicky adds (or appends) a clicky for a class at runtime — handy for
 // tests and for wiring a user config later without editing the literal above.

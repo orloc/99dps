@@ -109,3 +109,21 @@ func TestClicky_Universal(t *testing.T) {
 		t.Errorf("a universal clicky should fire for any class, got %d", len(act))
 	}
 }
+
+// TestClicky_BlackFurBoots: the built-in Shaman registry entry — an instant SoW
+// click (no cast line) starts a Spirit of Wolf self-timer.
+func TestClicky_BlackFurBoots(t *testing.T) {
+	book := loadBook(t, row(map[int]string{
+		fName: "Spirit of Wolf", fCastOnYou: "You feel the spirit of wolf enter you.",
+		fCastTime: "4500", fDurFormula: "3", fDurCap: "360", fGoodEffect: "1",
+	}))
+	tr := NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassShaman) // gated to shaman in the registry
+	tr.Observe("You feel the spirit of wolf enter you.", 1000)
+
+	act := tr.Active(1001)
+	if len(act) != 1 || act[0].Spell != "Spirit of Wolf" || act[0].Target != "You" {
+		t.Fatalf("Black Fur Boots click should start a SoW self-timer, got %+v", act)
+	}
+}
