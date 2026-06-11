@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/combat"
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 	"99dps/internal/tts"
@@ -52,13 +53,13 @@ type Model struct {
 	vpExtras   viewport.Model // Specials / Avoidance, beside the damage meter
 	vpClass    viewport.Model // spell timers / skills (class-aware bottom panel)
 	vpMob      viewport.Model
-	vpCC       viewport.Model // enchanter-only Crowd Control column
+	vpEnemy    viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
 
-	// hover/click-to-dismiss: classTargets/ccTargets map a panel content line to
+	// hover/click-to-dismiss: classTargets/enemyTargets map a panel content line to
 	// the buff target on it; hover is the target currently under the cursor (its
 	// group is highlighted with an ✕). A left-click dismisses that target's timers.
 	classTargets map[int]string
-	ccTargets    map[int]string
+	enemyTargets map[int]string
 	hover        string
 
 	// TTS audio cues for low buffs; announced re-arms per spell\x00target so each
@@ -119,17 +120,22 @@ func parseRespawn(s string) (int, bool) {
 }
 
 // layout holds the computed panel rectangles for the current window size. The
-// bottom row splits differently for enchanters (a dedicated Crowd Control
-// column), so its widths are computed here once and shared by sizing + render.
+// bottom row gets a dedicated "Enemy" column (CC + debuffs) for caster/hybrid
+// classes when there's room; widths are computed here and shared by sizing +
+// render.
 type layout struct {
-	leftW, rightW     int
-	sessH             int
-	dmgH, botH        int
-	dmgW, extrasW     int // top-right split: dealer meter | Specials/Avoidance
-	classW, ccW, mobW int // bottom row: class panel | [CC] | mob tracker
-	ench              bool
-	areaH             int
+	leftW, rightW        int
+	sessH                int
+	dmgH, botH           int
+	dmgW, extrasW        int // top-right split: dealer meter | Specials/Avoidance
+	classW, enemyW, mobW int // bottom row: class panel | [Enemy] | mob tracker
+	enemy                bool
+	areaH                int
 }
+
+// enemyColMinW is the right-column width below which the bottom row drops the
+// Enemy column (falls back to class | mob, with CC+debuffs back in the class panel).
+const enemyColMinW = 60
 
 func (m Model) layout() layout {
 	innerW := m.w - 2
@@ -149,9 +155,13 @@ func (m Model) layout() layout {
 	botH := areaH - dmgH - 1
 	sessH := dmgH + botH // Sessions spans the full left column (no "Now" box)
 
+	// caster/hybrid classes get the Enemy column (CC + debuffs) when it fits;
+	// pure melee (skills only) and too-narrow windows stay two columns.
+	enemy := m.hasSpellTimers() && rightW >= enemyColMinW
+
 	ld := layout{
 		leftW: leftW, rightW: rightW, sessH: sessH,
-		dmgH: dmgH, botH: botH, areaH: areaH, ench: m.isEnchanter(),
+		dmgH: dmgH, botH: botH, areaH: areaH, enemy: enemy,
 	}
 	// top-right splits into the dealer meter (left, the bulk) and a Specials /
 	// Avoidance side column, so the meter uses its full height for dealers. Below
@@ -162,15 +172,21 @@ func (m Model) layout() layout {
 		ld.extrasW = min(rightW*38/100, 46)
 		ld.dmgW = rightW - ld.extrasW - 1
 	}
-	if ld.ench {
+	if enemy {
 		ld.classW = rightW * 38 / 100
-		ld.ccW = rightW * 30 / 100
-		ld.mobW = rightW - ld.classW - ld.ccW - 2
+		ld.enemyW = rightW * 30 / 100
+		ld.mobW = rightW - ld.classW - ld.enemyW - 2
 	} else {
 		ld.classW = rightW / 2
 		ld.mobW = rightW - ld.classW - 1
 	}
 	return ld
+}
+
+// hasSpellTimers reports whether this class tracks spell timers (caster/hybrid),
+// i.e. it should get the Enemy column. Pure melee (skills only) does not.
+func (m Model) hasSpellTimers() bool {
+	return m.tracker != nil && m.tracker.Category() != eqclass.CatMelee
 }
 
 // cardInner returns the body width/height inside a card of total size w×h
@@ -268,13 +284,15 @@ func lowBuffPhrase(tm gamestate.Timer) string {
 // move so the highlight tracks the cursor without a full snapshot pass.
 func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 	th := themes[m.theme]
-	classStr, classT := m.classPanel(cur, m.vpClass.Width, m.hover)
+	enemy := m.layout().enemy
+	classStr, classT := m.classPanel(cur, m.vpClass.Width, m.hover, enemy)
 	m.vpClass.SetContent(classStr)
 	m.classTargets = classT
-	if m.isEnchanter() {
-		ccStr, ccT := ccBody(th, m.tracker, m.vpCC.Width, m.hover)
-		m.vpCC.SetContent(ccStr)
-		m.ccTargets = ccT
+	if enemy {
+		// the Enemy column holds CC + DEBUFFS (what you've cast on mobs)
+		enemyStr, enemyT := timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, true, true, false)
+		m.vpEnemy.SetContent(enemyStr)
+		m.enemyTargets = enemyT
 	}
 }
 
@@ -415,7 +433,7 @@ func (m *Model) resizeViewports() {
 	set(&m.vpDamage, ld.dmgW, ld.dmgH)
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
-	set(&m.vpCC, ld.ccW, ld.botH)
+	set(&m.vpEnemy, ld.enemyW, ld.botH)
 	// the extras card is title-less, so its body gets one more row (h-2, not h-3);
 	// clamp to 0 when there's no side column (narrow terminal).
 	if ew, eh := max(ld.extrasW-4, 0), max(ld.dmgH-2, 0); !m.ready {
@@ -446,12 +464,12 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 	case in(rightX, ld.classW, botY, ld.botH):
 		return &m.vpClass
 	}
-	if ld.ench {
+	if ld.enemy {
 		ccX := rightX + ld.classW + 1
-		mobX := ccX + ld.ccW + 1
+		mobX := ccX + ld.enemyW + 1
 		switch {
-		case in(ccX, ld.ccW, botY, ld.botH):
-			return &m.vpCC
+		case in(ccX, ld.enemyW, botY, ld.botH):
+			return &m.vpEnemy
 		case in(mobX, ld.mobW, botY, ld.botH):
 			return &m.vpMob
 		}
@@ -485,10 +503,10 @@ func (m *Model) hoverTargetAt(x, y int) string {
 	if x > rightX && x < rightX+ld.classW-1 {
 		return m.classTargets[(y-contentTop)+m.vpClass.YOffset]
 	}
-	if ld.ench {
+	if ld.enemy {
 		ccX := rightX + ld.classW + 1
-		if x > ccX && x < ccX+ld.ccW-1 {
-			return m.ccTargets[(y-contentTop)+m.vpCC.YOffset]
+		if x > ccX && x < ccX+ld.enemyW-1 {
+			return m.enemyTargets[(y-contentTop)+m.vpEnemy.YOffset]
 		}
 	}
 	return ""
@@ -522,8 +540,8 @@ func (m *Model) mobAt(x, y int) string {
 		return ""
 	}
 	mobX := rightX + ld.classW + 1
-	if ld.ench {
-		mobX += ld.ccW + 1
+	if ld.enemy {
+		mobX += ld.enemyW + 1
 	}
 	if x < mobX || x >= mobX+ld.mobW {
 		return ""
@@ -647,16 +665,16 @@ func (m Model) View() string {
 		dmgTitle = "Damage — " + truncate(m.sessions[sel].Name(), ld.rightW-12)
 	}
 
-	// bottom row: the class-aware panel + Mob Tracker — enchanters get a third,
-	// dedicated Crowd Control column (matching the previous layout). Every panel
-	// renders from its own viewport, so each scrolls independently — a scroll hint
-	// (▾/▴/↕) in the title signals when there's more off-screen.
-	classTitle := classPanelTitle(m.tracker) + scrollHint(m.vpClass)
+	// bottom row: the class-aware panel + Mob Tracker — caster/hybrid classes get a
+	// third, dedicated Enemy column (CC + debuffs on mobs). Every panel renders from
+	// its own viewport, so each scrolls independently — a scroll hint (▾/▴/↕) in the
+	// title signals when there's more off-screen.
+	classTitle := classPanelTitle(m.tracker, ld.enemy) + scrollHint(m.vpClass)
 	var bottom string
-	if ld.ench {
+	if ld.enemy {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
 			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
-			card(th, ld.ccW, ld.botH, "Crowd Control"+scrollHint(m.vpCC), m.vpCC.View()), " ",
+			card(th, ld.enemyW, ld.botH, "Enemy"+scrollHint(m.vpEnemy), m.vpEnemy.View()), " ",
 			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
 	} else {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,

@@ -128,7 +128,7 @@ func casterScene() (*session.SessionManager, *gamestate.Tracker) {
 // and that hovering a target adds the ✕ dismiss affordance.
 func TestTimersGroupedByTarget(t *testing.T) {
 	_, tr := casterScene()
-	body, targets := timersBody(themes[0], tr, 40, true, "")
+	body, targets := timerColumn(themes[0], tr, 40, "", true, true, true)
 	for _, want := range []string{"Aragorn", "Legolas", "Aegolism", "Haste"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("grouped timers missing %q", want)
@@ -138,7 +138,7 @@ func TestTimersGroupedByTarget(t *testing.T) {
 		t.Errorf("line→target map missing a target: %v", targets)
 	}
 	// hovering Aragorn surfaces the ✕ affordance; the others stay plain.
-	if hovered, _ := timersBody(themes[0], tr, 40, true, "Aragorn"); !strings.Contains(hovered, "✕") {
+	if hovered, _ := timerColumn(themes[0], tr, 40, "Aragorn", true, true, true); !strings.Contains(hovered, "✕") {
 		t.Error("hovered target should render an ✕ dismiss affordance")
 	}
 }
@@ -379,8 +379,8 @@ func TestRepopEditFlow(t *testing.T) {
 		t.Fatal("no mob targets to click")
 	}
 	mobX := ld.leftW + 2 + ld.classW + 1
-	if ld.ench {
-		mobX += ld.ccW + 1
+	if ld.enemy {
+		mobX += ld.enemyW + 1
 	}
 	x, y := mobX+2, contentTop+(line-mm.vpMob.YOffset)
 	if got := mm.mobAt(x, y); got != mob {
@@ -530,7 +530,7 @@ func TestScrollHint(t *testing.T) {
 // TestTimerGroupDivider: a rule separates one person's buffs from the next.
 func TestTimerGroupDivider(t *testing.T) {
 	_, tr := casterScene() // Aragorn (2 buffs) + Legolas (1) → 2 groups
-	body, _ := timersBody(themes[0], tr, 40, true, "")
+	body, _ := timerColumn(themes[0], tr, 40, "", true, true, true)
 	if !strings.Contains(body, "─") {
 		t.Errorf("expected a divider between buff groups; got:\n%s", body)
 	}
@@ -614,7 +614,7 @@ func TestTimersSplitBuffsDebuffs(t *testing.T) {
 	tr.BeginCast("Malosini", now-5)
 	tr.Observe("a sand giant's magic resistances are lowered.", now) // debuff on a mob
 
-	body, _ := timersBody(themes[0], tr, 40, true, "")
+	body, _ := timerColumn(themes[0], tr, 40, "", true, true, true)
 	if !strings.Contains(body, "DEBUFFS") {
 		t.Fatalf("expected a DEBUFFS section; got:\n%s", body)
 	}
@@ -654,11 +654,13 @@ func TestClassAwarePanels(t *testing.T) {
 		}
 	}
 
+	// a caster (enchanter here) gets the dedicated Enemy column (CC + debuffs);
+	// the class panel becomes "Buffs".
 	book, _ := gamestate.LoadReader(strings.NewReader(""))
 	ench := gamestate.NewTracker(book)
 	ench.SetClass(eqclass.ClassEnchanter)
-	if out := renderAtTr(sampleManager(), ench, 0, 110, 34); !strings.Contains(out, "Crowd Control") {
-		t.Errorf("enchanter layout should include a Crowd Control column")
+	if out := renderAtTr(sampleManager(), ench, 0, 110, 34); !strings.Contains(out, "Enemy") || !strings.Contains(out, "Buffs") {
+		t.Errorf("caster layout should include an Enemy column and a Buffs panel")
 	}
 }
 

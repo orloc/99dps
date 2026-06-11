@@ -15,7 +15,9 @@ import (
 )
 
 // classPanelTitle labels the class-aware bottom panel by the player's category.
-func classPanelTitle(tr *gamestate.Tracker) string {
+// When the Enemy column is split out, the panel holds only buffs (+ skills for a
+// hybrid), so the title reflects that.
+func classPanelTitle(tr *gamestate.Tracker, enemySplit bool) string {
 	if tr == nil {
 		return "Spell Timers"
 	}
@@ -23,14 +25,16 @@ func classPanelTitle(tr *gamestate.Tracker) string {
 	case eqclass.CatMelee:
 		return "Skills"
 	case eqclass.CatHybrid:
+		if enemySplit {
+			return "Buffs + Skills"
+		}
 		return "Spells + Skills"
-	default:
+	default: // caster
+		if enemySplit {
+			return "Buffs"
+		}
 		return "Spell Timers"
 	}
-}
-
-func (m Model) isEnchanter() bool {
-	return m.tracker != nil && m.tracker.Class() == eqclass.ClassEnchanter
 }
 
 // classPanel is the class-aware bottom panel: independently-gated indicator
@@ -39,11 +43,15 @@ func (m Model) isEnchanter() bool {
 // It returns the panel text plus a line→target map (shifted past the stacked
 // sections) so the model can resolve hover/click-to-dismiss; hover is the
 // highlighted target.
-func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (string, map[int]string) {
+// enemySplit is true when the Enemy column is shown separately — then the class
+// panel's timer body holds only BUFFS (CC + debuffs move to the Enemy column).
+// When false (melee has no timers; or a too-narrow window collapsed the column),
+// the body holds the full CC + DEBUFFS + BUFFS stack.
+func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemySplit bool) (string, map[int]string) {
 	th := themes[m.theme]
 	tr := m.tracker
 	if tr == nil {
-		return timersBody(th, nil, w, true, hover)
+		return timerColumn(th, nil, w, hover, true, true, true)
 	}
 	now := time.Now().Unix()
 
@@ -69,6 +77,9 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (stri
 		sections = append(sections, cooldownRows(th, cds, w))
 	}
 
+	// when the Enemy column is split out, the class panel shows only BUFFS;
+	// otherwise it carries the full CC + DEBUFFS + BUFFS stack.
+	wantCC, wantDebuffs := !enemySplit, !enemySplit
 	var body string
 	var bodyMap map[int]string
 	class, level := tr.Class(), tr.Level()
@@ -76,12 +87,12 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (stri
 	case eqclass.CatMelee:
 		body = skillsBody(th, cur, class, level, w)
 	case eqclass.CatHybrid:
-		body, bodyMap = timersBody(th, tr, w, true, hover)
+		body, bodyMap = timerColumn(th, tr, w, hover, wantCC, wantDebuffs, true)
 		if sum := skillsSummaryLine(cur, class, level); sum != "" {
 			body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + th.fg(th.dim).Render(truncate(sum, w))
 		}
-	default: // caster — enchanters keep CC in their own column
-		body, bodyMap = timersBody(th, tr, w, !m.isEnchanter(), hover)
+	default: // caster
+		body, bodyMap = timerColumn(th, tr, w, hover, wantCC, wantDebuffs, true)
 	}
 
 	prefix := 0

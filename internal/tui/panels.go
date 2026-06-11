@@ -247,20 +247,19 @@ func targetHeader(th theme, target string, w int, hovered bool) string {
 		Background(lipgloss.Color(th.accent)).Bold(true).Render(truncate(line, w))
 }
 
-// timersBody renders the spell-timer panel in sections — crowd control (pinned,
-// when ccInline), then DEBUFFS (detrimental, on mobs), then BUFFS (beneficial,
-// on you/allies) — so a debuff on a mob never mixes in with a group-mate's buffs.
-// Each section groups by target with a thin rule between groups. It returns a
-// line→target map for hover/click-to-dismiss; hover highlights that group (✕).
-func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover string) (string, map[int]string) {
+// timerColumn renders spell timers in sections, including only the ones the
+// caller asks for: CROWD CONTROL (mez/charm/pacify, pinned), DEBUFFS
+// (detrimental, on mobs), BUFFS (beneficial, on you/allies). The class panel and
+// the Enemy column request different subsets (buffs vs cc+debuffs), so a debuff
+// on a mob never mixes in with a group-mate's buffs. Each section groups by
+// target with a thin rule between groups; returns a line→target map for
+// hover/click-to-dismiss (hover highlights that group with an ✕).
+func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, wantDebuffs, wantBuffs bool) (string, map[int]string) {
 	if tr == nil {
 		return th.fg(th.dim).Render("spell timers off\n(no spells_us.txt)"), nil
 	}
 	now := time.Now().Unix()
 	cc, rest := splitCCtimers(tr.Active(now))
-	if !ccInline {
-		cc = nil
-	}
 	var buffs, debuffs []gamestate.Timer
 	for _, tm := range rest {
 		if tm.Detrimental {
@@ -300,7 +299,7 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 		}
 	}
 
-	if len(cc) > 0 { // crowd control pinned at the top (its own ccLine layout)
+	if wantCC && len(cc) > 0 { // crowd control pinned at the top (its own ccLine layout)
 		bySoonest(cc)
 		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
 		for _, tm := range cc {
@@ -308,33 +307,15 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 		}
 	}
-	section("DEBUFFS", debuffs)
-	section("BUFFS", buffs)
+	if wantDebuffs {
+		section("DEBUFFS", debuffs)
+	}
+	if wantBuffs {
+		section("BUFFS", buffs)
+	}
 
 	if len(lines) == 0 {
 		return th.fg(th.dim).Render("No active spells."), nil
-	}
-	return strings.Join(lines, "\n"), targets
-}
-
-// ccBody renders the enchanter's dedicated Crowd Control column (mez + charm),
-// returning a line→target map for hover/click-to-dismiss.
-func ccBody(th theme, tr *gamestate.Tracker, w int, hover string) (string, map[int]string) {
-	if tr == nil {
-		return th.fg(th.dim).Render("—"), nil
-	}
-	now := time.Now().Unix()
-	cc, _ := splitCCtimers(tr.Active(now))
-	if len(cc) == 0 {
-		return th.fg(th.dim).Render("No crowd control."), nil
-	}
-	bySoonest(cc)
-	tw := timeColW(now, 4, cc)
-	var lines []string
-	targets := map[int]string{}
-	for _, tm := range cc {
-		targets[len(lines)] = tm.Target
-		lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 	}
 	return strings.Join(lines, "\n"), targets
 }
