@@ -512,6 +512,15 @@ func TestScrollHint(t *testing.T) {
 	}
 }
 
+// TestTimerGroupDivider: a rule separates one person's buffs from the next.
+func TestTimerGroupDivider(t *testing.T) {
+	_, tr := casterScene() // Aragorn (2 buffs) + Legolas (1) → 2 groups
+	body, _ := timersBody(themes[0], tr, 40, true, "")
+	if !strings.Contains(body, "─") {
+		t.Errorf("expected a divider between buff groups; got:\n%s", body)
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{

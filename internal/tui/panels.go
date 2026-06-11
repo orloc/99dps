@@ -282,7 +282,11 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 	// target's spells indented beneath it (matches the gocui renderTimers layout).
 	// Hovering any row of a group highlights its header so a click dismisses it.
 	groups, order := groupByTargetTimers(rest)
-	for _, tgt := range order {
+	for gi, tgt := range order {
+		if gi > 0 {
+			// a thin rule separates one person's buffs from the next (not a target)
+			lines = append(lines, th.fg(th.accentLo).Render(strings.Repeat("─", max(w, 0))))
+		}
 		targets[len(lines)] = tgt
 		lines = append(lines, targetHeader(th, tgt, w, tgt == hover))
 		g := groups[tgt]
