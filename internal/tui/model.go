@@ -156,9 +156,11 @@ func (m Model) layout() layout {
 	botH := areaH - dmgH - 1
 	sessH := dmgH + botH // Sessions spans the full left column (no "Now" box)
 
-	// caster/hybrid classes get the Enemy column (CC + debuffs) when it fits;
-	// pure melee (skills only) and too-narrow windows stay two columns.
-	enemy := m.hasSpellTimers() && rightW >= enemyColMinW
+	// every class gets a middle column when it fits: casters/hybrids → Enemy
+	// (CC + debuffs on mobs), melee → Buffs (self-buff / clicky timers). The same
+	// timerColumn code feeds both, just different sections. A too-narrow window
+	// drops it and the content folds back into the class panel.
+	enemy := m.tracker != nil && rightW >= enemyColMinW
 
 	ld := layout{
 		leftW: leftW, rightW: rightW, sessH: sessH,
@@ -184,10 +186,10 @@ func (m Model) layout() layout {
 	return ld
 }
 
-// hasSpellTimers reports whether this class tracks spell timers (caster/hybrid),
-// i.e. it should get the Enemy column. Pure melee (skills only) does not.
-func (m Model) hasSpellTimers() bool {
-	return m.tracker != nil && m.tracker.Category() != eqclass.CatMelee
+// middleIsBuffs reports whether the bottom-row middle column should hold self
+// BUFFS (pure melee) rather than the Enemy CC+debuffs (caster/hybrid).
+func (m Model) middleIsBuffs() bool {
+	return m.tracker != nil && m.tracker.Category() == eqclass.CatMelee
 }
 
 // cardInner returns the body width/height inside a card of total size w×h
@@ -303,10 +305,17 @@ func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 	m.vpClass.SetContent(classStr)
 	m.classTargets = classT
 	if enemy {
-		// the Enemy column holds CC + DEBUFFS (what you've cast on mobs)
-		enemyStr, enemyT := timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, true, true, false)
-		m.vpEnemy.SetContent(enemyStr)
-		m.enemyTargets = enemyT
+		// the middle column holds self-BUFFS for melee, or CC + DEBUFFS (what you
+		// cast on mobs) for casters/hybrids — same timerColumn, different sections.
+		var midStr string
+		var midT map[int]string
+		if m.middleIsBuffs() {
+			midStr, midT = timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, false, false, true)
+		} else {
+			midStr, midT = timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, true, true, false)
+		}
+		m.vpEnemy.SetContent(midStr)
+		m.enemyTargets = midT
 	}
 }
 
@@ -684,11 +693,15 @@ func (m Model) View() string {
 	// its own viewport, so each scrolls independently — a scroll hint (▾/▴/↕) in the
 	// title signals when there's more off-screen.
 	classTitle := classPanelTitle(m.tracker, ld.enemy) + scrollHint(m.vpClass)
+	midTitle := "Enemy" // CC + debuffs on mobs (caster/hybrid)
+	if m.middleIsBuffs() {
+		midTitle = "Buffs" // self-buff / clicky timers (melee)
+	}
 	var bottom string
 	if ld.enemy {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
 			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
-			card(th, ld.enemyW, ld.botH, "Enemy"+scrollHint(m.vpEnemy), m.vpEnemy.View()), " ",
+			card(th, ld.enemyW, ld.botH, midTitle+scrollHint(m.vpEnemy), m.vpEnemy.View()), " ",
 			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
 	} else {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,

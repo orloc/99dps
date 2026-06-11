@@ -88,6 +88,11 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 	switch tr.Category() {
 	case eqclass.CatMelee:
 		body = skillsBody(th, cur, class, level, w)
+		if !enemySplit { // no separate Buffs column (narrow) — fold self-buffs below skills
+			if bf, bft := timerColumn(th, tr, w, hover, false, false, true); len(bft) > 0 {
+				body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + bf
+			}
+		}
 	case eqclass.CatHybrid:
 		body, bodyMap = timerColumn(th, tr, w, hover, wantCC, wantDebuffs, true)
 		if sum := skillsSummaryLine(cur, class, level); sum != "" {

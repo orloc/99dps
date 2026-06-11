@@ -949,3 +949,62 @@ func TestDisplaySkillName_MonkTiers(t *testing.T) {
 		t.Errorf("non-monk kick should stay generic, got %q", got)
 	}
 }
+
+// monkSelfBuff builds a monk tracker carrying one self-buff timer (an instant SoW
+// clicky landing on You), for the melee Buffs-column tests.
+func monkSelfBuff(t *testing.T) *gamestate.Tracker {
+	t.Helper()
+	f := make([]string, 217)
+	for i := range f {
+		f[i] = "0"
+	}
+	f[1] = "Spirit of Wolf"
+	f[6] = "You feel the spirit of wolf enter you." // cast_on_you
+	f[13] = "0"                                     // instant
+	f[16] = "3"
+	f[17] = "360"
+	f[83] = "1" // beneficial
+	book, _ := gamestate.LoadReader(strings.NewReader(strings.Join(f, "^")))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassMonk)
+	now := time.Now().Unix()
+	tr.BeginCast("Spirit of Wolf", now)
+	tr.Observe("You feel the spirit of wolf enter you.", now)
+	return tr
+}
+
+// TestMeleeBuffsColumn: a melee class gets a third "Buffs" column (not "Enemy"),
+// and self-buff timers render there via the shared timerColumn code.
+func TestMeleeBuffsColumn(t *testing.T) {
+	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+
+	if !mm.layout().enemy || !mm.middleIsBuffs() {
+		t.Fatal("a melee class at this width should get a Buffs middle column")
+	}
+	if mid := mm.vpEnemy.View(); !strings.Contains(mid, "Spirit") || !strings.Contains(mid, "You") {
+		t.Errorf("the self-buff should render in the Buffs column;\n%s", mid)
+	}
+	if strings.Contains(mm.vpClass.View(), "Spirit") {
+		t.Error("the buff belongs in the Buffs column, not the Skills panel")
+	}
+	if v := mm.View(); !strings.Contains(v, "Buffs") || strings.Contains(v, "Enemy") {
+		t.Error("melee bottom row should label the column Buffs, with no Enemy column")
+	}
+}
+
+// TestMeleeBuffsFoldNarrow: too narrow for a third column, the self-buffs fold
+// into the Skills panel rather than vanish.
+func TestMeleeBuffsFoldNarrow(t *testing.T) {
+	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 70, Height: 40})
+	mm := m.(Model)
+	if mm.layout().enemy {
+		t.Fatal("expected no middle column at this narrow width")
+	}
+	if !strings.Contains(mm.vpClass.View(), "Spirit") {
+		t.Errorf("narrow fallback: self-buffs should fold into the Skills panel;\n%s", mm.vpClass.View())
+	}
+}
