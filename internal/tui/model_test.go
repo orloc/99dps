@@ -625,6 +625,72 @@ func TestTimersSplitBuffsDebuffs(t *testing.T) {
 	}
 }
 
+// mixedCaster: a shaman with a buff on an ally and a debuff on a mob, for the
+// Enemy-column routing tests.
+func mixedCaster(t *testing.T) *gamestate.Tracker {
+	t.Helper()
+	book, _ := gamestate.LoadReader(strings.NewReader(strings.Join([]string{
+		buffRow("Aegolism", "'s skin turns to stone."),
+		debuffRow("Malosini", "'s magic resistances are lowered."),
+	}, "\n")))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassShaman)
+	now := time.Now().Unix()
+	tr.BeginCast("Aegolism", now-5)
+	tr.Observe("Aragorn's skin turns to stone.", now) // buff on an ally
+	tr.BeginCast("Malosini", now-5)
+	tr.Observe("a sand giant's magic resistances are lowered.", now) // debuff on a mob
+	return tr
+}
+
+// TestEnemyColumnRouting: with the Enemy column shown, debuffs go to it and buffs
+// stay in the class panel — never crossed.
+func TestEnemyColumnRouting(t *testing.T) {
+	var m tea.Model = New(sampleManager(), mixedCaster(t), "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 34})
+	mm := m.(Model)
+	if !mm.layout().enemy {
+		t.Fatal("expected the Enemy column at this width")
+	}
+	classBody, enemyBody := mm.vpClass.View(), mm.vpEnemy.View()
+	if !strings.Contains(classBody, "Aragorn") || strings.Contains(classBody, "a sand giant") {
+		t.Errorf("class panel should hold the buff (Aragorn), not the debuff target")
+	}
+	if !strings.Contains(enemyBody, "a sand giant") || strings.Contains(enemyBody, "Aragorn") {
+		t.Errorf("Enemy column should hold the debuff (a sand giant), not the buff target")
+	}
+}
+
+// TestEnemyColumnNarrowFallback: below the width threshold the Enemy column drops
+// and both buffs and debuffs fold back into the class panel.
+func TestEnemyColumnNarrowFallback(t *testing.T) {
+	var m tea.Model = New(sampleManager(), mixedCaster(t), "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 70, Height: 34})
+	mm := m.(Model)
+	if mm.layout().enemy {
+		t.Fatal("expected no Enemy column on a narrow window")
+	}
+	body := mm.vpClass.View()
+	if !strings.Contains(body, "Aragorn") || !strings.Contains(body, "a sand giant") {
+		t.Errorf("narrow fallback: class panel should hold both buffs and debuffs;\n%s", body)
+	}
+}
+
+// TestHSVHex pins the rainbow primaries.
+func TestHSVHex(t *testing.T) {
+	for _, c := range []struct {
+		h, s, v float64
+		want    string
+	}{
+		{0, 1, 1, "#ff0000"}, {120, 1, 1, "#00ff00"}, {240, 1, 1, "#0000ff"},
+	} {
+		if got := hsvHex(c.h, c.s, c.v); got != c.want {
+			t.Errorf("hsvHex(%g,%g,%g) = %s, want %s", c.h, c.s, c.v, got, c.want)
+		}
+	}
+}
+
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
