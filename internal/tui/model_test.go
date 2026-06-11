@@ -86,6 +86,21 @@ func buffRow(name, emote string) string {
 	return strings.Join(f, "^")
 }
 
+// debuffRow is buffRow's detrimental sibling (fGoodEffect 0).
+func debuffRow(name, emote string) string {
+	f := make([]string, 217)
+	for i := range f {
+		f[i] = "0"
+	}
+	f[1] = name
+	f[7] = emote
+	f[13] = "3000"
+	f[16] = "1"
+	f[17] = "30"
+	f[83] = "0" // detrimental
+	return strings.Join(f, "^")
+}
+
 // casterScene buffs two group members so the spell-timer panel groups by target
 // (Aragorn carries two buffs, Legolas one). Timers are anchored at wall-clock so
 // they're still active when the renderer reads time.Now().
@@ -581,6 +596,32 @@ func TestPetTaggedWhenOwnerAbsent(t *testing.T) {
 	}
 	if strings.Contains(out, "↳ Zarekab") {
 		t.Error("with no owner row, the pet should stay ranked, not nested")
+	}
+}
+
+// TestTimersSplitBuffsDebuffs: a debuff on a mob and a buff on a player land in
+// separate sections (DEBUFFS before BUFFS), never interleaved.
+func TestTimersSplitBuffsDebuffs(t *testing.T) {
+	book, _ := gamestate.LoadReader(strings.NewReader(strings.Join([]string{
+		buffRow("Aegolism", "'s skin turns to stone."),
+		debuffRow("Malosini", "'s magic resistances are lowered."),
+	}, "\n")))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	now := time.Now().Unix()
+	tr.BeginCast("Aegolism", now-5)
+	tr.Observe("Aragorn's skin turns to stone.", now) // buff on a player
+	tr.BeginCast("Malosini", now-5)
+	tr.Observe("a sand giant's magic resistances are lowered.", now) // debuff on a mob
+
+	body, _ := timersBody(themes[0], tr, 40, true, "")
+	if !strings.Contains(body, "DEBUFFS") {
+		t.Fatalf("expected a DEBUFFS section; got:\n%s", body)
+	}
+	mob := strings.Index(body, "a sand giant")
+	ally := strings.Index(body, "Aragorn")
+	if mob < 0 || ally < 0 || mob > ally {
+		t.Errorf("debuff target (mob) should sit in its own section before the buffed ally (mob=%d ally=%d)", mob, ally)
 	}
 }
 

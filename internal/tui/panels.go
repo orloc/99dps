@@ -247,10 +247,11 @@ func targetHeader(th theme, target string, w int, hovered bool) string {
 		Background(lipgloss.Color(th.accent)).Bold(true).Render(truncate(line, w))
 }
 
-// timersBody renders the spell-timer panel: crowd control pinned at the top when
-// ccInline, then buffs/debuffs grouped by target. (Enchanters move CC to their
-// own column.) It returns a line→target map for hover/click-to-dismiss; hover is
-// the target whose group is highlighted (with an ✕ affordance).
+// timersBody renders the spell-timer panel in sections — crowd control (pinned,
+// when ccInline), then DEBUFFS (detrimental, on mobs), then BUFFS (beneficial,
+// on you/allies) — so a debuff on a mob never mixes in with a group-mate's buffs.
+// Each section groups by target with a thin rule between groups. It returns a
+// line→target map for hover/click-to-dismiss; hover highlights that group (✕).
 func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover string) (string, map[int]string) {
 	if tr == nil {
 		return th.fg(th.dim).Render("spell timers off\n(no spells_us.txt)"), nil
@@ -260,44 +261,58 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 	if !ccInline {
 		cc = nil
 	}
+	var buffs, debuffs []gamestate.Timer
+	for _, tm := range rest {
+		if tm.Detrimental {
+			debuffs = append(debuffs, tm)
+		} else {
+			buffs = append(buffs, tm)
+		}
+	}
 	// size the time column to the panel's longest remaining time (covers h:mm:ss)
 	tw := timeColW(now, 4, cc, rest)
+
 	var lines []string
 	targets := map[int]string{}
-	if len(cc) > 0 {
+	// section appends a labelled, target-grouped block (a thin rule between
+	// groups), preceded by a blank line when it isn't the first thing shown.
+	section := func(label string, ts []gamestate.Timer) {
+		if len(ts) == 0 {
+			return
+		}
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, th.fg(th.accent).Bold(true).Render(label))
+		groups, order := groupByTargetTimers(ts)
+		for gi, tgt := range order {
+			if gi > 0 {
+				lines = append(lines, th.fg(th.accentLo).Render(strings.Repeat("─", max(w, 0))))
+			}
+			targets[len(lines)] = tgt
+			lines = append(lines, targetHeader(th, tgt, w, tgt == hover))
+			g := groups[tgt]
+			bySoonest(g)
+			for _, tm := range g {
+				targets[len(lines)] = tgt
+				lines = append(lines, "  "+timerLine(th, tm, now, w-2, tw))
+			}
+		}
+	}
+
+	if len(cc) > 0 { // crowd control pinned at the top (its own ccLine layout)
 		bySoonest(cc)
 		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
 		for _, tm := range cc {
 			targets[len(lines)] = tm.Target
 			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 		}
-		if len(rest) > 0 {
-			lines = append(lines, "")
-		}
 	}
-	if len(rest) == 0 {
-		if len(cc) == 0 {
-			return th.fg(th.dim).Render("No active spells."), nil
-		}
-		return strings.Join(lines, "\n"), targets
-	}
-	// buffs/debuffs grouped by who they're on — a bold target header, then that
-	// target's spells indented beneath it (matches the previous renderTimers layout).
-	// Hovering any row of a group highlights its header so a click dismisses it.
-	groups, order := groupByTargetTimers(rest)
-	for gi, tgt := range order {
-		if gi > 0 {
-			// a thin rule separates one person's buffs from the next (not a target)
-			lines = append(lines, th.fg(th.accentLo).Render(strings.Repeat("─", max(w, 0))))
-		}
-		targets[len(lines)] = tgt
-		lines = append(lines, targetHeader(th, tgt, w, tgt == hover))
-		g := groups[tgt]
-		bySoonest(g)
-		for _, tm := range g {
-			targets[len(lines)] = tgt
-			lines = append(lines, "  "+timerLine(th, tm, now, w-2, tw))
-		}
+	section("DEBUFFS", debuffs)
+	section("BUFFS", buffs)
+
+	if len(lines) == 0 {
+		return th.fg(th.dim).Render("No active spells."), nil
 	}
 	return strings.Join(lines, "\n"), targets
 }
