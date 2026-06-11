@@ -127,3 +127,29 @@ func TestClicky_BlackFurBoots(t *testing.T) {
 		t.Fatalf("Black Fur Boots click should start a SoW self-timer, got %+v", act)
 	}
 }
+
+// TestClicky_MonkWhiteLotus: the White Lotus armor right-click buffs (Spirit of
+// Ox / Firefist) start self-buff timers off their landing emote, for a monk.
+func TestClicky_MonkWhiteLotus(t *testing.T) {
+	book := loadBook(t,
+		row(map[int]string{fName: "Spirit of Ox", fCastOnYou: "You feel the spirit of ox enter you.",
+			fCastTime: "5000", fDurFormula: "3", fDurCap: "450", fGoodEffect: "1"}),
+		row(map[int]string{fName: "Firefist", fCastOnYou: "Your fist bursts into flame.",
+			fCastTime: "7000", fDurFormula: "3", fDurCap: "120", fGoodEffect: "1"}),
+	)
+	tr := NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassMonk)
+	tr.Observe("You feel the spirit of ox enter you.", 1000)
+	tr.Observe("Your fist bursts into flame.", 1000)
+
+	got := map[string]string{}
+	for _, a := range tr.Active(1001) {
+		got[a.Spell] = a.Target
+	}
+	for _, want := range []string{"Spirit of Ox", "Firefist"} {
+		if got[want] != "You" {
+			t.Errorf("White Lotus clicky %q should start a self-buff timer on You; got %q", want, got[want])
+		}
+	}
+}

@@ -48,6 +48,16 @@ var clickyRegistry = map[eqclass.Class][]Clicky{
 		// the click, which logs the SoW self-emote with no "You begin casting" line.
 		{Item: "Black Fur Boots", Effect: "Spirit of Wolf", Message: "You feel the spirit of wolf enter you."},
 	},
+	eqclass.ClassMonk: {
+		// White Lotus (Velious / Skyshrine) armor right-click buffs. They have a long
+		// cast, announced by "Your <item> begins to glow." — but we match the
+		// effect's LANDING emote instead: it's accurate (the buff starts when it
+		// lands, not at click) and interrupt-safe (a glow with no land = no buff).
+		// Durations resolve from spells_us. (Chest Wraps' Invigorate has no duration,
+		// and the Beads' Eye of Zomm isn't a buff, so neither is tracked.)
+		{Item: "White Lotus Pants", Effect: "Spirit of Ox", Message: "You feel the spirit of ox enter you."},
+		{Item: "White Lotus Slippers", Effect: "Firefist", Message: "Your fist bursts into flame."},
+	},
 }
 
 // RegisterClicky adds (or appends) a clicky for a class at runtime — handy for
