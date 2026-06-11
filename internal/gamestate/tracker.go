@@ -25,6 +25,7 @@ type Timer struct {
 	Detrimental bool
 	Charm       bool // a charm — display elapsed (counts up), not remaining
 	Mez         bool // a mez/enthrall — crowd control, breaks on damage
+	Pacify      bool // a pacify/lull/calm — crowd control (aggro lowered)
 }
 
 // Tracker holds the player's active spell timers. It's fed parsed log signals
@@ -170,19 +171,19 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 	}
 }
 
-// BreakMezOnTarget clears a target's mez timers — a mezzed mob that takes
-// damage breaks early with no wear-off message, so the parser calls this on any
-// damage to that target to keep the CC list honest.
-func (t *Tracker) BreakMezOnTarget(target string) {
+// BreakCCOnTarget clears a target's mez and pacify timers — both break the
+// instant the mob takes damage (it re-aggros), with no wear-off message, so the
+// parser calls this on any damage to that target to keep the CC list honest.
+func (t *Tracker) BreakCCOnTarget(target string) {
 	if t == nil || target == "" {
 		return
 	}
 	n := normalizeMobName(target)
 	t.mu.Lock()
 	for k, tm := range t.timers {
-		// the mez emote capitalizes/strips the article ("Greater kobold") while a
-		// damage line keeps it ("a greater kobold"), so compare normalized.
-		if tm.Mez && normalizeMobName(tm.Target) == n {
+		// the landing emote capitalizes/strips the article ("Greater kobold") while
+		// a damage line keeps it ("a greater kobold"), so compare normalized.
+		if (tm.Mez || tm.Pacify) && normalizeMobName(tm.Target) == n {
 			delete(t.timers, k)
 		}
 	}
@@ -335,6 +336,9 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 	}
 
 	dur := t.pending.DurationSeconds(t.levelOrDefault())
+	if t.pending.Pacify {
+		dur = t.pending.PacifyDurationSeconds(t.levelOrDefault()) // P99 calm/pacify/wake times
+	}
 	if dur <= 0 {
 		t.pending = nil // instant spell — nothing to time
 		return
@@ -346,6 +350,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		Expiry:      at + int64(dur),
 		Detrimental: t.pending.Detrimental,
 		Mez:         t.pending.Mez,
+		Pacify:      t.pending.Pacify,
 	}
 	// pending is left set on purpose: an AoE lands on several mobs, each with its
 	// own emote line, so we keep matching until the cast window (landWindowSec)

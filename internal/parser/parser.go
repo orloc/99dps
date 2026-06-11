@@ -32,7 +32,7 @@ type Sink interface {
 type SpellObserver interface {
 	Observe(body string, at int64)
 	BeginCast(spellName string, at int64)
-	BreakMezOnTarget(target string)
+	BreakCCOnTarget(target string)
 	SetLevel(level int)
 	SetClass(c eqclass.Class)
 	FeignAttempt(at int64)
@@ -188,7 +188,7 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 		if set, err := p.parseDamage(line); err == nil {
 			sink.Apply(set)
 			if p.tracker != nil {
-				p.tracker.BreakMezOnTarget(set.Target) // damage breaks a mob's mez
+				p.tracker.BreakCCOnTarget(set.Target) // damage breaks a mob's mez
 			}
 		}
 	case p.hasSwing(line):
@@ -203,7 +203,7 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 		if m, err := p.parseMagic(line); err == nil {
 			sink.ApplyMagic(m)
 			if p.tracker != nil {
-				p.tracker.BreakMezOnTarget(m.Target) // non-melee damage breaks mez too
+				p.tracker.BreakCCOnTarget(m.Target) // non-melee damage breaks mez too
 			}
 		}
 	case p.hasEvent(line):

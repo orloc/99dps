@@ -63,10 +63,10 @@ func sessionsList(th theme, sessions []*session.CombatSession, selected, w int) 
 	return strings.Join(lines, "\n")
 }
 
-// splitCCtimers partitions timers into crowd control (mez/charm) and the rest.
+// splitCCtimers partitions timers into crowd control (mez/charm/pacify) and rest.
 func splitCCtimers(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
 	for _, tm := range timers {
-		if tm.Mez || tm.Charm {
+		if tm.Mez || tm.Charm || tm.Pacify {
 			cc = append(cc, tm)
 		} else {
 			rest = append(rest, tm)
@@ -197,9 +197,12 @@ func ccLine(th theme, tm gamestate.Timer, now int64, w int, hovered bool, tw int
 	if v := lipgloss.Width(timeStr); v > tw {
 		tw = v
 	}
-	label, col := "M", "#e0564e"
+	label, col := "M", "#e0564e" // mez
 	if tm.Charm {
-		label, col = "⊗", "#c98ad6"
+		label, col = "⊗", "#c98ad6" // charm
+	}
+	if tm.Pacify {
+		label, col = "z", "#7fd4e8" // pacify / lull / calm
 	}
 	nameStyle := th.fg(th.text)
 	if hovered {

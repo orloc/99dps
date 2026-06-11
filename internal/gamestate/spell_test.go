@@ -437,7 +437,7 @@ func TestMezTrackingAndBreak(t *testing.T) {
 		t.Fatalf("mez timer not created: %+v", act)
 	}
 
-	tr.BreakMezOnTarget("a greater kobold") // damage line: article + lowercase
+	tr.BreakCCOnTarget("a greater kobold") // damage line: article + lowercase
 	if len(tr.Active(1001)) != 0 {
 		t.Error("damage should break the mez despite the name-form mismatch")
 	}

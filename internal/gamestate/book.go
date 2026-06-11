@@ -39,6 +39,7 @@ type Spell struct {
 	Detrimental bool
 	Charm       bool // a charm spell — no landing emote, breaks unpredictably
 	Mez         bool // a mez (mesmerize/enthrall) — crowd control, breaks on damage
+	Pacify      bool // a pacify/lull/calm — lowers aggro ("looks less aggressive")
 }
 
 // DurationSeconds returns the spell's duration at the given caster level, using
@@ -98,6 +99,23 @@ func (s *Spell) DurationSeconds(level int) int {
 }
 
 func ceilDiv(a, b int) int { return (a + b - 1) / b }
+
+// PacifyDurationSeconds is the P99 lull/calm/pacify duration: DurCap ticks × 6,
+// with NO extra cast-tick (unlike buffs) — so Calm (cap 30) = 180s and Pacify
+// (cap 35) = 210s (3.5 min), matching the P99 wiki. Wake of Tranquility is
+// uncapped (DurCap 0), running the formula-8 level+10 ticks (≈ 7 min at 60).
+func (s Spell) PacifyDurationSeconds(level int) int {
+	ticks := s.DurCap
+	if ticks == 0 {
+		ticks = level + 10 // uncapped (Wake of Tranquility) — the formula-8 base
+	} else {
+		ticks = min(level+10, ticks) // honor the cap if the caster is low level
+	}
+	if ticks <= 0 {
+		return 0
+	}
+	return ticks * 6
+}
 
 // Book is a spell lookup keyed by name.
 type Book struct {
@@ -187,6 +205,8 @@ func decode(line string) *Spell {
 		Charm: fades == "You are no longer charmed.",
 		// mez/enthrall — the landing emote on the mob carries "mesmeriz"/"enthrall"
 		Mez: mezEmote(f[fCastOnOther]),
+		// pacify/lull/calm — the whole line lands with "<mob> looks less aggressive."
+		Pacify: strings.Contains(strings.ToLower(f[fCastOnOther]), "looks less aggressive"),
 	}
 }
 
