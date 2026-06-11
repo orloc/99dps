@@ -65,8 +65,8 @@ func CategoryOf(c Class) Category {
 var titleToClass = map[string]Class{
 	// Warrior (melee)
 	"Warrior": ClassWarrior, "Warlord": ClassWarrior,
-	// Monk (melee)
-	"Monk": ClassMonk, "Master": ClassMonk, "Grandmaster": ClassMonk, "Transcendent": ClassMonk,
+	// Monk (melee) — Disciple is the 51 rank (51-54), Master 55, Grandmaster 60.
+	"Monk": ClassMonk, "Disciple": ClassMonk, "Master": ClassMonk, "Grandmaster": ClassMonk, "Transcendent": ClassMonk,
 	// Rogue (melee)
 	"Rogue": ClassRogue, "Rake": ClassRogue, "Blackguard": ClassRogue, "Assassin": ClassRogue,
 

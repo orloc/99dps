@@ -8,9 +8,47 @@ import (
 	"strings"
 	"testing"
 
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 )
+
+// TestObserveSpells_MonkClickyBuffTracked reproduces the reported case: a level-53
+// monk (whose /who title is "Disciple") right-clicks White Lotus Pants — which
+// logs a real "You begin casting Spirit of Ox." — and the buff lands. The class
+// must resolve to Monk (melee), and the Spirit of Ox buff must be a live self
+// timer. (Regression: "Disciple" was unmapped, so a 51-54 monk read as a caster.)
+func TestObserveSpells_MonkClickyBuffTracked(t *testing.T) {
+	book, err := gamestate.LoadReader(strings.NewReader(spellRow(map[int]string{
+		1:  "Spirit of Ox",
+		6:  "You feel the spirit of ox enter you.", // cast_on_you
+		13: "5000",                                 // 5s cast
+		16: "3",                                    // duration formula
+		17: "450",                                  // duration cap
+		83: "1",                                    // beneficial
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := gamestate.NewTracker(book)
+	p := DmgParser{character: "Kelkix", tracker: tr}
+
+	p.observeSpells("[Tue Jun 18 02:51:30 2024] [53 Disciple] Kelkix (Iksar) <Kingdom>")
+	p.observeSpells("[Tue Jun 18 02:51:31 2024] You begin casting Spirit of Ox.")
+	p.observeSpells("[Tue Jun 18 02:51:36 2024] You feel the spirit of ox enter you.")
+
+	if tr.Class() != eqclass.ClassMonk {
+		t.Fatalf("a 'Disciple' /who should detect Monk; got %v", tr.Class())
+	}
+	if tr.Category() != eqclass.CatMelee {
+		t.Errorf("a monk should be the melee category (so it gets the Skills + Buffs layout); got %v", tr.Category())
+	}
+	landTs, _ := parseTimestamp("[Tue Jun 18 02:51:36 2024] x")
+	act := tr.Active(landTs + 1)
+	if len(act) != 1 || act[0].Spell != "Spirit of Ox" || act[0].Target != "You" {
+		t.Fatalf("the clicked Spirit of Ox should be a live self-buff timer; got %+v", act)
+	}
+}
 
 // These tests replay VERBATIM real P99 log excerpts (internal/parser/testdata)
 // through the full pipeline — DmgParser.dispatch + observeSpells, exactly as

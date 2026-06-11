@@ -10,6 +10,7 @@ func TestClassFromTitleAndCategory(t *testing.T) {
 	}{
 		{"Warlord", ClassWarrior, CatMelee},
 		{"Grandmaster", ClassMonk, CatMelee},
+		{"Disciple", ClassMonk, CatMelee}, // the 51-rank monk title (regression: was unmapped → caster)
 		{"Assassin", ClassRogue, CatMelee},
 		{"Wanderer", ClassDruid, CatCaster}, // Druid, NOT Ranger — the easy trap
 		{"Phantasmist", ClassEnchanter, CatCaster},
