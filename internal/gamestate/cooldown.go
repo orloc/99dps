@@ -41,6 +41,21 @@ var cooldownRegistry = []Cooldown{
 type CooldownTimer struct {
 	Name      string
 	Remaining int64 // seconds until ready; <= 0 means ready now
+	Total     int64 // full reuse duration, for the panel's charge bar
+}
+
+// reuseSecFor returns an ability's full reuse duration (registry, or the
+// macro-driven Feign Death), so the panel can draw how charged it is.
+func reuseSecFor(name string) int64 {
+	if name == "Feign Death" {
+		return feignReuseSec
+	}
+	for i := range cooldownRegistry {
+		if cooldownRegistry[i].Name == name {
+			return cooldownRegistry[i].ReuseSec
+		}
+	}
+	return 0
 }
 
 const (
@@ -168,7 +183,7 @@ func (c *cooldownTracker) timersLocked(now int64) []CooldownTimer {
 		if rem < 0 {
 			rem = 0
 		}
-		out = append(out, CooldownTimer{Name: name, Remaining: rem})
+		out = append(out, CooldownTimer{Name: name, Remaining: rem, Total: reuseSecFor(name)})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Remaining != out[j].Remaining {

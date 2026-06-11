@@ -906,3 +906,25 @@ func TestCasterAppearsAndLinksPet(t *testing.T) {
 		t.Errorf("the player's pet should nest under You, after the spells row (you=%d pet=%d)", yi, xi)
 	}
 }
+
+// TestCooldownBoxes: cooldowns render as a charge box — a half-charged Mend shows
+// a partial fill (█ and ░), a ready ability shows "ready", and rows fit the width.
+func TestCooldownBoxes(t *testing.T) {
+	th := themes[0]
+	cds := []gamestate.CooldownTimer{
+		{Name: "Mend", Remaining: 180, Total: 360},     // half charged → partial box
+		{Name: "Feign Death", Remaining: 0, Total: 11}, // ready → full box
+	}
+	out := cooldownRows(th, cds, 40)
+	if !strings.Contains(out, "Mend") || !strings.Contains(out, "ready") {
+		t.Fatalf("expected Mend + a ready ability; got:\n%s", out)
+	}
+	if !strings.Contains(out, "█") || !strings.Contains(out, "░") {
+		t.Errorf("a half-charged cooldown should show a partial box (█ and ░); got:\n%s", out)
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > 40 {
+			t.Errorf("cooldown row overflows width 40 (%d): %q", lipgloss.Width(ln), ln)
+		}
+	}
+}

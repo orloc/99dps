@@ -167,16 +167,41 @@ func canniGrade(pct int) (grade, colorHex string) {
 	}
 }
 
-// cooldownRows lists activated-ability reuse (Mend, Feign Death): green "ready"
-// or a counting-down timer.
+// cooldownRows lists activated-ability reuse (Mend, Feign Death) as a small
+// charge box that fills left→right as the ability nears ready — blue while
+// counting, full green when ready — with the time alongside. On a panel too
+// narrow for a box it falls back to a plain name + time row.
 func cooldownRows(th theme, cds []gamestate.CooldownTimer, w int) string {
 	lines := []string{th.fg(th.accent).Bold(true).Render("COOLDOWNS")}
+	const (
+		nameW  = 11
+		timeW  = 5 // "m:ss" or "ready"
+		charge = "#5aa9e6"
+		ready  = "#5fd37a"
+	)
+	boxW := min(w-2-nameW-1-1-timeW, 12) // indent + name + gaps + time
 	for _, cd := range cds {
-		if cd.Remaining <= 0 {
-			lines = append(lines, badge(th, "#5fd37a", "  "+truncate(cd.Name, 13)+" ready", w))
-		} else {
-			lines = append(lines, th.fg(th.text).Render(fmt.Sprintf("  %-13s %s", truncate(cd.Name, 13), mmss(cd.Remaining))))
+		if boxW < 4 { // too narrow for a box — plain text
+			if cd.Remaining <= 0 {
+				lines = append(lines, badge(th, ready, "  "+truncate(cd.Name, 13)+" ready", w))
+			} else {
+				lines = append(lines, th.fg(th.text).Render(fmt.Sprintf("  %-13s %s", truncate(cd.Name, 13), mmss(cd.Remaining))))
+			}
+			continue
 		}
+		name := fmt.Sprintf("%-*s", nameW, truncate(cd.Name, nameW))
+		if cd.Remaining <= 0 { // ready: a full green box
+			lines = append(lines, "  "+th.fg(ready).Render(name)+" "+
+				gradientBar(1, boxW, ready, ready, th.track)+" "+th.fg(ready).Render("ready"))
+			continue
+		}
+		frac := 0.0
+		if cd.Total > 0 { // fills toward ready as the remaining time shrinks
+			frac = float64(cd.Total-cd.Remaining) / float64(cd.Total)
+		}
+		lines = append(lines, "  "+th.fg(th.text).Render(name)+" "+
+			gradientBar(frac, boxW, charge, charge, th.track)+" "+
+			th.fg(th.dim).Render(fmt.Sprintf("%*s", timeW, mmss(cd.Remaining))))
 	}
 	return strings.Join(lines, "\n")
 }
