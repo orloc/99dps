@@ -118,10 +118,14 @@ func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []
 	for t := range groups {
 		order = append(order, t)
 	}
+	// Your own buffs ("You") pin to the top no matter what fades first; the rest go
 	// soonest-to-expire first, breaking ties by name so the order is stable across
 	// repaints (map iteration isn't) — otherwise a hovered row could resolve to a
 	// different target on the next frame and a click would dismiss the wrong one.
 	sort.SliceStable(order, func(i, j int) bool {
+		if iYou, jYou := order[i] == "You", order[j] == "You"; iYou != jYou {
+			return iYou
+		}
 		si, sj := soonest(groups[order[i]]), soonest(groups[order[j]])
 		if si != sj {
 			return si < sj

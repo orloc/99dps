@@ -1008,3 +1008,22 @@ func TestMeleeBuffsFoldNarrow(t *testing.T) {
 		t.Errorf("narrow fallback: self-buffs should fold into the Skills panel;\n%s", mm.vpClass.View())
 	}
 }
+
+// TestBuffsYouPinnedTop: your own buffs stay at the top of the list even when
+// others' buffs fade sooner.
+func TestBuffsYouPinnedTop(t *testing.T) {
+	now := int64(1000)
+	ts := []gamestate.Timer{
+		{Spell: "Haste", Target: "Aragorn", Start: now, Expiry: now + 60},
+		{Spell: "SoW", Target: "Legolas", Start: now, Expiry: now + 30}, // fades soonest
+		{Spell: "Aegolism", Target: "You", Start: now, Expiry: now + 3000},
+	}
+	_, order := groupByTargetTimers(ts)
+	if len(order) == 0 || order[0] != "You" {
+		t.Errorf("your own buffs should pin to the top; got order %v", order)
+	}
+	// the rest stay soonest-first (Legolas 30s before Aragorn 60s)
+	if order[1] != "Legolas" || order[2] != "Aragorn" {
+		t.Errorf("non-You groups should stay soonest-first; got %v", order)
+	}
+}
