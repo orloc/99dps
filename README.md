@@ -94,4 +94,4 @@ Standard Go layout: `cmd/99dps/` is the entrypoint; everything else is under `in
 
 ## License
 
-Personal project. Use it, break it, send a PR.
+[MIT](LICENSE). Use it, break it, send a PR.
