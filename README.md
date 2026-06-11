@@ -14,17 +14,21 @@ hooks, nothing injected into the game. Just the log.
 - **Live damage meter** — per-dealer DPS/total/share, hit% and crit%, a rainbow share bar.
   Pets roll up under their owner. Your spell/DoT damage is credited to you (the client
   only ever logs its *own* non-melee, so it's yours).
-- **A panel that follows your class.** Caster → spell timers. Melee → skills + cooldowns.
-  Hybrid → both. It figures out your class from `/who`.
-- **Spell timers**, grouped by who you cast on: buffs on you/allies, debuffs/DoTs/roots on
-  mobs, and a pinned CROWD CONTROL section for mez/charm/pacify. Two same-named mobs get
-  their own timers, not one shared one.
+- **A panel that follows your class.** Caster → spell timers + an Enemy column for what
+  you've put on mobs (debuffs/DoTs/roots/CC). Melee → skills, cooldowns, and your own
+  self-buffs. Hybrid → both. It reads your class from `/who`.
+- **Spell timers**, grouped by who you cast on: buffs on you/allies (your own pinned to the
+  top), debuffs/DoTs/roots on mobs, and a pinned CROWD CONTROL section for mez/charm/pacify.
+  Two same-named mobs get their own timers, not one shared one. Countdown colors mean the
+  same thing whether a buff lasts 30 seconds or 3 hours (orange ≈ last 5 min, red ≈ last min).
+  Clicky-item buffs are tracked too (e.g. Black Fur Boots SoW, the White Lotus armor set).
 - **Mob Tracker** — repop timers per kill using the zone's default spawn, split into your
   group's kills vs everyone else's. Click a row to fix a timer (saved per zone+mob).
 - **Specials & Avoidance** — backstab/kick/bash totals and hit rates; dodge/parry/block/
   riposte/miss for each defender.
 - **Shaman canni dance meter** pinned to the damage panel — grade, combo, recast beat, best.
-- **Cooldowns, feign-death, bind-wound** indicators where the class warrants them.
+- **Cooldown charge bars** that fill left→right as an ability comes back up — Mend, the
+  monk kick (Round → Flying by level) — plus feign-death and bind-wound indicators.
 - **Audio cues** (optional) when your buffs are about to drop.
 - Switch characters in-game and it follows the new log automatically. No restart.
 
