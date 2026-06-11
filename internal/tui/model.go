@@ -34,7 +34,7 @@ func tick() tea.Cmd {
 }
 
 // Model is the root Bubble Tea model. It reads session snapshots once per tick —
-// the parser goroutine feeds the manager exactly as under gocui.
+// the parser goroutine feeds the manager exactly as before.
 type Model struct {
 	sm        *session.SessionManager
 	tracker   *gamestate.Tracker
@@ -45,7 +45,7 @@ type Model struct {
 	selected int                      // pinned session index
 	follow   bool                     // glue selection to the live fight
 
-	// every overflowing panel is independently scrollable (mirrors the gocui
+	// every overflowing panel is independently scrollable (mirrors the previous
 	// per-panel scroll). The mouse wheel scrolls whichever panel it's over.
 	vpSessions viewport.Model
 	vpDamage   viewport.Model
@@ -279,7 +279,7 @@ func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 }
 
 // ensureSelVisible scrolls the Sessions viewport so the selected fight (2 lines
-// per fight) stays in view — only nudging when it's off-screen, like the gocui
+// per fight) stays in view — only nudging when it's off-screen, like the previous
 // ensureVisible (wheel scrolling is otherwise left alone).
 func (m *Model) ensureSelVisible(sel int) {
 	if sel < 0 {
@@ -346,7 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewports()
 		m.refresh()
 	case tea.MouseMsg:
-		// wheel → scroll whichever panel the cursor is over (gocui parity).
+		// wheel → scroll whichever panel the cursor is over.
 		if isWheel(msg.Button) {
 			if vp := m.panelAt(msg.X, msg.Y); vp != nil {
 				var cmd tea.Cmd
@@ -648,7 +648,7 @@ func (m Model) View() string {
 	}
 
 	// bottom row: the class-aware panel + Mob Tracker — enchanters get a third,
-	// dedicated Crowd Control column (matching the gocui layout). Every panel
+	// dedicated Crowd Control column (matching the previous layout). Every panel
 	// renders from its own viewport, so each scrolls independently — a scroll hint
 	// (▾/▴/↕) in the title signals when there's more off-screen.
 	classTitle := classPanelTitle(m.tracker) + scrollHint(m.vpClass)
@@ -705,7 +705,7 @@ func (m Model) footer(th theme, w int) string {
 // damageContent is the scrollable damage breakdown for the selected fight: an
 // encounter summary, a ranked per-dealer table (share bar + DPS/Total/% and
 // width-gated Hit%/Crit%), the unattributed spell line, then the Specials and
-// Avoidance sub-tables — matching the old gocui Damage panel.
+// Avoidance sub-tables — matching the old Damage panel.
 func (m Model) damageContent(cur *session.CombatSession, live bool, width int) string {
 	th := themes[m.theme]
 	if cur == nil {

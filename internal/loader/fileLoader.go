@@ -85,7 +85,7 @@ func Latest(dir string) (string, error) {
 // character's entire history — otherwise it follows from the beginning.
 func Follow(path string, fromEnd bool) (*LogSource, error) {
 	// DiscardingLogger: the tail library otherwise writes "Seeked …"/"Stopping
-	// tail …" lines to os.Stderr, which corrupt the gocui TUI (most visibly on a
+	// tail …" lines to os.Stderr, which corrupt the TUI (most visibly on a
 	// character switch, which opens a new tail with a SeekEnd location).
 	cfg := tail.Config{Follow: true, Logger: tail.DiscardingLogger}
 	if fromEnd {

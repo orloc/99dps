@@ -35,7 +35,7 @@ func (m Model) isEnchanter() bool {
 
 // classPanel is the class-aware bottom panel: independently-gated indicator
 // sections (canni / feign / bind / cooldowns) stacked above a category-driven
-// body — caster→timers, melee→skills, hybrid→both. Mirrors the gocui updatePanel.
+// body — caster→timers, melee→skills, hybrid→both. Mirrors the previous class-aware panel dispatch.
 // It returns the panel text plus a line→target map (shifted past the stacked
 // sections) so the model can resolve hover/click-to-dismiss; hover is the
 // highlighted target.
@@ -48,7 +48,7 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string) (stri
 	now := time.Now().Unix()
 
 	// gated indicator sections stack above the body; count their lines so the
-	// body's line→target map can be shifted down to match (cf. gocui stackPanel).
+	// body's line→target map can be shifted down to match (cf. the previous stackPanel).
 	var sections []string
 	if cm := canniMeter(th, tr.CanniStats(now), w); cm != "" {
 		sections = append(sections, cm)
@@ -203,7 +203,7 @@ func skillsSummaryLine(cur *session.CombatSession, class eqclass.Class, level in
 	return strings.Join(parts, " · ")
 }
 
-// ---- ported skill/stat helpers (from gocui render.go) -----------------------
+// ---- ported skill/stat helpers (from the old render layer) -----------------------
 
 func displaySkillName(generic string, class eqclass.Class, level int) string {
 	if class == eqclass.ClassMonk && generic == "Kick" && level >= 30 {

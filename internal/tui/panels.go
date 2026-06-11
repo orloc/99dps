@@ -282,7 +282,7 @@ func timersBody(th theme, tr *gamestate.Tracker, w int, ccInline bool, hover str
 		return strings.Join(lines, "\n"), targets
 	}
 	// buffs/debuffs grouped by who they're on — a bold target header, then that
-	// target's spells indented beneath it (matches the gocui renderTimers layout).
+	// target's spells indented beneath it (matches the previous renderTimers layout).
 	// Hovering any row of a group highlights its header so a click dismisses it.
 	groups, order := groupByTargetTimers(rest)
 	for gi, tgt := range order {

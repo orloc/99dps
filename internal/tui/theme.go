@@ -10,7 +10,7 @@ import (
 
 // theme is a true-color palette. The whole point of the Bubble Tea UI is that
 // these are real 24-bit colors, switchable at runtime — not the 8 ANSI colors
-// gocui was stuck with.
+// the previous terminal UI was stuck with.
 type theme struct {
 	name             string
 	bg, panel        string // screen bg, slightly-lighter card bg

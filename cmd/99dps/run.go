@@ -30,8 +30,9 @@ func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
 	return tracker, fmt.Sprintf("%d spells (%s)", tracker.SpellCount(), filepath.Base(spellsPath))
 }
 
-// launchTUI runs the Bubble Tea UI. It shares the parser pipeline and the
-// character hot-swap watcher with launchCLI, rendering via internal/tui.
+// launchTUI is the entry point: it wires the loader → parser → session/tracker
+// pipeline, runs the Bubble Tea UI (internal/tui), and watches for a character
+// switch in-game to hot-swap. The only UI.
 func launchTUI(logDir, spellsPath string, tts bool) {
 	src := loader.LoadFile(logDir)
 	sm := &session.SessionManager{}
@@ -42,8 +43,7 @@ func launchTUI(logDir, spellsPath string, tts bool) {
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
 	ctrl.startParse(src)
 
-	// watch for the active eqlog changing (a character switch in-game) and
-	// hot-swap, just like launchCLI.
+	// watch for the active eqlog changing (a character switch in-game) and hot-swap.
 	stop := make(chan struct{})
 	var bg sync.WaitGroup
 	bg.Add(1)

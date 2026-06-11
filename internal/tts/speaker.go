@@ -3,7 +3,7 @@ package tts
 import "os/exec"
 
 // speaker shells out to a platform TTS engine for audio cues. Output is
-// discarded so the engine can never print over the gocui display. The engine is
+// discarded so the engine can never print over the TUI display. The engine is
 // chosen per-OS in speech_unix.go / speech_windows.go via newSpeaker.
 type Speaker struct {
 	// build constructs the command that speaks text, or is nil when no engine is

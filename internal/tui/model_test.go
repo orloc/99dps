@@ -200,7 +200,7 @@ func TestTimerTimeNotClipped(t *testing.T) {
 }
 
 // TestDamageNoOverflow guards the enriched Damage panel's column math: no
-// rendered line may exceed the panel width at any size (gocui clipped silently;
+// rendered line may exceed the panel width at any size (the previous UI clipped silently;
 // lipgloss would push past the card border).
 func TestDamageNoOverflow(t *testing.T) {
 	var m tea.Model = New(sampleManager(), nil, "Kelkix")
