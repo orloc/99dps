@@ -1,13 +1,13 @@
 # 99dps
 
+![99dps in action — a shaman in Plane of Mischief](docs/screenshot.png)
+
 A terminal DPS meter for classic EverQuest (Project 1999). It tails your live log,
 parses combat as it scrolls, and draws a themed real-time TUI — per-dealer damage,
 crits, specials, avoidance, spell timers, and a zone repop tracker.
 
 It only reads the log file your client already writes. No memory reading, no client
 hooks, nothing injected into the game. Just the log.
-
-![placeholder — drop a screenshot here](docs/screenshot.png)
 
 ## What you get
 

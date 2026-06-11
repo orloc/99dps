@@ -3,6 +3,7 @@
 /99dps.exe.sha256
 /cmd/99dps/resource_windows_amd64.syso
 *.png
+!docs/*.png
 .idea/
 /dist/
 /99dps-windows.zip
