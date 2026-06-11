@@ -16,7 +16,8 @@ type respawnEntry struct {
 	mob    string
 	at     int64 // kill time, kept so an override can recompute expiry
 	expiry int64
-	mine   bool   // the player got the killing blow (vs a group/other kill)
+	mine   bool   // the player landed the killing blow
+	group  bool   // a group kill — you got xp for it (your own blow, or a group-mate's)
 	killer string // who landed the blow ("You" for the player's own)
 }
 
@@ -24,9 +25,14 @@ type respawnEntry struct {
 type Respawn struct {
 	Mob       string
 	Remaining int64  // seconds until repop; <= 0 means it should be up now
-	Mine      bool   // the player's own kill (sorted above others')
+	Mine      bool   // the player landed the killing blow (bold)
+	Group     bool   // a group kill (you got xp) — sorted above others'
 	Killer    string // who killed it ("You" for the player's own)
 }
+
+// groupXPWindowSec is how far back a "You gain (party) experience" line will look
+// to credit a just-killed mob as a group kill (the xp line trails the blow).
+const groupXPWindowSec = 8
 
 // zoneTracker is the zone-awareness subsystem: the current zone, its default
 // respawn, the pending mob-repop list, per-(zone,mob) overrides, and the
@@ -71,6 +77,7 @@ func (z *zoneTracker) observeLocked(body string, at int64) {
 		if z.firstKillAt == 0 {
 			z.firstKillAt = at
 		}
+		z.creditGroupKillLocked(at) // the mob we just got xp for is a group kill
 		return
 	}
 	if strings.HasPrefix(body, "You have been slain by") {
@@ -121,10 +128,32 @@ func (z *zoneTracker) recordKillLocked(mob string, at int64, mine bool, killer s
 			// same spawn, re-killed: reset time and attribute to this kill
 			z.respawns[i].at, z.respawns[i].expiry = at, exp
 			z.respawns[i].mine, z.respawns[i].killer = mine, killer
+			z.respawns[i].group = mine // a group-mate's kill is credited later by xp
 			return
 		}
 	}
-	z.respawns = append(z.respawns, respawnEntry{mob: mob, at: at, expiry: exp, mine: mine, killer: killer})
+	// your own blow is a group kill immediately; a group-mate's becomes one when
+	// the following "You gain party experience" credits it (creditGroupKillLocked).
+	z.respawns = append(z.respawns, respawnEntry{mob: mob, at: at, expiry: exp, mine: mine, group: mine, killer: killer})
+}
+
+// creditGroupKillLocked marks the most-recent recently-killed mob as a group
+// kill — called when a "You gain (party) experience" line lands, since the mob
+// that gave the xp belongs in the group's repops even if a group-mate (not you)
+// landed the blow. Caller holds the lock.
+func (z *zoneTracker) creditGroupKillLocked(at int64) {
+	best := -1
+	for i := range z.respawns {
+		if z.respawns[i].group || at-z.respawns[i].at > groupXPWindowSec {
+			continue
+		}
+		if best < 0 || z.respawns[i].at > z.respawns[best].at {
+			best = i
+		}
+	}
+	if best >= 0 {
+		z.respawns[best].group = true
+	}
 }
 
 // setOverrideLocked updates the live timers for a mob to a new respawn (or the
@@ -169,13 +198,13 @@ func (z *zoneTracker) respawnsLocked(now int64) []Respawn {
 			continue // long past up — drop it
 		}
 		kept = append(kept, e)
-		out = append(out, Respawn{Mob: e.mob, Remaining: rem, Mine: e.mine, Killer: e.killer})
+		out = append(out, Respawn{Mob: e.mob, Remaining: rem, Mine: e.mine, Group: e.group, Killer: e.killer})
 	}
 	z.respawns = kept
-	// my kills first, then others'; within each, soonest-to-repop first.
+	// group kills (yours + xp-credited) first, then others'; within each, soonest first.
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Mine != out[j].Mine {
-			return out[i].Mine
+		if out[i].Group != out[j].Group {
+			return out[i].Group
 		}
 		if out[i].Remaining != out[j].Remaining {
 			return out[i].Remaining < out[j].Remaining

@@ -126,3 +126,28 @@ func TestRespawnMineFirstAndKiller(t *testing.T) {
 		t.Errorf("second row should be Gnadad's kodiak, got %+v", rs[1])
 	}
 }
+
+// TestRespawnGroupKillCreditedByXP: a mob a group-mate killed that we got xp for
+// counts as a group kill (sorted with ours), while a no-xp kill stays "others".
+func TestRespawnGroupKillCreditedByXP(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered east commonlands.", 1000)
+	tr.Observe("a giant rat has been slain by Borric!", 1000)       // group-mate's blow
+	tr.Observe("You gain party experience!!", 1001)                 // ...we got xp
+	tr.Observe("a fippy darkpaw has been slain by Stranger!", 1002) // no xp → others
+
+	rs := tr.Respawns(1003)
+	byMob := map[string]Respawn{}
+	for _, r := range rs {
+		byMob[r.Mob] = r
+	}
+	if g := byMob["a giant rat"]; !g.Group || g.Mine || g.Killer != "Borric" {
+		t.Errorf("xp-credited group-mate kill should be Group (not Mine), got %+v", g)
+	}
+	if o := byMob["a fippy darkpaw"]; o.Group {
+		t.Errorf("a no-xp kill should not be a group kill, got %+v", o)
+	}
+	if len(rs) > 0 && rs[0].Mob != "a giant rat" {
+		t.Errorf("the group kill should sort above others, got %+v", rs)
+	}
+}

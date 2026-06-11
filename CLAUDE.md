@@ -97,7 +97,11 @@ wiki — see `docs/zone-spawn-timers.md`). Every mob death — the player's own 
 player deaths) — starts a repop timer at the zone default (`Respawns()`). Each
 death is its own entry (a `[]respawnEntry`, not name-keyed), so two same-named
 mobs dying close together are tracked as distinct spawns rather than one reset.
-Zoning clears the list; entries purge ~2 min after they pop. The Damage panel's
+The repop list splits **group kills** (yours, plus a group-mate's that you got xp
+for — `creditGroupKillLocked` flags the just-killed mob when a "You gain (party)
+experience" line lands) from **others'** kills; the killer name still shows for
+any blow you didn't land yourself. Zoning clears the list; entries purge ~2 min
+after they pop. The Damage panel's
 **kills/hr** line is also zone-wide and xp-credited only: `ZoneKillStats` counts
 "You gain (party) experience" lines since the zone-in (not per-encounter killing
 blows) and rates them over time since the first kill. **Click a repop row**

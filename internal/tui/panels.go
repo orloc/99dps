@@ -472,7 +472,8 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string,
 	var lines []string
 	targets := map[int]string{}
 	for i, r := range rs {
-		if i > 0 && rs[i-1].Mine && !r.Mine {
+		// separate the group's kills (yours + xp-credited) from everyone else's.
+		if i > 0 && rs[i-1].Group && !r.Group {
 			sep := "── killed by others "
 			sep += strings.Repeat("─", max(w-lipgloss.Width(sep), 0))
 			lines = append(lines, th.fg(th.dim).Render(truncate(sep, w)))
@@ -485,17 +486,18 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string,
 		if editMob != "" && r.Mob == editMob {
 			marker = "▸ "
 		}
-		// names as bright as the buff names; the player's own kills bolded. Others'
-		// kills name the killer.
+		// your own kills bolded; a group-mate's (still a group kill) and others'
+		// name the killer; non-group kills are dimmed.
 		label := marker + r.Mob
 		nameStyle := th.fg(th.text)
-		if r.Mine {
+		switch {
+		case r.Mine:
 			nameStyle = nameStyle.Bold(true)
-		} else {
+		case !r.Group:
 			nameStyle = th.fg(th.dim)
-			if r.Killer != "" {
-				label += " «" + r.Killer
-			}
+		}
+		if !r.Mine && r.Killer != "" {
+			label += " «" + r.Killer
 		}
 		targets[len(lines)] = r.Mob
 		lines = append(lines, nameStyle.Width(nameW).Render(truncate(label, nameW))+" "+
