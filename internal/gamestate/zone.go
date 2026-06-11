@@ -44,16 +44,23 @@ type zoneTracker struct {
 	respawns   []respawnEntry // pending mob repops (one entry per death)
 	overrides  *Overrides     // persisted per-(zone,mob) respawn overrides
 
-	// reset on a zone change: xp-credited kills, player deaths, and the log time
-	// of the first xp kill (the kills/hr denominator).
+	// reset on a zone change: xp-credited kills (running total, for the count),
+	// player deaths, the log time of the first xp kill, and the times of the last
+	// hour's kills (the rolling kills/hr window — see killRateWindowSec).
 	xpKills     int
 	deaths      int
 	firstKillAt int64
+	xpKillTimes []int64
 }
+
+// killRateWindowSec is the rolling window for kills/hr: the rate reflects your
+// pace over the last hour (or the whole session if shorter), not a flat average
+// since the first kill — so old downtime doesn't drag the number down.
+const killRateWindowSec = 3600
 
 func (z *zoneTracker) clear() {
 	z.name, z.respawnSec, z.respawns = "", 0, nil
-	z.xpKills, z.deaths, z.firstKillAt = 0, 0, 0
+	z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
 }
 
 // observeLocked tracks zone-in lines and mob deaths to drive the zone-aware
@@ -65,7 +72,7 @@ func (z *zoneTracker) observeLocked(body string, at int64) {
 			z.name = zn
 			z.respawnSec, _ = ZoneRespawn(zn)
 			z.respawns = nil // left the zone — old repops are moot
-			z.xpKills, z.deaths, z.firstKillAt = 0, 0, 0
+			z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
 		}
 		return
 	}
@@ -77,6 +84,15 @@ func (z *zoneTracker) observeLocked(body string, at int64) {
 		if z.firstKillAt == 0 {
 			z.firstKillAt = at
 		}
+		// keep the last hour of kill times for the rolling rate (log order is
+		// monotonic, so old entries are a leading prefix to drop)
+		z.xpKillTimes = append(z.xpKillTimes, at)
+		cutoff := at - killRateWindowSec
+		drop := 0
+		for drop < len(z.xpKillTimes) && z.xpKillTimes[drop] < cutoff {
+			drop++
+		}
+		z.xpKillTimes = z.xpKillTimes[drop:]
 		z.creditGroupKillLocked(at) // the mob we just got xp for is a group kill
 		return
 	}
@@ -178,11 +194,23 @@ func (z *zoneTracker) setOverrideLocked(mob string, sec int) (string, *Overrides
 func (z *zoneTracker) killStatsLocked(now int64) (kills, perHour, deaths int) {
 	kills, deaths = z.xpKills, z.deaths
 	if kills > 0 && z.firstKillAt > 0 {
-		span := now - z.firstKillAt
-		if span < 1 {
-			span = 1
+		// rate over the last hour (or the whole session if shorter): count the kills
+		// inside the window and divide by the window's actual length.
+		windowStart := now - killRateWindowSec
+		if z.firstKillAt > windowStart {
+			windowStart = z.firstKillAt
 		}
-		perHour = kills * 3600 / int(span)
+		recent := 0
+		for _, ts := range z.xpKillTimes {
+			if ts >= windowStart {
+				recent++
+			}
+		}
+		dur := now - windowStart
+		if dur < 1 {
+			dur = 1
+		}
+		perHour = recent * 3600 / int(dur)
 	}
 	return kills, perHour, deaths
 }

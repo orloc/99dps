@@ -104,7 +104,10 @@ any blow you didn't land yourself. Zoning clears the list; entries purge ~2 min
 after they pop. The Damage panel's
 **kills/hr** line is also zone-wide and xp-credited only: `ZoneKillStats` counts
 "You gain (party) experience" lines since the zone-in (not per-encounter killing
-blows) and rates them over time since the first kill. **Click a repop row**
+blows). The total is the count; the *rate* is a **rolling last-hour** figure
+(`killRateWindowSec`) — recent kills over the window's actual length, not a flat
+average since the first kill — so idle time drops it toward zero rather than
+leaving a stale lifetime average. **Click a repop row**
 to edit that mob's respawn: an inline editor (digits/`:` typed into the bottom
 bar, Enter saves) writes a per-`(zone, mob)` override via `gamestate.Overrides` (JSON
 at `<logdir>/99dps-overrides.json`), retroactively fixes that mob's live timers,

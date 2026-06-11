@@ -151,3 +151,23 @@ func TestRespawnGroupKillCreditedByXP(t *testing.T) {
 		t.Errorf("the group kill should sort above others, got %+v", rs)
 	}
 }
+
+// TestZoneKillsPerHour_RollingWindow: kills/hr reflects the last hour's pace, not
+// a flat average since the first kill — so idle time drops the rate toward zero
+// rather than leaving a stale lifetime average.
+func TestZoneKillsPerHour_RollingWindow(t *testing.T) {
+	z := &zoneTracker{}
+	for i := 0; i < 30; i++ { // 30 kills over the first 10 minutes (every 20s)
+		z.observeLocked("You gain experience!!", int64(i)*20)
+	}
+
+	// at the 10-minute mark: 30 kills / (1/6 hr) = 180/hr
+	if k, ph, _ := z.killStatsLocked(600); k != 30 || ph != 180 {
+		t.Errorf("at 10 min: kills=%d rate=%d, want 30 and 180/hr", k, ph)
+	}
+	// 90 minutes later with no kills: the last-hour window is empty → 0/hr, but the
+	// total kill count is unchanged. (The old lifetime average would still show ~20/hr.)
+	if k, ph, _ := z.killStatsLocked(90 * 60); k != 30 || ph != 0 {
+		t.Errorf("after 90 min idle: kills=%d rate=%d, want 30 and 0/hr", k, ph)
+	}
+}
