@@ -133,8 +133,8 @@ func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []
 
 func urgencyColor(th theme, frac float64) string {
 	switch {
-	case frac <= 0.2:
-		return "#e0564e" // red — about to fade
+	case frac <= gamestate.StaleFrac:
+		return "#e0564e" // red — about to fade (same threshold as a refresh-vs-new-mob "stale")
 	case frac <= 0.5:
 		return th.accent // gold
 	default:

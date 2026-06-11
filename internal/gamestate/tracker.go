@@ -3,9 +3,19 @@ package gamestate
 import (
 	"99dps/internal/eqclass"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
+
+// StaleFrac is the fraction of a timer's full duration at/below which it counts
+// as "stale" — the SAME point the TUI tints the countdown red (see urgencyColor).
+// EQ logs carry no entity IDs, so a repeat landing of one spell on a same-named
+// mob is ambiguous: a re-cast refreshing that mob, or a cast on a second
+// identical mob. We resolve it by what the panel already shows the eye — a
+// landing while the existing copy is stale (red) refreshes it; while it's still
+// gold/green it's taken to be a distinct same-named mob and gets its own timer.
+const StaleFrac = 0.2
 
 // fallbackLevel is used to compute durations before we've seen the player's
 // real level in the log. It's the max classic level, so level-capped formulas
@@ -345,7 +355,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		t.pending = nil // instant spell — nothing to time
 		return
 	}
-	t.timers[key(t.pending.Name, target)] = Timer{
+	t.addOrRefreshTimerLocked(Timer{
 		Spell:       t.pending.Name,
 		Target:      target,
 		Start:       at,
@@ -353,10 +363,54 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		Detrimental: t.pending.Detrimental,
 		Mez:         t.pending.Mez,
 		Pacify:      t.pending.Pacify,
-	}
+	}, at)
 	// pending is left set on purpose: an AoE lands on several mobs, each with its
 	// own emote line, so we keep matching until the cast window (landWindowSec)
-	// expires the pending cast or a new cast supersedes it.
+	// expires the pending cast or a new cast supersedes it. (Same-named mobs in
+	// that AoE each get their own instance via addOrRefreshTimerLocked.)
+}
+
+// addOrRefreshTimerLocked stores a freshly-landed timer, deciding whether it
+// refreshes an existing same-named copy or is a distinct same-named mob (see
+// StaleFrac). It refreshes the soonest existing copy of this spell on this
+// target only when that copy is stale (red); otherwise the copy still up means a
+// different mob, so the new one gets its own instance under a unique key (the
+// Target stays the plain name, so grouping/break/slay/dismiss are unaffected).
+// This mirrors the Mob Tracker, which keeps one repop entry per kill. Caller
+// holds the lock.
+func (t *Tracker) addOrRefreshTimerLocked(tm Timer, at int64) {
+	soonestKey, soonestExp := "", int64(0)
+	for k, ex := range t.timers {
+		if ex.Spell == tm.Spell && ex.Target == tm.Target {
+			if soonestKey == "" || ex.Expiry < soonestExp {
+				soonestKey, soonestExp = k, ex.Expiry
+			}
+		}
+	}
+	if soonestKey != "" {
+		ex := t.timers[soonestKey]
+		if total := ex.Expiry - ex.Start; total <= 0 || float64(ex.Expiry-at) <= StaleFrac*float64(total) {
+			t.timers[soonestKey] = tm // stale (red) → a re-cast refreshing the same mob
+			return
+		}
+	}
+	t.timers[t.uniqueKeyLocked(tm.Spell, tm.Target)] = tm // fresh copy still up → a different same-named mob
+}
+
+// uniqueKeyLocked returns key(spell,target), suffixed with an instance number
+// when that base key is already taken, so several same-named mobs can each hold
+// a copy of the same spell. Caller holds the lock.
+func (t *Tracker) uniqueKeyLocked(spell, target string) string {
+	base := key(spell, target)
+	if _, taken := t.timers[base]; !taken {
+		return base
+	}
+	for i := 2; ; i++ {
+		k := base + "\x00" + strconv.Itoa(i)
+		if _, taken := t.timers[k]; !taken {
+			return k
+		}
+	}
 }
 
 // startCharmLocked begins (or replaces) the single charm timer. Its expiry is
@@ -425,30 +479,32 @@ func (t *Tracker) expireByMessageLocked(body string) {
 			matched = append(matched, k)
 		}
 	}
-	if len(matched) <= 1 {
-		for _, k := range matched {
-			delete(t.timers, k) // the common case: one timer owns this fade text
-		}
-		return
-	}
-
-	// the same fade text matches several timers — the same debuff up on multiple
-	// mobs. EQ writes the line as "<target> <fades>", so clear only the timer
-	// whose target prefixes the line (case-insensitively, since cast emotes
-	// capitalize the leading name and fade lines may not). If none match — e.g. a
-	// target-less self-buff fade — fall back to clearing all of them.
+	// One fade line = ONE mob's debuff ending, so clear a single instance — never
+	// every same-named copy (two "a sand giant" each with Malosini: one fading must
+	// leave the other's timer running). EQ writes "<target> <fades>", so prefer the
+	// copies whose target prefixes the line (case-insensitively — cast emotes
+	// capitalize the leading name, fade lines may not); among those drop only the
+	// soonest-to-expire. Fall back to all matched when none prefix (a target-less
+	// self-buff fade, where there are no same-named duplicates to confuse anyway).
 	lower := strings.ToLower(body)
-	var cleared bool
+	var prefixed []string
 	for _, k := range matched {
-		if tm, ok := t.timers[k]; ok && strings.HasPrefix(lower, strings.ToLower(tm.Target)) {
-			delete(t.timers, k)
-			cleared = true
+		if strings.HasPrefix(lower, strings.ToLower(t.timers[k].Target)) {
+			prefixed = append(prefixed, k)
 		}
 	}
-	if !cleared {
-		for _, k := range matched {
-			delete(t.timers, k)
+	cands := prefixed
+	if len(cands) == 0 {
+		cands = matched
+	}
+	soonestK, soonestE := "", int64(0)
+	for _, k := range cands {
+		if tm := t.timers[k]; soonestK == "" || tm.Expiry < soonestE {
+			soonestK, soonestE = k, tm.Expiry
 		}
+	}
+	if soonestK != "" {
+		delete(t.timers, soonestK)
 	}
 }
 
@@ -474,12 +530,25 @@ func (t *Tracker) expireOnSlainLocked(body string) {
 	default:
 		return
 	}
+	// one death clears one mob's worth of debuffs. With several same-named mobs
+	// each holding a copy of a spell, drop the soonest instance of each spell on
+	// the victim — not every copy — so the surviving same-named mobs keep theirs.
+	// (For "You", each buff is unique, so this clears all your buffs as before.)
+	soonestKey := map[string]string{}
+	soonestExp := map[string]int64{}
 	for k, tm := range t.timers {
 		// case-insensitive: EQ capitalizes the leading name in landing emotes
 		// (timer target) but not in death lines (victim).
-		if strings.EqualFold(tm.Target, victim) {
-			delete(t.timers, k)
+		if !strings.EqualFold(tm.Target, victim) {
+			continue
 		}
+		if _, seen := soonestKey[tm.Spell]; !seen || tm.Expiry < soonestExp[tm.Spell] {
+			soonestKey[tm.Spell] = k
+			soonestExp[tm.Spell] = tm.Expiry
+		}
+	}
+	for _, k := range soonestKey {
+		delete(t.timers, k)
 	}
 }
 
