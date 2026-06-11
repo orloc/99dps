@@ -20,11 +20,12 @@ import (
 // session counts just under the kill count (the right side of over- vs
 // under-splitting); 6 over-split, 15 began merging distinct pulls.
 const (
-	segGapFloor  = 10  // never split on a gap shorter than this (seconds)
-	segGapCeil   = 20  // always split after this much silence
-	segPulseK    = 3   // close at k × pulse
-	segPulseSeed = 4.0 // seed pulse before a fight reveals its cadence
-	segEWMAAlpha = 0.3 // EWMA weight on the newest gap
+	segGapFloor     = 10  // never split on a gap shorter than this (seconds)
+	segGapCeil      = 20  // always split after this much silence (a *new* enemy)
+	segReengageCeil = 300 // …but keep one session across a longer lull (≤5 min) if it re-engages an enemy the fight already involved (a camp hunt while you med/CC)
+	segPulseK       = 3   // close at k × pulse
+	segPulseSeed    = 4.0 // seed pulse before a fight reveals its cadence
+	segEWMAAlpha    = 0.3 // EWMA weight on the newest gap
 )
 
 type SessionManager struct {
@@ -43,7 +44,7 @@ type SessionManager struct {
 func (sm *SessionManager) Apply(set *combat.DamageSet) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	sm.activeForLocked(set.ActionTime).adjustDamageLocked(set)
+	sm.activeForLocked(set.ActionTime, set.Dealer, set.Target).adjustDamageLocked(set)
 }
 
 // ApplySwing folds an avoided melee attempt into the fight. Swings are combat
@@ -52,13 +53,15 @@ func (sm *SessionManager) Apply(set *combat.DamageSet) {
 func (sm *SessionManager) ApplySwing(sw *combat.Swing) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	sm.activeForLocked(sw.ActionTime).applySwingLocked(sw)
+	sm.activeForLocked(sw.ActionTime, sw.Attacker, sw.Defender).applySwingLocked(sw)
 }
 
 // activeForLocked returns the session an event at actionTime belongs to,
-// rolling to a fresh one when combat has been quiet past the adaptive
-// threshold. Caller holds the write lock.
-func (sm *SessionManager) activeForLocked(actionTime int64) *CombatSession {
+// rolling to a fresh one when combat has been quiet past the adaptive threshold.
+// combatants are the names involved in this exchange (dealer/target etc.), used
+// to keep a camp hunt one session across medding lulls — see the re-engage rule
+// below. Caller holds the write lock.
+func (sm *SessionManager) activeForLocked(actionTime int64, combatants ...string) *CombatSession {
 	if len(sm.sessions) == 0 {
 		return sm.openSessionLocked(actionTime)
 	}
@@ -76,6 +79,15 @@ func (sm *SessionManager) activeForLocked(actionTime int64) *CombatSession {
 	}
 
 	if gap > sm.closeThresholdLocked() {
+		// Combat went quiet past the idle threshold. A camp hunt has lulls longer
+		// than that — you root/mez and med between pulls — so if this exchange
+		// re-engages an enemy the active fight already involved, and we're still
+		// within a generous ceiling, keep it ONE session. The lull isn't a real
+		// cadence sample, so don't fold it into the pulse.
+		if gap <= segReengageCeil && active.reengages(combatants) {
+			sm.lastActivity = actionTime
+			return active
+		}
 		active.end = time.Unix(sm.lastActivity, 0)
 		return sm.openSessionLocked(actionTime)
 	}
@@ -160,7 +172,7 @@ func (sm *SessionManager) endSessionLocked(at int64) {
 func (sm *SessionManager) ApplyMagic(m *combat.Magic) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	sm.activeForLocked(m.ActionTime).applyMagicLocked(m)
+	sm.activeForLocked(m.ActionTime, m.Target).applyMagicLocked(m)
 }
 
 // Current returns a deep snapshot of the active session, or nil. The returned

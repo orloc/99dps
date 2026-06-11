@@ -216,3 +216,22 @@ func TestReplay_DeathClosesSession(t *testing.T) {
 		t.Errorf("the player's death should close the encounter, but it's still open (%q)", last.Name())
 	}
 }
+
+// TestReplay_DrolvargCampOneSession: a real camp hunt from Kelkas's log — the
+// same drolvargs over ~6 minutes with medding/CC lulls of 29s, 118s and 161s
+// between bursts. Each lull exceeds the idle threshold, but re-engaging the same
+// camp keeps it ONE session instead of fragmenting into ~5.
+func TestReplay_DrolvargCampOneSession(t *testing.T) {
+	sm := replayLog(t, loadFixture(t, "drolvarg_camp.log"), "Kelkas", nil)
+	all := sm.All()
+	if len(all) != 1 {
+		names := make([]string, len(all))
+		for i, s := range all {
+			names[i] = s.Name()
+		}
+		t.Fatalf("the drolvarg camp should be one session; got %d: %v", len(all), names)
+	}
+	if !strings.Contains(all[0].Name(), "drolvarg") {
+		t.Errorf("the session should be named after the camp; got %q", all[0].Name())
+	}
+}

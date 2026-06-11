@@ -55,6 +55,31 @@ type Defender struct {
 	Stats combat.SwingStats
 }
 
+// reengages reports whether any of the named combatants (an exchange's
+// dealer/target) is an ENEMY this session already involved — used to keep a camp
+// hunt one session across a lull. The player ("You"/"YOU") is excluded, since
+// every fight involves them; only a returning foe counts. Caller holds the lock.
+func (cs *CombatSession) reengages(combatants []string) bool {
+	for _, name := range combatants {
+		if name == "" || strings.EqualFold(name, "You") {
+			continue
+		}
+		if cs.involves(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// involves reports whether name has dealt or taken damage in this session.
+func (cs *CombatSession) involves(name string) bool {
+	if _, ok := cs.aggressors[strings.ReplaceAll(name, " ", "_")]; ok {
+		return true
+	}
+	_, ok := cs.targets[name]
+	return ok
+}
+
 // adjustDamageLocked applies one event. Caller must hold the SessionManager
 // write lock.
 func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {

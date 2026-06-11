@@ -78,10 +78,39 @@ func TestSegmentation_AdaptiveCadence(t *testing.T) {
 		t.Fatalf("swing activity should hold one session, got %d", sm.Len())
 	}
 
-	// a long silence past the ceiling opens a new encounter
-	sm.Apply(&combat.DamageSet{ActionTime: 1024 + segGapCeil + 5, Dealer: "You", Dmg: 10, Target: "a rat"})
+	// a long silence past the ceiling, against a NEW enemy, opens a new encounter
+	sm.Apply(&combat.DamageSet{ActionTime: 1024 + segGapCeil + 5, Dealer: "You", Dmg: 10, Target: "a bat"})
 	if sm.Len() != 2 {
-		t.Fatalf("silence past the ceiling should roll a session, got %d", sm.Len())
+		t.Fatalf("silence past the ceiling (new enemy) should roll a session, got %d", sm.Len())
+	}
+}
+
+// TestSegmentation_Reengage: a camp hunt with lulls longer than the idle
+// threshold stays one session as long as you keep fighting enemies the session
+// already involved — but a new enemy, or a lull past the re-engage ceiling, rolls.
+func TestSegmentation_Reengage(t *testing.T) {
+	sm := &SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 1005, Dmg: 50, Target: "a drolvarg growler"})
+
+	// ~2-min lull (root + med), then the snarler swings at you → same camp, one fight
+	sm.Apply(&combat.DamageSet{ActionTime: 1005 + 120, Dealer: "a drolvarg snarler", Dmg: 50, Target: "YOU"})
+	if got := sm.Len(); got != 1 {
+		t.Fatalf("re-engaging the same camp after a lull should stay one session; got %d", got)
+	}
+
+	// a different enemy after a lull → new session
+	sm.Apply(&combat.DamageSet{ActionTime: 1005 + 240, Dealer: "You", Dmg: 10, Target: "a bat"})
+	if got := sm.Len(); got != 2 {
+		t.Fatalf("a different enemy after a lull should roll; got %d", got)
+	}
+
+	// past the re-engage ceiling, even the same enemy rolls
+	sm2 := &SessionManager{}
+	sm2.Apply(&combat.DamageSet{ActionTime: 2000, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
+	sm2.Apply(&combat.DamageSet{ActionTime: 2000 + segReengageCeil + 5, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
+	if got := sm2.Len(); got != 2 {
+		t.Fatalf("past the re-engage ceiling the same enemy still rolls; got %d", got)
 	}
 }
 
@@ -210,14 +239,16 @@ func TestApply_FirstHitDoesNotRollSession(t *testing.T) {
 func TestApply_ThresholdRollsSessions(t *testing.T) {
 	sm := &SessionManager{}
 
-	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_000, Dealer: "Foo", Dmg: 1})
-	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_005, Dealer: "Foo", Dmg: 1}) // +5s, same session
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_000, Dealer: "You", Dmg: 1, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_005, Dealer: "You", Dmg: 1, Target: "a rat"}) // +5s, same session
 	if got := len(sm.sessions); got != 1 {
 		t.Fatalf("within-threshold hit opened a new session: got %d sessions", got)
 	}
 
-	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_100, Dealer: "Foo", Dmg: 1}) // +95s, new session
+	// +95s on a DIFFERENT enemy → a new session (the re-engage rule only bridges a
+	// lull when you return to an enemy the fight already involved).
+	sm.Apply(&combat.DamageSet{ActionTime: 1_700_000_100, Dealer: "You", Dmg: 1, Target: "a bat"})
 	if got := len(sm.sessions); got != 2 {
-		t.Fatalf("past-threshold hit didn't roll: got %d sessions", got)
+		t.Fatalf("past-threshold hit on a new enemy didn't roll: got %d sessions", got)
 	}
 }
