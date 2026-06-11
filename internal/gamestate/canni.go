@@ -108,8 +108,13 @@ func (c *canniMeter) pctLocked() int {
 // statsLocked returns the live dance readout, or an empty (inactive) value once
 // the dance has lapsed. Caller holds the lock.
 func (c *canniMeter) statsLocked(now int64) CanniStats {
-	if c.lastCast == 0 || now-c.lastCast > canniDanceTimeoutSec {
-		return CanniStats{}
+	if c.lastCast == 0 {
+		return CanniStats{} // never danced this session
+	}
+	if now-c.lastCast > canniDanceTimeoutSec {
+		// the dance has lapsed — keep a muted summary (session best/score) so the
+		// meter stays visible between dances. Reset on zone/character switch (clear).
+		return CanniStats{Rank: c.rank, Score: c.score, Best: c.bestPct}
 	}
 	return CanniStats{
 		Active:  true,

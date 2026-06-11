@@ -57,10 +57,9 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 
 	// gated indicator sections stack above the body; count their lines so the
 	// body's line→target map can be shifted down to match (cf. the previous stackPanel).
+	// (The canni dance meter is no longer here — it's pinned to the bottom of the
+	// Damage panel, see canniFooter.)
 	var sections []string
-	if cm := canniMeter(th, tr.CanniStats(now), w); cm != "" {
-		sections = append(sections, cm)
-	}
 	switch tr.FeignStatus(now) {
 	case gamestate.FeignFailed:
 		sections = append(sections, badge(th, "#e0564e", "⚠ FEIGN FAILED — mobs still on you", w))
@@ -115,17 +114,44 @@ func badge(th theme, bgHex, text string, w int) string {
 		Bold(true).Width(w).Render(truncate(text, w))
 }
 
-// canniMeter is the shaman "canni dance" efficiency readout (grade + bar). "".
-func canniMeter(th theme, c gamestate.CanniStats, w int) string {
-	if !c.Active {
-		return ""
+// canniFooter is the shaman "canni dance" meter, pinned at the bottom of the
+// Damage panel so it stays visible while the dealer list scrolls. It renders a
+// fixed 4 lines — a divider rule, a graded headline, a throughput bar, and a
+// detail line — whenever the player is dancing OR has danced this session, so
+// the height it reserves stays stable across the dance. With the full Damage
+// width it shows more than the old narrow readout: rank, the recast beat, combo,
+// score, session best, and early ("buzzer") presses. Returns the block and its
+// line count; ("", 0) when there's nothing to show yet.
+func canniFooter(th theme, c gamestate.CanniStats, w int) (string, int) {
+	if !c.Active && c.Best == 0 && c.Score == 0 {
+		return "", 0 // never danced this session — nothing to pin
+	}
+	rule := th.fg(th.accentLo).Render(strings.Repeat("─", max(w, 0)))
+	detailLine := func(parts ...string) string {
+		var nz []string
+		for _, p := range parts {
+			if p != "" {
+				nz = append(nz, p)
+			}
+		}
+		return th.fg(th.dim).Render(truncate(strings.Join(nz, " · "), w))
+	}
+	if !c.Active { // idle between dances — keep it present but muted
+		head := th.fg(th.dim).Bold(true).Render(truncate("⟳ CANNI DANCE — idle", w))
+		bar := gradientBar(0, w, th.dim, th.dim, th.track)
+		detail := detailLine(c.Rank, fmt.Sprintf("best %d%%", c.Best), humanize(c.Score)+" pts")
+		return strings.Join([]string{rule, head, bar, detail}, "\n"), 4
 	}
 	grade, col := canniGrade(c.Pct)
-	head := badge(th, col, fmt.Sprintf("⟳ CANNI  %d%%  %s  ×%d", c.Pct, grade, c.Combo), w)
+	head := badge(th, col, fmt.Sprintf("⟳ CANNI DANCE   %d%%  grade %s   ×%d combo", c.Pct, grade, c.Combo), w)
 	bar := gradientBar(float64(c.Pct)/100, w, col, col, th.track)
-	detail := th.fg(th.dim).Render(truncate(
-		fmt.Sprintf("%s · %.2fs · %s pts · best %d%%", c.Rank, float64(c.EdgeMs)/1000, humanize(c.Score), c.Best), w))
-	return head + "\n" + bar + "\n" + detail
+	early := ""
+	if c.Buzzers > 0 {
+		early = fmt.Sprintf("%d early", c.Buzzers)
+	}
+	detail := detailLine(c.Rank, fmt.Sprintf("beat %.2fs", float64(c.EdgeMs)/1000),
+		humanize(c.Score)+" pts", fmt.Sprintf("best %d%%", c.Best), early)
+	return strings.Join([]string{rule, head, bar, detail}, "\n"), 4
 }
 
 func canniGrade(pct int) (grade, colorHex string) {

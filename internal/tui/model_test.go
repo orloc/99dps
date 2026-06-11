@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -786,5 +787,57 @@ func TestWriteShots(t *testing.T) {
 	dmm := dm.(Model)
 	if err := os.WriteFile("/tmp/tui-damage.txt", []byte(dmm.damageContent(dmm.sessions[dmm.effectiveSel()], true, 80)), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// canniRow builds a Cannibalize spell row with a recast time (drives the meter).
+func canniRow(name string, recastMs int) string {
+	f := make([]string, 217)
+	for i := range f {
+		f[i] = "0"
+	}
+	f[1] = name                    // fName
+	f[15] = strconv.Itoa(recastMs) // recast (ms) — the dance beat
+	return strings.Join(f, "^")
+}
+
+// TestCanniPinnedInDamagePanel: a live canni dance shows pinned at the bottom of
+// the Damage panel (not in the class/Buffs panel), and its height is reserved
+// out of the dealer viewport so it can't scroll away.
+func TestCanniPinnedInDamagePanel(t *testing.T) {
+	book, _ := gamestate.LoadReader(strings.NewReader(canniRow("Cannibalize III", 9000)))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassShaman)
+	now := time.Now().Unix()
+	tr.BeginCast("Cannibalize III", now-9)
+	tr.BeginCast("Cannibalize III", now) // second cast within the window → Active
+
+	var m tea.Model = New(sampleManager(), tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	mm := m.(Model)
+
+	if !strings.Contains(mm.View(), "CANNI DANCE") {
+		t.Fatal("the canni dance meter should be visible in the view")
+	}
+	if strings.Contains(mm.vpClass.View(), "CANNI") {
+		t.Error("canni should no longer render in the class/Buffs panel")
+	}
+	ld := mm.layout()
+	if _, dmgInnerH := cardInner(ld.dmgW, ld.dmgH); mm.vpDamage.Height >= dmgInnerH {
+		t.Errorf("dealer viewport height %d should be reduced below %d to pin the canni footer", mm.vpDamage.Height, dmgInnerH)
+	}
+}
+
+// TestCanniFooterIdleAndEmpty: before any dance the footer is absent; an idle
+// (lapsed) dance keeps a muted summary line.
+func TestCanniFooterIdleAndEmpty(t *testing.T) {
+	th := themes[0]
+	if s, n := canniFooter(th, gamestate.CanniStats{}, 50); s != "" || n != 0 {
+		t.Errorf("no dance → empty footer, got %q / %d lines", s, n)
+	}
+	s, n := canniFooter(th, gamestate.CanniStats{Best: 88, Score: 1200, Rank: "Cannibalize III"}, 50)
+	if n != 4 || !strings.Contains(s, "idle") || !strings.Contains(s, "best 88%") {
+		t.Errorf("idle footer should be a 4-line muted summary with best%%, got %d lines:\n%s", n, s)
 	}
 }

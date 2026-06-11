@@ -80,7 +80,8 @@ type Model struct {
 	editBuf    string
 	editMob    string
 
-	spellInfo string // data-source summary for the footer
+	spellInfo  string // data-source summary for the footer
+	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
 
 	w, h  int
 	ready bool
@@ -217,6 +218,19 @@ func (m *Model) refresh() {
 	}
 	live := cur != nil && cur.EndTime().IsZero()
 	th := themes[m.theme]
+
+	// the canni dance meter is pinned to the bottom of the Damage panel; reserve
+	// its lines from the dealer viewport so it's always visible (it never scrolls
+	// away with the dealer list). Recomputed each tick since the dance state moves.
+	var canniLines int
+	if m.tracker != nil {
+		m.canniBlock, canniLines = canniFooter(th, m.tracker.CanniStats(time.Now().Unix()), m.vpDamage.Width)
+	} else {
+		m.canniBlock = ""
+	}
+	ld := m.layout()
+	_, dmgInnerH := cardInner(ld.dmgW, ld.dmgH)
+	m.vpDamage.Height = max(dmgInnerH-canniLines, 1)
 
 	m.vpDamage.SetContent(m.damageContent(cur, live, m.vpDamage.Width))
 	m.vpExtras.SetContent(m.extrasContent(cur, m.vpExtras.Width))
@@ -684,7 +698,13 @@ func (m Model) View() string {
 	// top-right: the dealer meter beside its Specials / Avoidance side column.
 	// The side card has no title — its SPECIALS / AVOIDANCE section headers label
 	// it. On a narrow terminal there's no side column; the meter takes the width.
-	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), m.vpDamage.View())
+	// the canni dance meter is pinned beneath the scrollable dealer list (its
+	// height was reserved out of the viewport in refresh), so it's always visible.
+	dmgBody := m.vpDamage.View()
+	if m.canniBlock != "" {
+		dmgBody = lipgloss.JoinVertical(lipgloss.Left, dmgBody, m.canniBlock)
+	}
+	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), dmgBody)
 	if ld.extrasW > 0 {
 		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
 			topRight, " ", card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))
