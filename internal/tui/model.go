@@ -615,6 +615,21 @@ func (m Model) banner(th theme, w int) string {
 	return bar.Width(w).MaxWidth(w).Render(line)
 }
 
+// scrollHint returns a tiny arrow for a card title when its viewport has content
+// off-screen: ▾ (more below), ▴ (more above), ↕ (both), "" (it all fits).
+func scrollHint(vp viewport.Model) string {
+	up, down := !vp.AtTop(), !vp.AtBottom()
+	switch {
+	case up && down:
+		return " ↕"
+	case down:
+		return " ▾"
+	case up:
+		return " ▴"
+	}
+	return ""
+}
+
 func (m Model) View() string {
 	if !m.ready {
 		return "starting…"
@@ -625,7 +640,7 @@ func (m Model) View() string {
 	innerW := m.w - 2 // content width inside the outer Padding(1,1)
 	banner := m.banner(th, innerW)
 
-	left := card(th, ld.leftW, ld.sessH, "Sessions", m.vpSessions.View())
+	left := card(th, ld.leftW, ld.sessH, "Sessions"+scrollHint(m.vpSessions), m.vpSessions.View())
 
 	dmgTitle := "Damage"
 	if sel := m.effectiveSel(); sel >= 0 {
@@ -634,22 +649,24 @@ func (m Model) View() string {
 
 	// bottom row: the class-aware panel + Mob Tracker — enchanters get a third,
 	// dedicated Crowd Control column (matching the gocui layout). Every panel
-	// renders from its own viewport, so each scrolls independently.
+	// renders from its own viewport, so each scrolls independently — a scroll hint
+	// (▾/▴/↕) in the title signals when there's more off-screen.
+	classTitle := classPanelTitle(m.tracker) + scrollHint(m.vpClass)
 	var bottom string
 	if ld.ench {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
-			card(th, ld.classW, ld.botH, classPanelTitle(m.tracker), m.vpClass.View()), " ",
-			card(th, ld.ccW, ld.botH, "Crowd Control", m.vpCC.View()), " ",
-			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
+			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
+			card(th, ld.ccW, ld.botH, "Crowd Control"+scrollHint(m.vpCC), m.vpCC.View()), " ",
+			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
 	} else {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
-			card(th, ld.classW, ld.botH, classPanelTitle(m.tracker), m.vpClass.View()), " ",
-			card(th, ld.mobW, ld.botH, "Mob Tracker", m.vpMob.View()))
+			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
+			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
 	}
 	// top-right: the dealer meter beside its Specials / Avoidance side column.
 	// The side card has no title — its SPECIALS / AVOIDANCE section headers label
 	// it. On a narrow terminal there's no side column; the meter takes the width.
-	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle, m.vpDamage.View())
+	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), m.vpDamage.View())
 	if ld.extrasW > 0 {
 		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
 			topRight, " ", card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))

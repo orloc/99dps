@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -494,6 +495,20 @@ func TestSpellsAttributedToYou(t *testing.T) {
 	}
 	if youIdx < 0 || spIdx != youIdx+1 {
 		t.Errorf("spells should sit directly under You (you=%d spells=%d)", youIdx, spIdx)
+	}
+}
+
+// TestScrollHint: a viewport with off-screen content advertises it in the title.
+func TestScrollHint(t *testing.T) {
+	over := viewport.New(20, 3)
+	over.SetContent("a\nb\nc\nd\ne\nf") // 6 lines in a height-3 viewport → more below
+	if h := scrollHint(over); h != " ▾" {
+		t.Errorf("overflow (at top) should hint ▾, got %q", h)
+	}
+	fits := viewport.New(20, 10)
+	fits.SetContent("a\nb")
+	if h := scrollHint(fits); h != "" {
+		t.Errorf("content that fits should have no hint, got %q", h)
 	}
 }
 
