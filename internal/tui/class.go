@@ -54,6 +54,7 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 		return timerColumn(th, nil, w, hover, true, true, true)
 	}
 	now := time.Now().Unix()
+	class, level := tr.Class(), tr.Level()
 
 	// gated indicator sections stack above the body; count their lines so the
 	// body's line→target map can be shifted down to match (cf. the previous stackPanel).
@@ -73,6 +74,9 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 		sections = append(sections, badge(th, "#e0564e", truncate("✦ "+sp+" resisted", w), w))
 	}
 	if cds := tr.Cooldowns(now); len(cds) > 0 {
+		for i := range cds { // name the generic kick/strike by level (Flying Kick, etc.)
+			cds[i].Name = displaySkillName(cds[i].Name, class, level)
+		}
 		sections = append(sections, cooldownRows(th, cds, w))
 	}
 
@@ -81,7 +85,6 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 	wantCC, wantDebuffs := !enemySplit, !enemySplit
 	var body string
 	var bodyMap map[int]string
-	class, level := tr.Class(), tr.Level()
 	switch tr.Category() {
 	case eqclass.CatMelee:
 		body = skillsBody(th, cur, class, level, w)
@@ -174,8 +177,8 @@ func canniGrade(pct int) (grade, colorHex string) {
 func cooldownRows(th theme, cds []gamestate.CooldownTimer, w int) string {
 	lines := []string{th.fg(th.accent).Bold(true).Render("COOLDOWNS")}
 	const (
-		nameW  = 11
-		timeW  = 5 // "m:ss" or "ready"
+		nameW  = 12 // fits "Eagle Strike" / "Dragon Punch"
+		timeW  = 5  // "m:ss" or "ready"
 		charge = "#5aa9e6"
 		ready  = "#5fd37a"
 	)
@@ -267,9 +270,29 @@ func skillsSummaryLine(cur *session.CombatSession, class eqclass.Class, level in
 
 // ---- ported skill/stat helpers (from the old render layer) -----------------------
 
+// displaySkillName labels a generic monk skill bucket by level — the kick and
+// hand-strike specials log generically, so the level-right name is a best guess.
 func displaySkillName(generic string, class eqclass.Class, level int) string {
-	if class == eqclass.ClassMonk && generic == "Kick" && level >= 30 {
-		return "Flying Kick"
+	if class != eqclass.ClassMonk {
+		return generic
+	}
+	switch generic {
+	case "Kick":
+		switch {
+		case level >= 30:
+			return "Flying Kick"
+		case level >= 5:
+			return "Round Kick"
+		}
+	case "Strike":
+		switch {
+		case level >= 25:
+			return "Dragon Punch"
+		case level >= 10:
+			return "Eagle Strike"
+		default:
+			return "Tiger Claw"
+		}
 	}
 	return generic
 }

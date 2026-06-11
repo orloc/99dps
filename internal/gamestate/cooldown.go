@@ -14,7 +14,15 @@ type Cooldown struct {
 	Class    eqclass.Class
 	ReuseSec int64
 	matches  func(line string) bool
+	// requireClass: the activation isn't class-exclusive (a kick — warriors kick
+	// too), so only count it for an already-known matching class, and never infer
+	// the class from it.
+	requireClass bool
 }
+
+// monkSpecialReuseSec is the reuse on monk special attacks (kick / hand strike).
+// Measured from Kelkix's logs: kicks chain no faster than ~5s apart.
+const monkSpecialReuseSec = 5
 
 // cooldownRegistry lists the tracked skill cooldowns. Activation strings are
 // matched leniently to cover the success / partial / fail message variants, since
@@ -33,6 +41,29 @@ var cooldownRegistry = []Cooldown{
 				strings.Contains(s, "mended some of your wounds") ||
 				strings.Contains(s, "to mend failed") ||
 				(strings.Contains(s, "worsen") && strings.Contains(s, "wounds"))
+		},
+	},
+	{
+		// the level-appropriate kick (Round Kick → Flying Kick); the panel names it
+		// by level. Logged as a generic "kick", which isn't monk-only, so it's
+		// class-gated and non-inferring.
+		Name:         "Kick",
+		Class:        eqclass.ClassMonk,
+		ReuseSec:     monkSpecialReuseSec,
+		requireClass: true,
+		matches: func(s string) bool {
+			return strings.HasPrefix(s, "You kick ") || strings.HasPrefix(s, "You try to kick ")
+		},
+	},
+	{
+		// the hand special (Tiger Claw / Eagle Strike / Dragon Punch), logged as a
+		// generic "strike"; named by level in the panel.
+		Name:         "Strike",
+		Class:        eqclass.ClassMonk,
+		ReuseSec:     monkSpecialReuseSec,
+		requireClass: true,
+		matches: func(s string) bool {
+			return strings.HasPrefix(s, "You strike ") || strings.HasPrefix(s, "You try to strike ")
 		},
 	},
 }
@@ -140,12 +171,19 @@ func (c *cooldownTracker) feignStatusLocked(now int64) FeignState {
 // matchLocked starts (or restarts) a reuse timer when a line is an ability
 // activation, and returns the class that ability reveals (ClassUnknown if the
 // line matched nothing). Caller holds the lock.
-func (c *cooldownTracker) matchLocked(body string, at int64) eqclass.Class {
+func (c *cooldownTracker) matchLocked(body string, at int64, class eqclass.Class) eqclass.Class {
 	for _, cd := range cooldownRegistry {
-		if cd.matches(body) {
-			c.cooldowns[cd.Name] = at + cd.ReuseSec
-			return cd.Class
+		if !cd.matches(body) {
+			continue
 		}
+		if cd.requireClass && class != cd.Class {
+			continue // not class-exclusive (a kick) — only count it for a known matching class
+		}
+		c.cooldowns[cd.Name] = at + cd.ReuseSec
+		if cd.requireClass {
+			return eqclass.ClassUnknown // never infer the class from a non-exclusive activation
+		}
+		return cd.Class
 	}
 	return eqclass.ClassUnknown
 }

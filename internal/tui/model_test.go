@@ -928,3 +928,24 @@ func TestCooldownBoxes(t *testing.T) {
 		}
 	}
 }
+
+// TestDisplaySkillName_MonkTiers: the generic kick/strike buckets are named by
+// the monk's level.
+func TestDisplaySkillName_MonkTiers(t *testing.T) {
+	cases := []struct {
+		gen  string
+		lvl  int
+		want string
+	}{
+		{"Kick", 60, "Flying Kick"}, {"Kick", 12, "Round Kick"},
+		{"Strike", 60, "Dragon Punch"}, {"Strike", 15, "Eagle Strike"}, {"Strike", 4, "Tiger Claw"},
+	}
+	for _, c := range cases {
+		if got := displaySkillName(c.gen, eqclass.ClassMonk, c.lvl); got != c.want {
+			t.Errorf("displaySkillName(%q, monk, %d) = %q, want %q", c.gen, c.lvl, got, c.want)
+		}
+	}
+	if got := displaySkillName("Kick", eqclass.ClassWarrior, 60); got != "Kick" {
+		t.Errorf("non-monk kick should stay generic, got %q", got)
+	}
+}

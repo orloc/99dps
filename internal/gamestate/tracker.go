@@ -276,7 +276,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.observePetLocked(body)
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
-	t.inferClassLocked(t.cool.matchLocked(body, at))
+	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
 	t.zone.observeLocked(body, at)
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()
