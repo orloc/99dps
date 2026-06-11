@@ -44,26 +44,19 @@ var cooldownRegistry = []Cooldown{
 		},
 	},
 	{
-		// the level-appropriate kick (Round Kick → Flying Kick); the panel names it
-		// by level. Logged as a generic "kick", which isn't monk-only, so it's
+		// monk special attacks all share ONE reuse timer — kick AND the hand
+		// strikes (Tiger Claw / Eagle Strike / Dragon Punch) — so a single cooldown
+		// covers them, started by whichever is used. The panel names it by level
+		// (Round Kick → Flying Kick, which is all a 30+ monk uses). Logged
+		// generically, and a kick isn't monk-exclusive (warriors kick too), so it's
 		// class-gated and non-inferring.
 		Name:         "Kick",
 		Class:        eqclass.ClassMonk,
 		ReuseSec:     monkSpecialReuseSec,
 		requireClass: true,
 		matches: func(s string) bool {
-			return strings.HasPrefix(s, "You kick ") || strings.HasPrefix(s, "You try to kick ")
-		},
-	},
-	{
-		// the hand special (Tiger Claw / Eagle Strike / Dragon Punch), logged as a
-		// generic "strike"; named by level in the panel.
-		Name:         "Strike",
-		Class:        eqclass.ClassMonk,
-		ReuseSec:     monkSpecialReuseSec,
-		requireClass: true,
-		matches: func(s string) bool {
-			return strings.HasPrefix(s, "You strike ") || strings.HasPrefix(s, "You try to strike ")
+			return strings.HasPrefix(s, "You kick ") || strings.HasPrefix(s, "You try to kick ") ||
+				strings.HasPrefix(s, "You strike ") || strings.HasPrefix(s, "You try to strike ")
 		},
 	},
 }

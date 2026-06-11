@@ -6,22 +6,27 @@ import (
 	"99dps/internal/eqclass"
 )
 
-// TestCooldown_MonkKickAndStrike: a known monk's kick/strike start their reuse
-// cooldowns (with the full reuse exposed for the charge bar).
-func TestCooldown_MonkKickAndStrike(t *testing.T) {
+// TestCooldown_MonkSpecialSharedTimer: monk specials share ONE reuse timer, so a
+// kick and a hand strike drive a single "Kick" cooldown — never two — and a
+// strike (re)starts the same timer.
+func TestCooldown_MonkSpecialSharedTimer(t *testing.T) {
 	tr := NewTracker(loadBook(t))
 	tr.SetClass(eqclass.ClassMonk)
-	tr.Observe("You kick a sand giant for 24 points of damage.", 1000)
-	tr.Observe("You strike a sand giant for 18 points of damage.", 1000)
 
-	got := map[string]int64{}
-	for _, cd := range tr.Cooldowns(1001) {
-		got[cd.Name] = cd.Total
+	tr.Observe("You kick a sand giant for 24 points of damage.", 1000)
+	cds := tr.Cooldowns(1001)
+	if len(cds) != 1 || cds[0].Name != "Kick" || cds[0].Total != monkSpecialReuseSec {
+		t.Fatalf("a kick should start one shared special cooldown; got %+v", cds)
 	}
-	for _, name := range []string{"Kick", "Strike"} {
-		if got[name] != monkSpecialReuseSec {
-			t.Errorf("%s cooldown Total = %d, want %d", name, got[name], monkSpecialReuseSec)
-		}
+
+	// a hand strike later restarts the SAME timer, not a second one
+	tr.Observe("You strike a sand giant for 18 points of damage.", 1003)
+	cds = tr.Cooldowns(1004)
+	if len(cds) != 1 {
+		t.Fatalf("a strike must reuse the shared timer, not add a second cooldown; got %+v", cds)
+	}
+	if cds[0].Remaining != monkSpecialReuseSec-1 { // restarted at 1003, read at 1004
+		t.Errorf("strike should restart the shared timer; remaining = %d, want %d", cds[0].Remaining, monkSpecialReuseSec-1)
 	}
 }
 
