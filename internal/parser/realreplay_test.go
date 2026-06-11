@@ -13,16 +13,21 @@ import (
 	"99dps/internal/session"
 )
 
-// TestObserveSpells_MonkClickyBuffTracked reproduces the reported case: a level-53
-// monk (whose /who title is "Disciple") right-clicks White Lotus Pants — which
-// logs a real "You begin casting Spirit of Ox." — and the buff lands. The class
-// must resolve to Monk (melee), and the Spirit of Ox buff must be a live self
-// timer. (Regression: "Disciple" was unmapped, so a 51-54 monk read as a caster.)
+// TestObserveSpells_MonkClickyBuffTracked reproduces the reported case verbatim
+// from Kelkix's log: a level-53 monk (whose /who title is "Disciple") right-clicks
+// White Lotus Pants, which logs a real "You begin casting Spirit of Ox." — but the
+// CLICKY casts ~20s (far longer than the spell's listed 5s), so the landing emote
+// arrives 20s later, with an unrelated line in between. The class must resolve to
+// Monk (melee) and the buff must be a live self timer.
+//
+// Two bugs this guards: (1) "Disciple" was unmapped → 51-54 monk read as caster;
+// (2) the landing arrived past the stale-pending window (5s cast + 12s) and was
+// dropped before the emote was matched — so no buff ever showed.
 func TestObserveSpells_MonkClickyBuffTracked(t *testing.T) {
 	book, err := gamestate.LoadReader(strings.NewReader(spellRow(map[int]string{
 		1:  "Spirit of Ox",
 		6:  "You feel the spirit of ox enter you.", // cast_on_you
-		13: "5000",                                 // 5s cast
+		13: "5000",                                 // the SPELL lists a 5s cast…
 		16: "3",                                    // duration formula
 		17: "450",                                  // duration cap
 		83: "1",                                    // beneficial
@@ -33,9 +38,12 @@ func TestObserveSpells_MonkClickyBuffTracked(t *testing.T) {
 	tr := gamestate.NewTracker(book)
 	p := DmgParser{character: "Kelkix", tracker: tr}
 
-	p.observeSpells("[Tue Jun 18 02:51:30 2024] [53 Disciple] Kelkix (Iksar) <Kingdom>")
-	p.observeSpells("[Tue Jun 18 02:51:31 2024] You begin casting Spirit of Ox.")
-	p.observeSpells("[Tue Jun 18 02:51:36 2024] You feel the spirit of ox enter you.")
+	// …but the White Lotus Pants clicky takes ~20s, so the land is 20s after cast.
+	p.observeSpells("[Thu Jun 11 03:26:43 2026] [53 Disciple] Kelkix (Iksar) <Kingdom>")
+	p.observeSpells("[Thu Jun 11 03:26:47 2026] You begin casting Spirit of Ox.")
+	p.observeSpells("[Thu Jun 11 03:26:47 2026] Your White Lotus Pants begins to glow.")
+	p.observeSpells("[Thu Jun 11 03:26:52 2026] a pickclaw seer begins to cast a spell.")
+	p.observeSpells("[Thu Jun 11 03:27:07 2026] You feel the spirit of ox enter you.")
 
 	if tr.Class() != eqclass.ClassMonk {
 		t.Fatalf("a 'Disciple' /who should detect Monk; got %v", tr.Class())
@@ -43,10 +51,10 @@ func TestObserveSpells_MonkClickyBuffTracked(t *testing.T) {
 	if tr.Category() != eqclass.CatMelee {
 		t.Errorf("a monk should be the melee category (so it gets the Skills + Buffs layout); got %v", tr.Category())
 	}
-	landTs, _ := parseTimestamp("[Tue Jun 18 02:51:36 2024] x")
+	landTs, _ := parseTimestamp("[Thu Jun 11 03:27:07 2026] x")
 	act := tr.Active(landTs + 1)
 	if len(act) != 1 || act[0].Spell != "Spirit of Ox" || act[0].Target != "You" {
-		t.Fatalf("the clicked Spirit of Ox should be a live self-buff timer; got %+v", act)
+		t.Fatalf("the clicked Spirit of Ox should be a live self-buff timer despite the ~20s clicky cast; got %+v", act)
 	}
 }
 

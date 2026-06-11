@@ -17,6 +17,12 @@ const fallbackLevel = 60
 // emote as belonging to that cast.
 const landWindowSec = 12
 
+// clickyCastCeilSec floors the stale-pending window. Clicky items cast far
+// longer (up to ~25s) than the underlying spell's own listed cast time, so a
+// pending whose listed cast is short must not be dropped before a slow clicky's
+// landing can arrive (e.g. White Lotus Pants → Spirit of Ox, ~20s).
+const clickyCastCeilSec = 25
+
 // Timer is one active spell the player has on a target.
 type Timer struct {
 	Spell       string
@@ -308,14 +314,8 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 	if t.pending == nil {
 		return
 	}
-	// drop a stale pending cast that never landed
-	complete := t.pendingAt + int64(t.pending.CastTimeMs)/1000
-	if at > complete+landWindowSec {
-		t.pending = nil
-		return
-	}
 	if at*1000 < t.pendingAt*1000+int64(t.pending.CastTimeMs)-600 {
-		return // cast hasn't finished yet
+		return // a landing can't arrive before the cast bar finishes
 	}
 
 	// charm has no landing emote — start it on cast completion (counts up,
@@ -332,6 +332,17 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 	case t.pending.CastOnYou != "" && body == t.pending.CastOnYou:
 		target = "You"
 	default:
+		// Not this spell's landing. Drop the pending only once we're past the latest
+		// a landing could plausibly arrive, so a much-later unrelated emote can't
+		// match it — but a MATCHING landing above is honored regardless of how late.
+		// Clicky items cast far longer (up to ~25s) than the underlying spell's
+		// listed cast time, so floor the window: otherwise a slow clicky's landing
+		// (White Lotus Pants → Spirit of Ox lands ~20s after the cast) is dropped as
+		// stale before it ever arrives.
+		castSec := max(int64(t.pending.CastTimeMs)/1000, clickyCastCeilSec)
+		if at > t.pendingAt+castSec+landWindowSec {
+			t.pending = nil
+		}
 		return
 	}
 	if target == "" {
