@@ -1027,3 +1027,26 @@ func TestBuffsYouPinnedTop(t *testing.T) {
 		t.Errorf("non-You groups should stay soonest-first; got %v", order)
 	}
 }
+
+// TestSessionSelectionHighlightsBothRows: the selected fight highlights BOTH its
+// rows (name + meta), so both span the full width; an unselected fight's meta row
+// does not. (Color profile is stripped under test, so we check the width the
+// highlight bar pads to rather than the ANSI background.)
+func TestSessionSelectionHighlightsBothRows(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 100, Target: "a rat"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1000 + 40, Dealer: "You", Dmg: 100, Target: "a bat"}) // gap → 2 fights
+
+	const w = 24
+	lines := strings.Split(sessionsList(themes[0], sm.All(), 0, w), "\n") // select fight 0
+	if len(lines) < 4 {
+		t.Fatalf("expected two rows per fight; got %d lines", len(lines))
+	}
+	if lipgloss.Width(lines[0]) != w || lipgloss.Width(lines[1]) != w {
+		t.Errorf("selected fight: both rows should fill width %d; got %d (name) and %d (meta)",
+			w, lipgloss.Width(lines[0]), lipgloss.Width(lines[1]))
+	}
+	if lipgloss.Width(lines[3]) == w {
+		t.Error("an unselected fight's meta row should not be highlighted (full-width)")
+	}
+}

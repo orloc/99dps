@@ -50,15 +50,16 @@ func sessionsList(th theme, sessions []*session.CombatSession, selected, w int) 
 		if live {
 			name += " ●"
 		}
-		marker, nameStyle := "  ", th.fg(th.text)
+		marker, nameStyle, metaStyle := "  ", th.fg(th.text), th.fg(th.dim)
 		if i == selected {
 			marker = "▸ "
-			nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(th.bg)).
-				Background(lipgloss.Color(th.accent)).Bold(true).Width(w)
+			bar := lipgloss.NewStyle().Foreground(lipgloss.Color(th.bg)).
+				Background(lipgloss.Color(th.accent)).Width(w)
+			nameStyle, metaStyle = bar.Bold(true), bar // highlight both rows of the selection
 		}
 		lines = append(lines, nameStyle.Render(truncate(marker+name, w)))
 		meta := fmt.Sprintf("  %s · %s", fmtDuration(s.Duration()), humanize(s.Total()+s.MagicTotal()))
-		lines = append(lines, th.fg(th.dim).Render(truncate(meta, w)))
+		lines = append(lines, metaStyle.Render(truncate(meta, w)))
 	}
 	return strings.Join(lines, "\n")
 }
