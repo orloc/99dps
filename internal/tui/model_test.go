@@ -860,3 +860,49 @@ func TestBuffsPanelNoRedundantHeader(t *testing.T) {
 		t.Error("the full CC+DEBUFFS+BUFFS stack should keep the BUFFS header to disambiguate")
 	}
 }
+
+// TestCasterAppearsAndLinksPet: a player who never melees but casts (spell damage)
+// and owns a pet should appear as "You" on the chart, with the spell damage
+// attributed to them and the pet nested under them — never "spells n/a" or an
+// orphaned pet.
+func TestCasterAppearsAndLinksPet(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "Borric", Dmg: 50_000, Target: "a sand giant"}) // a group-mate melees
+	sm.Apply(&combat.DamageSet{ActionTime: 1001, Dealer: "Xenab", Dmg: 30_000, Target: "a sand giant"})  // the player's pet melees
+	sm.ApplyMagic(&combat.Magic{ActionTime: 1002, Dmg: 90_000, Target: "a sand giant"})                  // the player's nuke/DoT — no caster in the log
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetCharacter("Kelkix")
+	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
+
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	if strings.Contains(out, "spells n/a") {
+		t.Errorf("a casting player must be attributed, not 'spells n/a';\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	yi, si, xi := -1, -1, -1
+	for i, l := range lines {
+		if yi < 0 && strings.Contains(l, "You") {
+			yi = i
+		}
+		if strings.Contains(l, "spells") {
+			si = i
+		}
+		if strings.Contains(l, "Xenab") {
+			xi = i
+		}
+	}
+	if yi < 0 {
+		t.Fatalf("the player should appear as You once they cast;\n%s", out)
+	}
+	if si != yi+1 {
+		t.Errorf("the spell damage should nest right under You (you=%d spells=%d)", yi, si)
+	}
+	if xi != yi+2 {
+		t.Errorf("the player's pet should nest under You, after the spells row (you=%d pet=%d)", yi, xi)
+	}
+}

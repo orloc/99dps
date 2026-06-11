@@ -857,6 +857,45 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		present[strings.ToLower(d.Dealer)] = true
 	}
 	hasYou := present["you"]
+
+	// EQ shows a client only its OWN non-melee, so all spell/proc/DoT damage is the
+	// player's. A spell caster may never melee a mob, but once they cast on it they
+	// should appear on the chart: fold the spell damage into the "You" row —
+	// synthesizing one if the player never meleed — so the damage is attributed to
+	// them, their pet links under them, and (a damage-shield-only or pet-only
+	// caster) still shows up. Owning a fighting pet alone also puts them on the board.
+	playerOwnsPet := false
+	if m.tracker != nil {
+		for _, d := range stats {
+			if o := m.tracker.PetOwner(d.Dealer); o != "" && strings.EqualFold(o, m.character) {
+				playerOwnsPet = true
+				break
+			}
+		}
+	}
+	if !hasYou && (magic > 0 || playerOwnsPet) {
+		stats = append(stats, combat.DamageStat{Dealer: "You"})
+		present["you"] = true // rollup nests the player's pet under the synthesized You row
+	}
+	if magic > 0 { // the player's bar includes their spells
+		for i := range stats {
+			if strings.EqualFold(stats[i].Dealer, "You") {
+				stats[i].Total += magic
+				break
+			}
+		}
+		sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+		maxTotal = magic
+		for _, d := range stats {
+			if d.Total > maxTotal {
+				maxTotal = d.Total
+			}
+		}
+		if maxTotal < 1 {
+			maxTotal = 1
+		}
+	}
+
 	ownerRow := func(dealer string) string { // the dealer a pet nests under, or ""
 		o := m.tracker.PetOwner(dealer)
 		if o == "" {
@@ -924,12 +963,6 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			phit, pcrit := acc(p)
 			b.WriteString(childRow("↳ "+p.Dealer, p.Total, phit, pcrit) + "\n")
 		}
-	}
-
-	// no You row to attribute spells to → show them as an unattributed lump.
-	if magic > 0 && !hasYou {
-		b.WriteString(row(strings.Repeat(" ", rankW), th.fg(th.dim).Width(nameW).Render(truncate("spells n/a", nameW)),
-			"-", "-", float64(magic)/float64(maxTotal), th.dim, th.dim, th.dim, magic, magic/int(span), pct(magic, encTotal)) + "\n")
 	}
 
 	return strings.TrimRight(b.String(), "\n")
