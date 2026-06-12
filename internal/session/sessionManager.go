@@ -20,12 +20,12 @@ import (
 // session counts just under the kill count (the right side of over- vs
 // under-splitting); 6 over-split, 15 began merging distinct pulls.
 const (
-	segGapFloor     = 10  // never split on a gap shorter than this (seconds)
-	segGapCeil      = 20  // always split after this much silence (a *new* enemy)
-	segReengageCeil = 300 // …but keep one session across a longer lull (≤5 min) if it re-engages an enemy the fight already involved (a camp hunt while you med/CC)
-	segPulseK       = 3   // close at k × pulse
-	segPulseSeed    = 4.0 // seed pulse before a fight reveals its cadence
-	segEWMAAlpha    = 0.3 // EWMA weight on the newest gap
+	segGapFloor  = 10  // never split on a gap shorter than this (seconds)
+	segGapCeil   = 20  // always split after this much silence (the mob is dead / gone)
+	segLiveCeil  = 300 // …but a lull up to this long does NOT split while the engaged mob is still ALIVE (no kill yet) and this exchange returns to it — one pull through root/med lulls
+	segPulseK    = 3   // close at k × pulse
+	segPulseSeed = 4.0 // seed pulse before a fight reveals its cadence
+	segEWMAAlpha = 0.3 // EWMA weight on the newest gap
 )
 
 type SessionManager struct {
@@ -58,8 +58,8 @@ func (sm *SessionManager) ApplySwing(sw *combat.Swing) {
 
 // activeForLocked returns the session an event at actionTime belongs to,
 // rolling to a fresh one when combat has been quiet past the adaptive threshold.
-// combatants are the names involved in this exchange (dealer/target etc.), used
-// to keep a camp hunt one session across medding lulls — see the re-engage rule
+// combatants are the names involved in this exchange (dealer/target), used to keep
+// a single pull one session while its mob is still alive — see the live-mob rule
 // below. Caller holds the write lock.
 func (sm *SessionManager) activeForLocked(actionTime int64, combatants ...string) *CombatSession {
 	if len(sm.sessions) == 0 {
@@ -79,12 +79,13 @@ func (sm *SessionManager) activeForLocked(actionTime int64, combatants ...string
 	}
 
 	if gap > sm.closeThresholdLocked() {
-		// Combat went quiet past the idle threshold. A camp hunt has lulls longer
-		// than that — you root/mez and med between pulls — so if this exchange
-		// re-engages an enemy the active fight already involved, and we're still
-		// within a generous ceiling, keep it ONE session. The lull isn't a real
-		// cadence sample, so don't fold it into the pulse.
-		if gap <= segReengageCeil && active.reengages(combatants) {
+		// Combat went quiet past the idle threshold. A pull isn't over while its mob
+		// is still UP — no kill credited yet ("we didn't get an exp message") — and
+		// this exchange returns to that same mob: that's one fight continuing through
+		// a root/med lull, not a new pull. Bounded by segLiveCeil (it leashed / you
+		// left). Once the mob's dead, or it's a different mob, we roll. The lull
+		// isn't a real cadence sample, so don't fold it into the pulse.
+		if active.liveMobs() > 0 && gap <= segLiveCeil && active.reengages(combatants) {
 			sm.lastActivity = actionTime
 			return active
 		}

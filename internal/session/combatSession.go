@@ -55,29 +55,48 @@ type Defender struct {
 	Stats combat.SwingStats
 }
 
-// reengages reports whether any of the named combatants (an exchange's
-// dealer/target) is an ENEMY this session already involved — used to keep a camp
-// hunt one session across a lull. The player ("You"/"YOU") is excluded, since
-// every fight involves them; only a returning foe counts. Caller holds the lock.
+// liveMobs estimates how many engaged enemies this fight has NOT yet killed:
+// distinct damage-targets (mobs — "YOU" excluded) minus credited deaths (your
+// killing blows, or xp / party-xp). While it's > 0 the pull isn't over — a mob
+// is still up — so a lull shouldn't end the session (you're "still killing them,"
+// no xp yet). Same-named mobs collapse to one target, the irreducible EQ ambiguity.
+// Caller holds the lock.
+func (cs *CombatSession) liveMobs() int {
+	enemies := 0
+	for name := range cs.targets { // damage targets are mobs (or the player, "YOU")
+		if !strings.EqualFold(name, "You") {
+			enemies++
+		}
+	}
+	dead := cs.kills
+	if cs.xpGains > dead {
+		dead = cs.xpGains
+	}
+	if n := enemies - dead; n > 0 {
+		return n
+	}
+	return 0
+}
+
+// reengages reports whether this exchange returns to a MOB the fight already
+// damaged — so a lull is the same pull continuing, not a new one. It matches only
+// damage-targets (mobs), never dealers, so a pet or group-mate (which appears as a
+// dealer, never a target) can't falsely bridge unrelated fights. Player skipped.
+// Caller holds the lock.
 func (cs *CombatSession) reengages(combatants []string) bool {
 	for _, name := range combatants {
 		if name == "" || strings.EqualFold(name, "You") {
 			continue
 		}
-		if cs.involves(name) {
-			return true
+		// case-insensitive: EQ writes "a drolvarg snarler" when you hit it (a
+		// target) but "A drolvarg snarler" when it hits you (a dealer).
+		for tgt := range cs.targets {
+			if strings.EqualFold(tgt, name) {
+				return true
+			}
 		}
 	}
 	return false
-}
-
-// involves reports whether name has dealt or taken damage in this session.
-func (cs *CombatSession) involves(name string) bool {
-	if _, ok := cs.aggressors[strings.ReplaceAll(name, " ", "_")]; ok {
-		return true
-	}
-	_, ok := cs.targets[name]
-	return ok
 }
 
 // adjustDamageLocked applies one event. Caller must hold the SessionManager

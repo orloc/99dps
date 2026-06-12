@@ -78,39 +78,56 @@ func TestSegmentation_AdaptiveCadence(t *testing.T) {
 		t.Fatalf("swing activity should hold one session, got %d", sm.Len())
 	}
 
-	// a long silence past the ceiling, against a NEW enemy, opens a new encounter
+	// the rat was killed (EventKill above) → the pull is resolved, so a silence past
+	// the ceiling rolls a new encounter
 	sm.Apply(&combat.DamageSet{ActionTime: 1024 + segGapCeil + 5, Dealer: "You", Dmg: 10, Target: "a bat"})
 	if sm.Len() != 2 {
-		t.Fatalf("silence past the ceiling (new enemy) should roll a session, got %d", sm.Len())
+		t.Fatalf("silence after the mob's dead should roll a session, got %d", sm.Len())
 	}
 }
 
-// TestSegmentation_Reengage: a camp hunt with lulls longer than the idle
-// threshold stays one session as long as you keep fighting enemies the session
-// already involved — but a new enemy, or a lull past the re-engage ceiling, rolls.
-func TestSegmentation_Reengage(t *testing.T) {
+// TestSegmentation_LiveMobBridgesLull: while the engaged mob is still ALIVE (no
+// kill credited), a long root/med lull keeps it one session as long as you return
+// to that mob — but a different mob, or a lull past the ceiling, rolls.
+func TestSegmentation_LiveMobBridgesLull(t *testing.T) {
 	sm := &SessionManager{}
 	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
 	sm.ApplyMagic(&combat.Magic{ActionTime: 1005, Dmg: 50, Target: "a drolvarg growler"})
 
-	// ~2-min lull (root + med), then the snarler swings at you → same camp, one fight
+	// ~2-min lull (root + med), no kill yet → the snarler swings at you → one fight
 	sm.Apply(&combat.DamageSet{ActionTime: 1005 + 120, Dealer: "a drolvarg snarler", Dmg: 50, Target: "YOU"})
 	if got := sm.Len(); got != 1 {
-		t.Fatalf("re-engaging the same camp after a lull should stay one session; got %d", got)
+		t.Fatalf("a still-alive mob after a lull should stay one session; got %d", got)
 	}
 
-	// a different enemy after a lull → new session
+	// a different (un-engaged) mob after a lull → new session
 	sm.Apply(&combat.DamageSet{ActionTime: 1005 + 240, Dealer: "You", Dmg: 10, Target: "a bat"})
 	if got := sm.Len(); got != 2 {
-		t.Fatalf("a different enemy after a lull should roll; got %d", got)
+		t.Fatalf("a different mob after a lull should roll; got %d", got)
 	}
 
-	// past the re-engage ceiling, even the same enemy rolls
+	// past the live ceiling, even the same alive mob rolls (it leashed / you left)
 	sm2 := &SessionManager{}
 	sm2.Apply(&combat.DamageSet{ActionTime: 2000, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
-	sm2.Apply(&combat.DamageSet{ActionTime: 2000 + segReengageCeil + 5, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
+	sm2.Apply(&combat.DamageSet{ActionTime: 2000 + segLiveCeil + 5, Dealer: "You", Dmg: 10, Target: "a drolvarg snarler"})
 	if got := sm2.Len(); got != 2 {
-		t.Fatalf("past the re-engage ceiling the same enemy still rolls; got %d", got)
+		t.Fatalf("past the live ceiling the same mob still rolls; got %d", got)
+	}
+}
+
+// TestSegmentation_KillResolvesPull: once the mob is dead (xp credited), the next
+// pull — even the same-named mob after a lull — is a NEW session. A pull is
+// contiguous only while its mob is up.
+func TestSegmentation_KillResolvesPull(t *testing.T) {
+	sm := &SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 10, Target: "a rat"})
+	sm.ApplyEvent(&combat.Event{ActionTime: 1001, Kind: combat.EventKill, Name: "a rat"})
+	sm.ApplyEvent(&combat.Event{ActionTime: 1001, Kind: combat.EventXP}) // dead + credited
+
+	// a lull, then a fresh same-named rat → the prior pull is over → new session
+	sm.Apply(&combat.DamageSet{ActionTime: 1001 + 90, Dealer: "You", Dmg: 10, Target: "a rat"})
+	if got := sm.Len(); got != 2 {
+		t.Fatalf("a new pull after the mob died should roll, even same-named; got %d", got)
 	}
 }
 
