@@ -9,18 +9,43 @@ import (
 
 func main() {
 	logDir := flag.String("logdir", "", "directory containing eqlog_*.txt files (default: saved choice, EQ_LOG_DIR, or auto-detect)")
-	spells := flag.String("spells", "", "path to spells_us.txt (default: <logdir>/../spells_us.txt)")
+	logFile := flag.String("logfile", "", "replay/follow one specific eqlog file (debug; bypasses log-dir detection and character hot-swap)")
+	spells := flag.String("spells", "", "path to spells_us.txt (default: next to the logs, else <logdir>/../spells_us.txt)")
 	tts := flag.Bool("tts", false, "speak audio cues when your buffs get low (toggle in-app with 'a')")
 	flag.Parse()
+
+	// -logfile points the meter at a single file (a captured test log) without
+	// touching the saved log-dir choice or the most-recently-modified heuristic.
+	if *logFile != "" {
+		dir := filepath.Dir(*logFile)
+		spellsPath := *spells
+		if spellsPath == "" {
+			spellsPath = defaultSpellsPath(dir)
+		}
+		launchFile(*logFile, dir, spellsPath, *tts)
+		return
+	}
 
 	dir := resolveLogDir(*logDir)
 
 	spellsPath := *spells
 	if spellsPath == "" {
-		spellsPath = filepath.Join(filepath.Dir(dir), "spells_us.txt")
+		spellsPath = defaultSpellsPath(dir)
 	}
 
 	launchTUI(dir, spellsPath, *tts)
+}
+
+// defaultSpellsPath locates spells_us.txt for a given log directory. A real EQ
+// install keeps it one level above the Logs folder (<logdir>/../spells_us.txt);
+// a flat capture (e.g. a test log dropped in Downloads next to spells_us.txt)
+// keeps it in the same directory. Prefer the sibling, fall back to the parent.
+func defaultSpellsPath(logDir string) string {
+	sibling := filepath.Join(logDir, "spells_us.txt")
+	if _, err := os.Stat(sibling); err == nil {
+		return sibling
+	}
+	return filepath.Join(filepath.Dir(logDir), "spells_us.txt")
 }
 
 // resolveLogDir decides which EverQuest log directory to use, in priority order:

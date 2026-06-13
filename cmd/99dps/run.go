@@ -34,7 +34,23 @@ func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
 // pipeline, runs the Bubble Tea UI (internal/tui), and watches for a character
 // switch in-game to hot-swap. The only UI.
 func launchTUI(logDir, spellsPath string, tts bool) {
-	src := loader.LoadFile(logDir)
+	runTUI(loader.LoadFile(logDir), logDir, spellsPath, tts, true)
+}
+
+// launchFile runs the same pipeline against one explicit log file (the -logfile
+// debug flag): it follows from the start so a captured log replays in full, and
+// skips the character hot-swap watcher (there's nothing to swap to).
+func launchFile(path, logDir, spellsPath string, tts bool) {
+	src, err := loader.Follow(path, false)
+	if err != nil {
+		log.Fatal(err)
+	}
+	runTUI(src, logDir, spellsPath, tts, false)
+}
+
+// runTUI wires the pipeline for an already-opened source and blocks on the UI.
+// watchSwitch enables the character hot-swap poller (off for a fixed -logfile).
+func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch bool) {
 	sm := &session.SessionManager{}
 	tracker, spellInfo := loadTracker(spellsPath, logDir)
 	tracker.SetCharacter(src.Character) // for the pet's "My leader is <you>" check
@@ -43,14 +59,16 @@ func launchTUI(logDir, spellsPath string, tts bool) {
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
 	ctrl.startParse(src)
 
-	// watch for the active eqlog changing (a character switch in-game) and hot-swap.
 	stop := make(chan struct{})
 	var bg sync.WaitGroup
-	bg.Add(1)
-	go func() {
-		defer bg.Done()
-		ctrl.watch(stop)
-	}()
+	if watchSwitch {
+		// watch for the active eqlog changing (a character switch in-game) and hot-swap.
+		bg.Add(1)
+		go func() {
+			defer bg.Done()
+			ctrl.watch(stop)
+		}()
+	}
 
 	if err := prog.Run(); err != nil { // blocks until the user quits
 		log.Print(err)
