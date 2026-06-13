@@ -1,0 +1,71 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+func TestSessionsTableContent(t *testing.T) {
+	sm := sampleManager()
+	sessions := sm.All()
+	out, rows := sessionsTable(themes[0], sessions, 0, 90)
+	for _, want := range []string{"Fight", "Total", "DPS", "a sand giant"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("table missing %q\n%s", want, out)
+		}
+	}
+	// one row mapped per session (header is line 0, not mapped)
+	if len(rows) != len(sessions) {
+		t.Errorf("row map = %d entries, want %d", len(rows), len(sessions))
+	}
+	if _, ok := rows[0]; ok {
+		t.Error("line 0 is the header and must not map to a session")
+	}
+}
+
+func TestSessionsTableEmpty(t *testing.T) {
+	out, rows := sessionsTable(themes[0], nil, -1, 60)
+	if len(rows) != 0 || !strings.Contains(out, "no sessions") {
+		t.Errorf("empty table should say so with no rows, got %q / %v", out, rows)
+	}
+}
+
+func TestSessionsTabFitsWindow(t *testing.T) {
+	for _, w := range []int{60, 90, 140} {
+		var m tea.Model = New(sampleManager(), nil, "X")
+		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		mm := m.(Model)
+		mm.screen = screenSessions
+		mm.refreshSessions()
+		for _, ln := range strings.Split(mm.View(), "\n") {
+			if lipgloss.Width(ln) > w {
+				t.Errorf("w=%d: sessions line exceeds width (%d): %q", w, lipgloss.Width(ln), ln)
+			}
+		}
+	}
+}
+
+func TestSessTableAt(t *testing.T) {
+	var m tea.Model = New(twoSessionManager(), nil, "X")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	mm.screen = screenSessions
+	mm.refreshSessions()
+	if len(mm.sessRows) == 0 {
+		t.Fatal("no session rows")
+	}
+	contentTop := gridTop + 2
+	for ln, idx := range mm.sessRows {
+		y := contentTop + (ln - mm.vpSessTable.YOffset)
+		if got, ok := mm.sessTableAt(2, y); !ok || got != idx {
+			t.Errorf("sessTableAt(2,%d) = (%d,%v), want %d", y, got, ok, idx)
+		}
+	}
+	// a click outside the table column misses
+	if _, ok := mm.sessTableAt(9999, contentTop); ok {
+		t.Error("a click past the table should miss")
+	}
+}

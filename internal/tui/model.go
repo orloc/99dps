@@ -55,6 +55,12 @@ type Model struct {
 	vpMob      viewport.Model
 	vpEnemy    viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
 
+	// Sessions tab: a wide scrollable stats table + a DPS breakdown of the
+	// highlighted session. sessRows maps a table content line → session index.
+	vpSessTable viewport.Model
+	vpSessBreak viewport.Model
+	sessRows    map[int]int
+
 	// hover/click-to-dismiss: classTargets/enemyTargets map a panel content line to
 	// the buff target on it; hover is the target currently under the cursor (its
 	// group is highlighted with an ✕). A left-click dismisses that target's timers.
@@ -471,16 +477,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q":
 			return m, tea.Quit
-		case "tab", "shift+tab":
-			return m.gotoScreen(m.nextTab()), nil
+		case "tab":
+			return m.gotoScreen(m.cycleTab(+1)), nil
+		case "shift+tab":
+			return m.gotoScreen(m.cycleTab(-1)), nil
 		case "1":
 			return m.gotoScreen(screenMeter), nil
 		case "2":
+			return m.gotoScreen(screenSessions), nil
+		case "3":
 			return m.gotoScreen(screenSettings), nil
 		}
-		// the Settings tab owns the rest of its keys.
+		// each tab owns the rest of its keys.
 		if m.screen == screenSettings {
 			return m.updateSettings(msg)
+		}
+		if m.screen == screenSessions {
+			return m.updateSessions(msg)
 		}
 		switch msg.String() {
 		case "t":
@@ -524,6 +537,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if scr, ok := m.tabAt(msg.X, msg.Y); ok {
 				return m.gotoScreen(scr), nil
 			}
+		}
+		if m.screen == screenSessions {
+			return m.mouseSessions(msg)
 		}
 		if m.screen != screenMeter {
 			return m, tea.Batch(cmds...) // the Settings tab has no mouse targets
@@ -575,10 +591,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash("▶ now tracking " + msg.character)
 		m.refresh()
 	case tickMsg:
-		if m.screen == screenMeter {
+		switch m.screen {
+		case screenMeter:
 			m.refresh()
-		} else {
-			m.announceCues() // keep audio alerts live while on the Settings tab
+		case screenSessions:
+			m.refreshSessions()
+		default:
+			m.announceCues() // keep audio alerts live on other screens
 		}
 		cmds = append(cmds, tick())
 	}
@@ -599,6 +618,10 @@ func (m *Model) resizeViewports() {
 	}
 	set(&m.vpSessions, ld.leftW, ld.sessH)
 	set(&m.vpDamage, ld.dmgW, ld.dmgH)
+	// Sessions tab (own screen): table 3/4, DPS breakdown 1/4.
+	tableW, breakW, fullH := m.sessionsLayout()
+	set(&m.vpSessTable, tableW, fullH)
+	set(&m.vpSessBreak, breakW, fullH)
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
 	set(&m.vpEnemy, ld.enemyW, ld.botH)
@@ -833,6 +856,22 @@ func (m Model) View() string {
 
 	banner := m.banner(th, innerW)
 	tabbar := m.tabBar(th)
+
+	// the Sessions tab: a wide scrollable stats table beside a DPS breakdown of
+	// the highlighted session.
+	if m.screen == screenSessions {
+		tableW, breakW, fullH := m.sessionsLayout()
+		breakTitle := "Damage"
+		if sel := m.effectiveSel(); sel >= 0 && sel < len(m.sessions) {
+			breakTitle = "Damage — " + truncate(m.sessions[sel].Name(), breakW-12)
+		}
+		grid := lipgloss.JoinHorizontal(lipgloss.Top,
+			card(th, tableW, fullH, "Sessions"+scrollHint(m.vpSessTable), m.vpSessTable.View()), " ",
+			card(th, breakW, fullH, breakTitle+scrollHint(m.vpSessBreak), m.vpSessBreak.View()))
+		full := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, grid, m.footer(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(full)
+	}
 
 	// the Settings tab renders its own body under the banner + tab bar.
 	if m.screen == screenSettings {

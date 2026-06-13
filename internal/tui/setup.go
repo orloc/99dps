@@ -15,6 +15,7 @@ type screen int
 
 const (
 	screenMeter    screen = iota // the live DPS meter (default)
+	screenSessions               // all sessions: stats table + DPS breakdown (a tab)
 	screenSettings               // audio / voice configuration (a tab)
 	screenSetup                  // first-run onboarding (full-screen, not a tab)
 )

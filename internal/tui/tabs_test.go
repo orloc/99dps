@@ -29,14 +29,21 @@ func TestTabAtMatchesBar(t *testing.T) {
 	}
 }
 
-func TestNextTabToggles(t *testing.T) {
+func TestCycleTab(t *testing.T) {
 	m := Model{screen: screenMeter}
-	if m.nextTab() != screenSettings {
-		t.Error("from meter, next tab should be settings")
+	if m.cycleTab(+1) != screenSessions {
+		t.Error("next from Meter should be Sessions")
 	}
 	m.screen = screenSettings
-	if m.nextTab() != screenMeter {
-		t.Error("from settings, next tab should be meter")
+	if m.cycleTab(+1) != screenMeter {
+		t.Error("next from Settings should wrap to Meter")
+	}
+	if m.cycleTab(-1) != screenSessions {
+		t.Error("prev from Settings should be Sessions")
+	}
+	m.screen = screenMeter
+	if m.cycleTab(-1) != screenSettings {
+		t.Error("prev from Meter should wrap to Settings")
 	}
 }
 
@@ -45,27 +52,27 @@ func TestTabKeyNavigation(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if m.(Model).screen != screenSessions {
+		t.Error("key 2 should open Sessions")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
 	if m.(Model).screen != screenSettings {
-		t.Error("key 2 should open Settings")
+		t.Error("key 3 should open Settings")
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab}) // wraps Settings -> Meter
 	if m.(Model).screen != screenMeter {
-		t.Error("tab should toggle back to Meter")
-	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
-	if m.(Model).screen != screenMeter {
-		t.Error("key 1 should stay on Meter")
+		t.Error("tab from Settings should wrap to Meter")
 	}
 }
 
 func TestTabClickSwitchesScreen(t *testing.T) {
 	var m tea.Model = New(&session.SessionManager{}, nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-	settingsTab := tabHits()[1]
-	mid := (settingsTab.x0 + settingsTab.x1) / 2
+	sessionsTab := tabHits()[1] // Meter | Sessions | Settings
+	mid := (sessionsTab.x0 + sessionsTab.x1) / 2
 	m, _ = m.Update(tea.MouseMsg{X: mid, Y: tabRow, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-	if m.(Model).screen != screenSettings {
-		t.Errorf("clicking the Settings tab should switch screens, got %v", m.(Model).screen)
+	if m.(Model).screen != screenSessions {
+		t.Errorf("clicking the Sessions tab should switch screens, got %v", m.(Model).screen)
 	}
 }
 

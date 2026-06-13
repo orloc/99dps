@@ -18,6 +18,7 @@ var tabs = []struct {
 	label string
 }{
 	{screenMeter, "Meter"},
+	{screenSessions, "Sessions"},
 	{screenSettings, "Settings"},
 }
 
@@ -75,21 +76,31 @@ func (m Model) tabAt(x, y int) (screen, bool) {
 	return 0, false
 }
 
-// nextTab cycles to the next tab (only two today, so this just toggles).
-func (m Model) nextTab() screen {
-	if m.screen == screenMeter {
-		return screenSettings
+// cycleTab returns the tab dir steps from the current one (wrapping); +1 = next,
+// -1 = previous.
+func (m Model) cycleTab(dir int) screen {
+	for i, t := range tabs {
+		if t.scr == m.screen {
+			return tabs[(i+dir+len(tabs))%len(tabs)].scr
+		}
 	}
 	return screenMeter
 }
 
-// gotoScreen switches the active screen, (re)sizing + refreshing the meter when
-// returning to it so its first frame is current.
+// gotoScreen switches the active screen, (re)sizing + refreshing the destination
+// tab so its first frame is current.
 func (m Model) gotoScreen(scr screen) Model {
 	m.screen = scr
-	if scr == screenMeter && m.ready {
+	if !m.ready {
+		return m
+	}
+	switch scr {
+	case screenMeter:
 		m.resizeViewports()
 		m.refresh()
+	case screenSessions:
+		m.resizeViewports()
+		m.refreshSessions()
 	}
 	return m
 }
