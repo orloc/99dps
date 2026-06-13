@@ -76,9 +76,11 @@ type Model struct {
 
 	// urgent combat-cue dedup (fire once per event, re-arm when it clears) and a
 	// rotating sequence for natural phrasing variety.
-	charmAnnounced  bool
-	resistAnnounced string
-	cueSeq          int
+	charmAnnounced     bool
+	resistAnnounced    string
+	feignFailAnnounced bool
+	cdReady            map[string]bool // long cooldown name → was-ready last tick
+	cueSeq             int
 
 	// transient status banner (character switch, action feedback, edit prompt),
 	// shown in the footer for a few seconds.
@@ -108,7 +110,7 @@ type Model struct {
 func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
-		speaker: tts.New(), announced: map[string]bool{},
+		speaker: tts.New(), announced: map[string]bool{}, cdReady: map[string]bool{},
 	}
 }
 
@@ -268,11 +270,14 @@ func (m *Model) refresh() {
 // resist) use SayUrgent — a snappier voice that jumps the playback queue — and
 // each fires once per event. Buff/debuff fades are gentler, combined into one
 // varied sentence so simultaneous fades don't overlap. No-op when audio is off.
-func (m *Model) announceCues() {
+func (m *Model) announceCues() { m.announceCuesAt(time.Now().Unix()) }
+
+// announceCuesAt is the testable core (now is injected). Urgent alerts use
+// SayUrgent (snappier, jump the queue); informational ones use Say.
+func (m *Model) announceCuesAt(now int64) {
 	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
 		return
 	}
-	now := time.Now().Unix()
 
 	// charm break — scary and time-critical.
 	if m.tracker.CharmBroke(now) {
@@ -283,6 +288,17 @@ func (m *Model) announceCues() {
 		}
 	} else {
 		m.charmAnnounced = false
+	}
+
+	// a failed feign death — you're still being attacked. urgent.
+	if m.tracker.FeignStatus(now) == gamestate.FeignFailed {
+		if !m.feignFailAnnounced {
+			m.feignFailAnnounced = true
+			m.speaker.SayUrgent(feignFailPhrase(m.cueSeq))
+			m.cueSeq++
+		}
+	} else {
+		m.feignFailAnnounced = false
 	}
 
 	// a cast that didn't land — alert so you re-cast.
@@ -296,12 +312,30 @@ func (m *Model) announceCues() {
 		m.resistAnnounced = ""
 	}
 
+	// a long cooldown coming back up (Mend, Lay Hands, Harm Touch, disciplines).
+	// Only the long ones — short skill reuses (kick, feign) would be chatter.
+	for _, cd := range m.tracker.Cooldowns(now) {
+		if cd.Total < longCooldownSec {
+			continue
+		}
+		ready := cd.Remaining <= 0
+		if was, seen := m.cdReady[cd.Name]; seen && !was && ready {
+			m.speaker.Say(cd.Name + " ready.")
+			m.cueSeq++
+		}
+		m.cdReady[cd.Name] = ready // first sight just records; only false→true speaks
+	}
+
 	// gentle buff/debuff fades, combined into one varied utterance.
 	if due := m.dueAnnouncements(m.tracker.Active(now), now); len(due) > 0 {
 		m.speaker.Say(composeCue(due, m.cueSeq))
 		m.cueSeq++
 	}
 }
+
+// longCooldownSec gates which cooldowns get a "ready" cue — Mend (360s) and up,
+// excluding short skill reuses like feign (11s) or monk specials (5s).
+const longCooldownSec = 60
 
 // dueAnnouncements returns the low-buff phrases to speak this tick and updates
 // the announced set: each (non-charm) timer fires once when it first drops below
@@ -398,6 +432,12 @@ func joinList(s []string) string {
 // charmBreakPhrase is an urgent, varied alert that the player's charm broke.
 func charmBreakPhrase(seq int) string {
 	phrases := []string{"Charm broke!", "Your charm broke — careful!", "Charm just broke!"}
+	return phrases[seq%len(phrases)]
+}
+
+// feignFailPhrase is an urgent, varied alert that a feign death failed.
+func feignFailPhrase(seq int) string {
+	phrases := []string{"Feign failed!", "Your feign failed — get up!", "Feign Death failed!"}
 	return phrases[seq%len(phrases)]
 }
 

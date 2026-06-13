@@ -135,3 +135,65 @@ func TestAnnounceCuesResistIsUrgent(t *testing.T) {
 		t.Errorf("resist should fire once, got %v", fe.urgent)
 	}
 }
+
+func TestFeignFailVariety(t *testing.T) {
+	seen := map[string]bool{}
+	for seq := 0; seq < 3; seq++ {
+		seen[feignFailPhrase(seq)] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("feign-fail phrasing should vary, got %v", seen)
+	}
+}
+
+func TestFeignFailIsUrgent(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.FeignFailed(1000)
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(1000)
+	if len(fe.urgent) != 1 || !strings.Contains(strings.ToLower(fe.urgent[0]), "feign") {
+		t.Fatalf("failed feign should be urgent, got urgent=%v normal=%v", fe.urgent, fe.normal)
+	}
+	m.announceCuesAt(1000) // still failed → no repeat
+	if len(fe.urgent) != 1 {
+		t.Errorf("feign fail should fire once, got %v", fe.urgent)
+	}
+}
+
+func TestLongCooldownReadyCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.Observe("You mend your wounds and heal some damage.", 1000) // Mend → 360s cooldown
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(1000) // just used → records not-ready, no cue
+	if len(fe.normal) != 0 {
+		t.Fatalf("no cue while on cooldown, got %v", fe.normal)
+	}
+	m.announceCuesAt(1000 + 361) // ready → gentle cue
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "Mend") {
+		t.Fatalf("Mend ready should be a gentle cue, got normal=%v urgent=%v", fe.normal, fe.urgent)
+	}
+	m.announceCuesAt(1000 + 362) // still ready → no repeat
+	if len(fe.normal) != 1 {
+		t.Errorf("cooldown-ready should fire once, got %v", fe.normal)
+	}
+}
+
+func TestShortCooldownNoCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.FeignAttempt(2000) // Feign Death → 11s reuse (short)
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(2000)
+	m.announceCuesAt(2000 + 12) // ready, but too short to announce
+	if len(fe.normal) != 0 {
+		t.Errorf("a short cooldown must not announce, got %v", fe.normal)
+	}
+}
