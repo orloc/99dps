@@ -3,22 +3,18 @@ package tts
 import "runtime"
 
 // This file pins the exact offline-TTS artifacts the neural backend downloads on
-// first run (download-on-first-run keeps the shipped zip tiny; the ~150 MB
-// Kokoro package is fetched once into the user cache, then everything is local).
+// first run (download-on-first-run keeps the shipped zip tiny; ~120 MB is fetched
+// once into the user cache, then everything is local).
 //
-// Engine:  sherpa-onnx prebuilt offline-TTS CLI (Apache-2.0), called as a
-//
-//	subprocess so the app stays pure-Go / no cgo.
-//
-// Model:   Kokoro-82M int8 (Apache-2.0) — one ~80 MB model shared by every
-//
-//	voice, plus a single ~26 MB voices.bin holding all speaker styles, so
-//	all voices ship together and the default is just a speaker index.
+//   - Engine: sherpa-onnx prebuilt offline-TTS CLI (Apache-2.0), called as a
+//     subprocess so the app stays pure-Go / no cgo. ~25 MB (shared build).
+//   - Model:  Kokoro int8 English (v0.19, Apache-2.0) — ~98 MB, 11 English voices
+//     (see kokoroVoices). English-only keeps it small and the picker describable.
 //
 // TODO(tts): pin sha256 for each artifact before release. They're left empty for
-// now (download verifies size only, logs a warning) because the checksums must
-// be computed from the real downloads on a networked machine. Integrity still
-// rests on HTTPS + GitHub until then.
+// now (download verifies size only) because the checksums must be computed from
+// the real downloads on a networked machine. Integrity rests on HTTPS + GitHub
+// until then.
 const sherpaVersion = "v1.13.2"
 
 const sherpaRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" + sherpaVersion + "/"
@@ -31,26 +27,41 @@ type artifact struct {
 	size   int64  // expected uncompressed-archive size in bytes, 0 = unknown
 }
 
-// sherpaBinary is the prebuilt CLI package per OS. Linux uses the static build
-// (self-contained binaries, no loose .so); Windows uses the MT (static CRT)
-// shared-release build so no Visual C++ redistributable is required. Both bundle
-// the ONNX Runtime and include sherpa-onnx-offline-tts(.exe).
+// sherpaBinary is the prebuilt CLI package per OS — the shared build on both
+// (binary + ONNX Runtime shared lib alongside). The Linux static build is
+// avoided: it's ~336 MB vs ~25 MB shared. Windows uses the MT (static CRT)
+// build so no Visual C++ redistributable is required. Both include
+// sherpa-onnx-offline-tts(.exe). Download totals: ~123 MB (engine + model).
 var sherpaBinary = map[string]artifact{
-	"linux":   {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-linux-x64-static.tar.bz2"},
+	"linux":   {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-linux-x64-shared.tar.bz2"},
 	"windows": {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-win-x64-shared-MT-Release.tar.bz2"},
 }
 
-// kokoroModel is the int8 Kokoro package (model.onnx, voices.bin, tokens.txt,
-// espeak-ng-data/, lexicons, rule FSTs). ~150 MB extracted.
-var kokoroModel = artifact{url: modelRelease + "kokoro-int8-multi-lang-v1_1.tar.bz2"}
+// kokoroModel is the int8 English Kokoro package (~98 MB: model.onnx, voices.bin,
+// tokens.txt, espeak-ng-data/, lexicons). English-only (v0_19) keeps the
+// download small and the voice list describable — see kokoroVoices.
+var kokoroModel = artifact{url: modelRelease + "kokoro-int8-en-v0_19.tar.bz2"}
 
-// kokoroVoiceCount is the number of speakers in voices.bin (sid 0..N-1). The
-// default cue voice is an English speaker; richer name labels come later (the
-// settings screen). v1_1 ships 103 speakers.
-const (
-	kokoroVoiceCount = 103
-	defaultVoiceSID  = 0 // an English speaker; refine once the sid→name map is confirmed
-)
+// kokoroVoices is the curated, described English voice catalog (Kokoro v0.19).
+// ID is the sherpa --sid index. NOTE: the sid order follows the documented v0.19
+// voicepack order; if a preview doesn't match its label, the index needs a swap
+// (the names/descriptions are correct regardless). Default is af_bella.
+var kokoroVoices = []Voice{
+	{ID: "0", Name: "af", Desc: "American · female · neutral (default blend)"},
+	{ID: "1", Name: "af_bella", Desc: "American · female · warm, expressive (recommended)"},
+	{ID: "2", Name: "af_sarah", Desc: "American · female · clear"},
+	{ID: "3", Name: "am_adam", Desc: "American · male"},
+	{ID: "4", Name: "am_michael", Desc: "American · male · steady"},
+	{ID: "5", Name: "bf_emma", Desc: "British · female · warm"},
+	{ID: "6", Name: "bf_isabella", Desc: "British · female"},
+	{ID: "7", Name: "bm_george", Desc: "British · male"},
+	{ID: "8", Name: "bm_lewis", Desc: "British · male · deep"},
+	{ID: "9", Name: "af_nicole", Desc: "American · female · soft (headphones)"},
+	{ID: "10", Name: "af_sky", Desc: "American · female · bright"},
+}
+
+// defaultVoice is the sid used until the user picks one (af_bella).
+const defaultVoice = "1"
 
 // binaryForOS reports the sherpa CLI package for the current OS, and whether one
 // is defined (only linux/windows amd64 are supported today).

@@ -39,7 +39,7 @@ type modelPaths struct {
 // returned engine is not Available() and cues no-op. Downloading is a separate
 // explicit step (EnsureAssets), never done here.
 func newKokoro() *kokoroEngine {
-	k := &kokoroEngine{sid: defaultVoiceSID}
+	k := &kokoroEngine{sid: defaultSID()}
 	engineDir, modelDir, clips, ok := cacheDirs()
 	if !ok {
 		return k
@@ -79,14 +79,7 @@ func (k *kokoroEngine) Warm(phrases []string) {
 	}
 }
 
-func (k *kokoroEngine) Voices() []Voice {
-	out := make([]Voice, kokoroVoiceCount)
-	for i := range out {
-		// TODO(tts): map sid -> Kokoro voice name (af_*/am_*/…) once confirmed.
-		out[i] = Voice{ID: strconv.Itoa(i), Name: "Voice " + strconv.Itoa(i)}
-	}
-	return out
-}
+func (k *kokoroEngine) Voices() []Voice { return kokoroVoices }
 
 func (k *kokoroEngine) Voice() string {
 	k.mu.Lock()
@@ -95,14 +88,27 @@ func (k *kokoroEngine) Voice() string {
 }
 
 func (k *kokoroEngine) SetVoice(id string) bool {
-	n, err := strconv.Atoi(id)
-	if err != nil || n < 0 || n >= kokoroVoiceCount {
+	if !validVoice(id) {
 		return false
 	}
+	n, _ := strconv.Atoi(id)
 	k.mu.Lock()
 	k.sid = n
 	k.mu.Unlock()
 	return true
+}
+
+// defaultSID is the configured default voice's --sid index.
+func defaultSID() int { n, _ := strconv.Atoi(defaultVoice); return n }
+
+// validVoice reports whether id is one of the catalog voices.
+func validVoice(id string) bool {
+	for _, v := range kokoroVoices {
+		if v.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // render ensures text is in the clip cache (synthesizing if needed) and, when
@@ -159,7 +165,7 @@ func cacheKey(sid int, text string) string {
 }
 
 // EnsureAssets downloads the sherpa CLI + Kokoro model into the cache if absent.
-// It transfers ~150 MB on first run, so call it off the UI goroutine. progress,
+// It transfers ~120 MB on first run, so call it off the UI goroutine. progress,
 // if non-nil, is called as (label, bytesDone) where label is "engine" or "voice".
 func EnsureAssets(progress func(label string, done int64)) error {
 	engineDir, modelDir, _, ok := cacheDirs()

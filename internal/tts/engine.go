@@ -19,10 +19,11 @@ type Engine interface {
 	SetVoice(id string) bool
 }
 
-// Voice is a selectable speech voice, surfaced to the (future) settings screen.
+// Voice is a selectable speech voice, surfaced to the setup/settings screens.
 type Voice struct {
-	ID   string // stable identifier passed to SetVoice
-	Name string // human-friendly label
+	ID   string // stable identifier passed to SetVoice (the sherpa --sid index)
+	Name string // voice name (e.g. af_bella)
+	Desc string // human description (accent · gender · character)
 }
 
 // New builds the neural speech engine. It always returns a usable value; when

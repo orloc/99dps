@@ -23,7 +23,7 @@ type setupPhase int
 
 const (
 	phaseMenu        setupPhase = iota // enable (download) or skip
-	phaseDownloading                   // fetching the ~150 MB voice
+	phaseDownloading                   // fetching the ~120 MB voice
 	phaseVoice                         // pick a voice profile
 	phaseError                         // download failed; retry or skip
 )
@@ -210,7 +210,7 @@ func (m Model) setupView(th theme, w int) string {
 			"",
 			paint(th, th.text, fmt.Sprintf("  %s: %d MB", orDefault(m.setup.dlLabel, "voice"), mb), w),
 			"",
-			paint(th, th.dim, "One-time ~150 MB download. Please wait…", w),
+			paint(th, th.dim, "One-time ~120 MB download. Please wait…", w),
 		)
 	case phaseVoice:
 		return lines(m.voicePickLines(th, w)...)
@@ -227,7 +227,7 @@ func (m Model) setupView(th theme, w int) string {
 			paint(th, th.accent, "Audio cues", w),
 			"",
 			paint(th, th.text, "99dps can speak a heads-up when a buff is about to drop", w),
-			paint(th, th.text, `(e.g. "Clarity low"). The voice is a one-time ~150 MB download.`, w),
+			paint(th, th.text, `(e.g. "Clarity low"). The voice is a one-time ~120 MB download.`, w),
 			"",
 			menuRow(th, m.setup.sel == 0, "Enable audio cues  (download the voice now)", w),
 			menuRow(th, m.setup.sel == 1, "Skip — no audio cues", w),
@@ -250,10 +250,18 @@ func (m Model) voicePickLines(th theme, w int) []string {
 		start = max(0, n-visN)
 	}
 	for i := start; i < n && i < start+visN; i++ {
-		out = append(out, menuRow(th, i == m.setup.sel, m.setup.voices[i].Name, w))
+		out = append(out, menuRow(th, i == m.setup.sel, voiceLabel(m.setup.voices[i]), w))
 	}
 	out = append(out, "", paint(th, th.dim, "p preview · ↑/↓ choose · enter confirm", w))
 	return out
+}
+
+// voiceLabel renders a voice as "name — description" for the picker.
+func voiceLabel(v tts.Voice) string {
+	if v.Desc == "" {
+		return v.Name
+	}
+	return v.Name + " — " + v.Desc
 }
 
 func menuRow(th theme, selected bool, label string, w int) string {

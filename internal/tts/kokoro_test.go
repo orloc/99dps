@@ -20,7 +20,7 @@ func TestCacheKeyStable(t *testing.T) {
 }
 
 func TestSetVoiceBounds(t *testing.T) {
-	k := &kokoroEngine{sid: defaultVoiceSID}
+	k := &kokoroEngine{sid: defaultSID()}
 	if !k.SetVoice("5") || k.Voice() != "5" {
 		t.Errorf("valid voice rejected; Voice()=%q", k.Voice())
 	}
@@ -36,8 +36,8 @@ func TestSetVoiceBounds(t *testing.T) {
 
 func TestVoicesCount(t *testing.T) {
 	k := &kokoroEngine{}
-	if got := len(k.Voices()); got != kokoroVoiceCount {
-		t.Errorf("Voices() = %d, want %d", got, kokoroVoiceCount)
+	if got := len(k.Voices()); got != len(kokoroVoices) {
+		t.Errorf("Voices() = %d, want %d", got, len(kokoroVoices))
 	}
 }
 
