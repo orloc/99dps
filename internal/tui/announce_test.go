@@ -197,3 +197,18 @@ func TestShortCooldownNoCue(t *testing.T) {
 		t.Errorf("a short cooldown must not announce, got %v", fe.normal)
 	}
 }
+
+func TestDueAnnouncementsSkipsEstimated(t *testing.T) {
+	m := &Model{announced: map[string]bool{}}
+	now := int64(1_000)
+	// an incoming debuff on you, near (estimated) expiry — must NOT announce
+	est := gamestate.Timer{Spell: "Slowed", Target: "You", Start: now - 360, Expiry: now + 5, Estimated: true}
+	if got := m.dueAnnouncements([]gamestate.Timer{est}, now); len(got) != 0 {
+		t.Errorf("estimated incoming debuff should not produce a fade cue, got %v", got)
+	}
+	// a real buff at the same remaining still announces (sanity)
+	buff := gamestate.Timer{Spell: "Clarity", Target: "You", Start: now - 360, Expiry: now + 5}
+	if got := m.dueAnnouncements([]gamestate.Timer{buff}, now); len(got) != 1 {
+		t.Errorf("a real buff should still announce, got %v", got)
+	}
+}

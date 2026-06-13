@@ -376,15 +376,18 @@ func (m *Model) announceCuesAt(now int64) {
 const longCooldownSec = 60
 
 // dueAnnouncements returns the low-buff phrases to speak this tick and updates
-// the announced set: each (non-charm) timer fires once when it first drops below
-// its warning lead, re-arming when it's refreshed or gone. Speaking is left to
-// the caller so this stays testable. (Charm breaks before its cap, so a countdown
-// "low" would cry wolf — it's skipped.)
+// the announced set: each timer fires once when it first drops below its warning
+// lead, re-arming when it's refreshed or gone. Speaking is left to the caller so
+// this stays testable. Charm is skipped (it breaks before its cap, so a countdown
+// "low" would cry wolf). Estimated incoming debuffs (the "~" ON-YOU timers) are
+// skipped too: their duration is a deliberate over-estimate, so "Slowed low" /
+// "fading" would fire at an untrustworthy moment — and a debuff ending is good
+// news, not something to warn about.
 func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestate.Timer {
 	var due []gamestate.Timer
 	live := make(map[string]bool, len(active))
 	for _, tm := range active {
-		if tm.Charm {
+		if tm.Charm || tm.Estimated {
 			continue
 		}
 		k := tm.Spell + "\x00" + tm.Target
