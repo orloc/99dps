@@ -100,7 +100,8 @@ type Model struct {
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
 	setup       setupState
-	settingsSel int // selected row on the Settings tab (0 = audio toggle, 1..n = voices)
+	settingsSel int         // selected row on the Settings tab
+	layoutPrefs layoutPrefs // per-box meter visibility (Damage / Offense·Defense)
 
 	w, h  int
 	ready bool
@@ -173,11 +174,19 @@ func (m Model) layout() layout {
 		areaH = 6
 	}
 	rightW := innerW // the meter spans the full width now (no Sessions sidebar)
+
+	// the top row (Damage meter + Offense·Defense) is user-toggleable. When both
+	// are off it collapses entirely and the bottom row takes the full height.
+	showDmg := m.layoutPrefs.Damage != panelOff
+	showOD := m.layoutPrefs.OffDef != panelOff
 	dmgH := areaH * 52 / 100
 	if dmgH < 5 {
 		dmgH = 5
 	}
 	botH := areaH - dmgH - 1
+	if !showDmg && !showOD {
+		dmgH, botH = 0, areaH
+	}
 
 	// every class gets a middle column when it fits: casters/hybrids → Enemy
 	// (CC + debuffs on mobs), melee → Buffs (self-buff / clicky timers). The same
@@ -189,14 +198,19 @@ func (m Model) layout() layout {
 		rightW: rightW,
 		dmgH:   dmgH, botH: botH, areaH: areaH, enemy: enemy,
 	}
-	// top-right splits into the dealer meter (left, the bulk) and a Specials /
-	// Avoidance side column, so the meter uses its full height for dealers. Below
-	// a threshold there's no room to split, so the meter takes the whole width.
-	if rightW < 46 {
-		ld.dmgW, ld.extrasW = rightW, 0
-	} else {
+	// split the top row among the visible boxes: both → dealer meter + side
+	// column (when wide enough to fit beside it); one → it takes the full width;
+	// neither → no top row (dmgH was already zeroed above).
+	switch {
+	case showDmg && showOD && rightW >= 46:
 		ld.extrasW = min(rightW*38/100, 46)
 		ld.dmgW = rightW - ld.extrasW - 1
+	case showDmg:
+		ld.dmgW, ld.extrasW = rightW, 0 // narrow, or OffDef off → meter full width
+	case showOD:
+		ld.dmgW, ld.extrasW = 0, rightW // only Offense·Defense
+	default:
+		ld.dmgW, ld.extrasW = 0, 0
 	}
 	if enemy {
 		ld.classW = rightW * 38 / 100
@@ -218,6 +232,21 @@ func (m Model) middleIsBuffs() bool {
 // cardInner returns the body width/height inside a card of total size w×h
 // (border 2 + padding 2 horizontally; border 2 + title line 1 vertically).
 func cardInner(w, h int) (int, int) { return w - 4, h - 3 }
+
+// sepJoin interleaves sep between cells (for lipgloss.JoinHorizontal).
+func sepJoin(cells []string, sep string) []string {
+	if len(cells) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cells)*2-1)
+	for i, c := range cells {
+		if i > 0 {
+			out = append(out, sep)
+		}
+		out = append(out, c)
+	}
+	return out
+}
 
 // effectiveSel resolves the selection against the current session count.
 func (m Model) effectiveSel() int {
@@ -625,6 +654,7 @@ func (m *Model) resizeViewports() {
 	ld := m.layout()
 	set := func(vp *viewport.Model, w, h int) {
 		iw, ih := cardInner(w, h)
+		iw, ih = max(iw, 1), max(ih, 1) // a hidden box has w/h 0 → keep the vp valid
 		if !m.ready {
 			*vp = viewport.New(iw, ih)
 		} else {
@@ -661,10 +691,14 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 	botY := gridY + ld.dmgH // bottom row starts after the Damage card
 	in := func(cx, cw, cy, ch int) bool { return x >= cx && x < cx+cw && y >= cy && y < cy+ch }
 
+	extrasX := rightX // Offense·Defense sits beside the meter, or at the edge if it's off
+	if ld.dmgW > 0 {
+		extrasX = rightX + ld.dmgW + 1
+	}
 	switch {
-	case in(rightX, ld.dmgW, gridY, ld.dmgH):
+	case ld.dmgW > 0 && in(rightX, ld.dmgW, gridY, ld.dmgH):
 		return &m.vpDamage
-	case in(rightX+ld.dmgW+1, ld.extrasW, gridY, ld.dmgH):
+	case ld.extrasW > 0 && in(extrasX, ld.extrasW, gridY, ld.dmgH):
 		return &m.vpExtras
 	case in(rightX, ld.classW, botY, ld.botH):
 		return &m.vpClass
@@ -910,16 +944,27 @@ func (m Model) View() string {
 	// it. On a narrow terminal there's no side column; the meter takes the width.
 	// the canni dance meter is pinned beneath the scrollable dealer list (its
 	// height was reserved out of the viewport in refresh), so it's always visible.
-	dmgBody := m.vpDamage.View()
-	if m.canniBlock != "" {
-		dmgBody = lipgloss.JoinVertical(lipgloss.Left, dmgBody, m.canniBlock)
+	// top row: whichever of the Damage meter / Offense·Defense the user has on
+	// (widths are 0 when a box is off; both off → no top row).
+	var topCells []string
+	if ld.dmgW > 0 {
+		dmgBody := m.vpDamage.View()
+		if m.canniBlock != "" {
+			dmgBody = lipgloss.JoinVertical(lipgloss.Left, dmgBody, m.canniBlock)
+		}
+		topCells = append(topCells, card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), dmgBody))
 	}
-	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), dmgBody)
 	if ld.extrasW > 0 {
-		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
-			topRight, " ", card(th, ld.extrasW, ld.dmgH, "Offense · Defense"+scrollHint(m.vpExtras), m.vpExtras.View()))
+		topCells = append(topCells, card(th, ld.extrasW, ld.dmgH, "Offense · Defense"+scrollHint(m.vpExtras), m.vpExtras.View()))
 	}
-	grid := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
+
+	var grid string
+	if len(topCells) > 0 {
+		top := lipgloss.JoinHorizontal(lipgloss.Top, sepJoin(topCells, " ")...)
+		grid = lipgloss.JoinVertical(lipgloss.Left, top, bottom)
+	} else {
+		grid = bottom // both top boxes off — the bottom row fills the height
+	}
 	full := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, grid, m.footer(th, innerW))
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 		Width(m.w).Height(m.h).Padding(1, 1).Render(full)
@@ -984,6 +1029,9 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	showPct := width >= 34
 	showHit := width >= 60
 	showCrit := width >= 70
+	if m.layoutPrefs.Damage == panelCompact {
+		showPct, showHit, showCrit = false, false, false // slim: name + bar + Total + DPS
+	}
 
 	num := totW + 1 + dpsW // the right-aligned numeric block width
 	if showPct {
@@ -1212,8 +1260,11 @@ func (m Model) extrasContent(cur *session.CombatSession, width int) string {
 	if sp := damageSpecials(th, cur, stats, width); sp != "" {
 		parts = append(parts, sp)
 	}
-	if av := damageAvoidance(th, cur, width); av != "" {
-		parts = append(parts, av)
+	// compact mode shows only the Specials block, dropping the Avoidance table.
+	if m.layoutPrefs.OffDef != panelCompact {
+		if av := damageAvoidance(th, cur, width); av != "" {
+			parts = append(parts, av)
+		}
 	}
 	if len(parts) == 0 {
 		return th.fg(th.dim).Render("No specials or\navoidance yet.")
@@ -1231,6 +1282,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 	m := New(sm, tracker, character)
 	m.spellInfo = spellInfo
 
+	m.layoutPrefs = loadLayoutPrefs()
 	prefs := tts.LoadPrefs()
 	m.screen = initialScreen(prefs)
 	if m.screen == screenSetup {

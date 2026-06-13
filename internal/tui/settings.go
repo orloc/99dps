@@ -115,34 +115,54 @@ func (m Model) settingsVoices() []tts.Voice {
 	return m.speaker.Voices()
 }
 
+// The Settings rows: a few fixed controls, then the voice list.
+const (
+	settingsAudioRow  = 0
+	settingsDamageRow = 1 // Damage meter: Full/Compact/Off
+	settingsOffDefRow = 2 // Offense·Defense: Full/Compact/Off
+	settingsFixedRows = 3 // rows before the voice list
+)
+
 // updateSettings handles input while the Settings tab is focused (tab-navigation
-// keys are consumed earlier, in Update). Row 0 is the audio toggle; rows 1..n are
-// voices.
+// keys are consumed earlier, in Update).
 func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
 	voices := m.settingsVoices()
+	last := settingsFixedRows + len(voices) - 1
 	switch km.String() {
 	case "up", "k":
 		if m.settingsSel > 0 {
 			m.settingsSel--
 		}
 	case "down", "j":
-		if m.settingsSel < len(voices) {
+		if m.settingsSel < last {
 			m.settingsSel++
 		}
 	case "enter", " ":
-		if m.settingsSel == 0 {
+		switch m.settingsSel {
+		case settingsAudioRow:
 			m.toggleTTS()
-		} else if v, ok := voiceIndex(voices, m.settingsSel-1); ok {
-			m.speaker.SetVoice(v.ID)
-			m.flash("voice: " + v.Name)
+			m.persistAudioPrefs()
+		case settingsDamageRow:
+			m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
+			_ = saveLayoutPrefs(m.layoutPrefs)
+			m.flash("Damage meter: " + m.layoutPrefs.Damage.String())
+		case settingsOffDefRow:
+			m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
+			_ = saveLayoutPrefs(m.layoutPrefs)
+			m.flash("Offense · Defense: " + m.layoutPrefs.OffDef.String())
+		default:
+			if v, ok := voiceIndex(voices, m.settingsSel-settingsFixedRows); ok {
+				m.speaker.SetVoice(v.ID)
+				m.flash("voice: " + v.Name)
+				m.persistAudioPrefs()
+			}
 		}
-		m.persistAudioPrefs()
 	case "p":
-		if v, ok := voiceIndex(voices, m.settingsSel-1); ok {
+		if v, ok := voiceIndex(voices, m.settingsSel-settingsFixedRows); ok {
 			m.speaker.SetVoice(v.ID)
 			m.speaker.Say("Audio cue test.")
 		}
@@ -177,14 +197,19 @@ func (m Model) settingsView(th theme, w int) string {
 	}
 
 	out := []string{
-		paint(th, th.accent, "Audio cue settings", w),
+		paint(th, th.accent, "Audio cues", w),
 		"",
-		menuRow(th, m.settingsSel == 0, "Audio cues: "+audio, w),
+		menuRow(th, m.settingsSel == settingsAudioRow, "Audio cues: "+audio, w),
 		"",
-		paint(th, th.dim, "Voice", w),
+		paint(th, th.accent, "Meter boxes", w),
+		"",
+		menuRow(th, m.settingsSel == settingsDamageRow, "Damage meter: "+m.layoutPrefs.Damage.String(), w),
+		menuRow(th, m.settingsSel == settingsOffDefRow, "Offense · Defense: "+m.layoutPrefs.OffDef.String(), w),
+		"",
+		paint(th, th.accent, "Voice", w),
 	}
 	out = append(out, m.settingsVoiceLines(th, w)...)
-	out = append(out, "", paint(th, th.dim, "↑/↓ move · enter toggle/select · p preview · tab or click to switch", w))
+	out = append(out, "", paint(th, th.dim, "↑/↓ move · enter toggle/cycle/select · p preview · tab or click to switch", w))
 	return lines(out...)
 }
 
@@ -200,7 +225,7 @@ func (m Model) settingsVoiceLines(th theme, w int) []string {
 		cur = m.speaker.Voice()
 	}
 	const visN = 8
-	sel := m.settingsSel - 1 // -1 while the audio row is selected
+	sel := m.settingsSel - settingsFixedRows // voice index (negative on a fixed row)
 	start := sel - visN/2
 	if start < 0 {
 		start = 0
