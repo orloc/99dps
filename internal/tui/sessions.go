@@ -29,14 +29,13 @@ func (m Model) sessionsLayout() (tableW, breakW, h int) {
 	return tableW, breakW, h
 }
 
-// sessionsTable renders the scrollable per-session stats table and a map from
-// content line → session index (line 0 is the header). Columns drop as width
-// shrinks (Top dealer, then Kills) so the row always fits w.
-func sessionsTable(th theme, sessions []*session.CombatSession, sel, w int) (string, map[int]int) {
-	rows := map[int]int{}
-	if len(sessions) == 0 {
-		return th.fg(th.dim).Render(truncate("no sessions yet", max(w, 1))), rows
-	}
+// sessionsTable renders the per-session stats table as a fixed header line and a
+// separately-scrolling body, plus a map from BODY line (0-based, no header) →
+// session index. Columns drop as width shrinks (Top dealer, then Kills) so the
+// row always fits w. The header is rendered outside the scroll viewport so it
+// stays sticky.
+func sessionsTable(th theme, sessions []*session.CombatSession, sel, w int) (header, body string, rows map[int]int) {
+	rows = map[int]int{}
 	showKills := w >= 56
 	showTop := w >= 78
 	idxW, durW, totW, dpsW, kW, topW := 3, 7, 8, 8, 5, 18
@@ -64,9 +63,12 @@ func sessionsTable(th theme, sessions []*session.CombatSession, sel, w int) (str
 		return s
 	}
 
+	header = th.fg(th.accentLo).Render(line("#", "Fight", "Dur", "Total", "DPS", "Kills", "Top dealer"))
+	if len(sessions) == 0 {
+		return header, th.fg(th.dim).Render(truncate("no sessions yet", max(w, 1))), rows
+	}
+
 	var b strings.Builder
-	b.WriteString(th.fg(th.accentLo).Render(line("#", "Fight", "Dur", "Total", "DPS", "Kills", "Top dealer")))
-	b.WriteByte('\n')
 	for i, cs := range sessions {
 		dps := 0
 		if sec := cs.Duration().Seconds(); sec > 0 {
@@ -80,11 +82,13 @@ func sessionsTable(th theme, sessions []*session.CombatSession, sel, w int) (str
 		} else {
 			row = th.fg(th.text).Render(row)
 		}
+		if i > 0 {
+			b.WriteByte('\n')
+		}
 		b.WriteString(row)
-		b.WriteByte('\n')
-		rows[i+1] = i // +1: the header occupies content line 0
+		rows[i] = i // body line i (0-based, no header) → session i
 	}
-	return strings.TrimRight(b.String(), "\n"), rows
+	return header, b.String(), rows
 }
 
 // refreshSessions repopulates the Sessions tab (table + breakdown of the
@@ -94,8 +98,9 @@ func (m *Model) refreshSessions() {
 	sel := m.effectiveSel()
 	th := themes[m.theme]
 
-	tbl, rowMap := sessionsTable(th, m.sessions, sel, m.vpSessTable.Width)
-	m.vpSessTable.SetContent(tbl)
+	header, body, rowMap := sessionsTable(th, m.sessions, sel, m.vpSessTable.Width)
+	m.sessHeader = header
+	m.vpSessTable.SetContent(body)
 	m.sessRows = rowMap
 
 	var cur *session.CombatSession
@@ -115,7 +120,7 @@ func (m *Model) ensureSessRowVisible(sel int) {
 	if sel < 0 {
 		return
 	}
-	line := sel + 1
+	line := sel // body lines are 0-based (header is outside the viewport)
 	top, h := m.vpSessTable.YOffset, m.vpSessTable.Height
 	switch {
 	case line < top:
@@ -187,7 +192,7 @@ func (m Model) sessTableAt(x, y int) (int, bool) {
 	if x < 1 || x >= 1+tableW {
 		return 0, false
 	}
-	contentTop := gridTop + 2 // card border (1) + title (1)
+	contentTop := gridTop + 3 // card border (1) + title (1) + sticky header (1)
 	if y < contentTop || y >= gridTop+h-1 {
 		return 0, false
 	}

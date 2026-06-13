@@ -11,25 +11,27 @@ import (
 func TestSessionsTableContent(t *testing.T) {
 	sm := sampleManager()
 	sessions := sm.All()
-	out, rows := sessionsTable(themes[0], sessions, 0, 90)
-	for _, want := range []string{"Fight", "Total", "DPS", "a sand giant"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("table missing %q\n%s", want, out)
+	header, body, rows := sessionsTable(themes[0], sessions, 0, 90)
+	for _, want := range []string{"Fight", "Total", "DPS"} {
+		if !strings.Contains(header, want) {
+			t.Errorf("header missing %q\n%s", want, header)
 		}
 	}
-	// one row mapped per session (header is line 0, not mapped)
+	if !strings.Contains(body, "a sand giant") {
+		t.Errorf("body missing the fight name\n%s", body)
+	}
 	if len(rows) != len(sessions) {
 		t.Errorf("row map = %d entries, want %d", len(rows), len(sessions))
 	}
-	if _, ok := rows[0]; ok {
-		t.Error("line 0 is the header and must not map to a session")
+	if rows[0] != 0 { // body line 0 → session 0 (the header is separate now)
+		t.Errorf("body line 0 should map to session 0, got %d", rows[0])
 	}
 }
 
 func TestSessionsTableEmpty(t *testing.T) {
-	out, rows := sessionsTable(themes[0], nil, -1, 60)
-	if len(rows) != 0 || !strings.Contains(out, "no sessions") {
-		t.Errorf("empty table should say so with no rows, got %q / %v", out, rows)
+	_, body, rows := sessionsTable(themes[0], nil, -1, 60)
+	if len(rows) != 0 || !strings.Contains(body, "no sessions") {
+		t.Errorf("empty table should say so with no rows, got %q / %v", body, rows)
 	}
 }
 
@@ -57,7 +59,7 @@ func TestSessTableAt(t *testing.T) {
 	if len(mm.sessRows) == 0 {
 		t.Fatal("no session rows")
 	}
-	contentTop := gridTop + 2
+	contentTop := gridTop + 3 // border + title + sticky header
 	for ln, idx := range mm.sessRows {
 		y := contentTop + (ln - mm.vpSessTable.YOffset)
 		if got, ok := mm.sessTableAt(2, y); !ok || got != idx {

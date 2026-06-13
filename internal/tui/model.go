@@ -1,6 +1,5 @@
 // Package tui is the Bubble Tea + Lipgloss UI for 99dps — the only UI (it
-// replaced the legacy gocui one). A single Model renders the banner, Sessions
-// sidebar, Damage meter + Specials/Avoidance, the class-aware panel, and the Mob
+// replaced the legacy gocui one). A single Model renders the banner, tab bar, Damage meter + Specials/Avoidance, the class-aware panel, and the Mob
 // Tracker from lock-free session/tracker snapshots, themed and truecolor.
 package tui
 
@@ -42,23 +41,24 @@ type Model struct {
 	character string
 	theme     int
 
-	sessions []*session.CombatSession // last snapshot (for the sidebar)
+	sessions []*session.CombatSession // last snapshot (meter + Sessions tab)
 	selected int                      // pinned session index
 	follow   bool                     // glue selection to the live fight
 
 	// every overflowing panel is independently scrollable (mirrors the previous
 	// per-panel scroll). The mouse wheel scrolls whichever panel it's over.
-	vpSessions viewport.Model
-	vpDamage   viewport.Model
-	vpExtras   viewport.Model // Specials / Avoidance, beside the damage meter
-	vpClass    viewport.Model // spell timers / skills (class-aware bottom panel)
-	vpMob      viewport.Model
-	vpEnemy    viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
+	vpDamage viewport.Model
+	vpExtras viewport.Model // Specials / Avoidance, beside the damage meter
+	vpClass  viewport.Model // spell timers / skills (class-aware bottom panel)
+	vpMob    viewport.Model
+	vpEnemy  viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
 
 	// Sessions tab: a wide scrollable stats table + a DPS breakdown of the
-	// highlighted session. sessRows maps a table content line → session index.
+	// highlighted session. sessHeader is the sticky column header (rendered above
+	// the scroll viewport); sessRows maps a body line → session index.
 	vpSessTable viewport.Model
 	vpSessBreak viewport.Model
+	sessHeader  string
 	sessRows    map[int]int
 
 	// hover/click-to-dismiss: classTargets/enemyTargets map a panel content line to
@@ -142,14 +142,18 @@ func parseRespawn(s string) (int, bool) {
 // classes when there's room; widths are computed here and shared by sizing +
 // render.
 type layout struct {
-	leftW, rightW        int
-	sessH                int
+	rightW               int // full content width (the sidebar was removed)
 	dmgH, botH           int
 	dmgW, extrasW        int // top-right split: dealer meter | Specials/Avoidance
 	classW, enemyW, mobW int // bottom row: class panel | [Enemy] | mob tracker
 	enemy                bool
 	areaH                int
 }
+
+// gridX is the screen X of the meter's first content column (just inside the
+// outer padding). The Sessions sidebar used to sit left of it; now the meter
+// spans the full width from here.
+const gridX = 1
 
 // enemyColMinW is the right-column width below which the bottom row drops the
 // Enemy column (falls back to class | mob, with CC+debuffs back in the class panel).
@@ -166,17 +170,12 @@ func (m Model) layout() layout {
 	if areaH < 6 {
 		areaH = 6
 	}
-	leftW := 26
-	if leftW > innerW/3 {
-		leftW = innerW / 3
-	}
-	rightW := innerW - leftW - 1
+	rightW := innerW // the meter spans the full width now (no Sessions sidebar)
 	dmgH := areaH * 52 / 100
 	if dmgH < 5 {
 		dmgH = 5
 	}
 	botH := areaH - dmgH - 1
-	sessH := dmgH + botH // Sessions spans the full left column (no "Now" box)
 
 	// every class gets a middle column when it fits: casters/hybrids → Enemy
 	// (CC + debuffs on mobs), melee → Buffs (self-buff / clicky timers). The same
@@ -185,8 +184,8 @@ func (m Model) layout() layout {
 	enemy := m.tracker != nil && rightW >= enemyColMinW
 
 	ld := layout{
-		leftW: leftW, rightW: rightW, sessH: sessH,
-		dmgH: dmgH, botH: botH, areaH: areaH, enemy: enemy,
+		rightW: rightW,
+		dmgH:   dmgH, botH: botH, areaH: areaH, enemy: enemy,
 	}
 	// top-right splits into the dealer meter (left, the bulk) and a Specials /
 	// Avoidance side column, so the meter uses its full height for dealers. Below
@@ -258,13 +257,11 @@ func (m *Model) refresh() {
 
 	m.vpDamage.SetContent(m.damageContent(cur, live, m.vpDamage.Width))
 	m.vpExtras.SetContent(m.extrasContent(cur, m.vpExtras.Width))
-	m.vpSessions.SetContent(sessionsList(th, m.sessions, sel, m.vpSessions.Width))
 	m.rebuildInteractive(cur)
 	mobStr, mobT := mobTracker(th, m.tracker, m.vpMob.Width, m.editMob)
 	m.vpMob.SetContent(mobStr)
 	m.mobTargets = mobT
 	m.announceCues()
-	m.ensureSelVisible(sel)
 }
 
 // announceCues speaks this tick's audio cues. Urgent combat alerts (charm break,
@@ -440,23 +437,6 @@ func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 	}
 }
 
-// ensureSelVisible scrolls the Sessions viewport so the selected fight (2 lines
-// per fight) stays in view — only nudging when it's off-screen, like the previous
-// ensureVisible (wheel scrolling is otherwise left alone).
-func (m *Model) ensureSelVisible(sel int) {
-	if sel < 0 {
-		return
-	}
-	line := sel * 2
-	top, h := m.vpSessions.YOffset, m.vpSessions.Height
-	switch {
-	case line < top:
-		m.vpSessions.SetYOffset(line)
-	case line >= top+h:
-		m.vpSessions.SetYOffset(line - h + 2)
-	}
-}
-
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	// the first-run setup screen owns all input until the user finishes/skips it.
@@ -561,11 +541,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refresh()
 				return m, tea.Batch(cmds...)
 			}
-			if i := m.sessionAt(msg.X, msg.Y); i >= 0 {
-				m.selected, m.follow = i, i == len(m.sessions)-1
-				m.refresh()
-				return m, tea.Batch(cmds...)
-			}
 			if mob := m.mobAt(msg.X, msg.Y); mob != "" {
 				m.editing, m.editMob, m.editBuf = true, mob, ""
 				m.refresh()
@@ -616,11 +591,12 @@ func (m *Model) resizeViewports() {
 			vp.Width, vp.Height = iw, ih
 		}
 	}
-	set(&m.vpSessions, ld.leftW, ld.sessH)
 	set(&m.vpDamage, ld.dmgW, ld.dmgH)
-	// Sessions tab (own screen): table 3/4, DPS breakdown 1/4.
+	// Sessions tab (own screen): table 3/4, DPS breakdown 1/4. The table reserves
+	// one extra row for its sticky column header (rendered outside the viewport).
 	tableW, breakW, fullH := m.sessionsLayout()
 	set(&m.vpSessTable, tableW, fullH)
+	m.vpSessTable.Height = max(m.vpSessTable.Height-1, 1)
 	set(&m.vpSessBreak, breakW, fullH)
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
@@ -641,13 +617,11 @@ func (m *Model) resizeViewports() {
 func (m *Model) panelAt(x, y int) *viewport.Model {
 	ld := m.layout()
 	gridY := gridTop        // outer pad (1) + banner (1)
-	rightX := ld.leftW + 2  // outer pad (1) + left column + 1-col gap
+	rightX := gridX         // meter spans full width from the content left edge
 	botY := gridY + ld.dmgH // bottom row starts after the Damage card
 	in := func(cx, cw, cy, ch int) bool { return x >= cx && x < cx+cw && y >= cy && y < cy+ch }
 
 	switch {
-	case in(1, ld.leftW, gridY, ld.sessH):
-		return &m.vpSessions
 	case in(rightX, ld.dmgW, gridY, ld.dmgH):
 		return &m.vpDamage
 	case in(rightX+ld.dmgW+1, ld.extrasW, gridY, ld.dmgH):
@@ -683,7 +657,7 @@ func isWheel(b tea.MouseButton) bool {
 func (m *Model) hoverTargetAt(x, y int) string {
 	ld := m.layout()
 	gridY := gridTop
-	rightX := ld.leftW + 2
+	rightX := gridX // meter spans full width from the content left edge
 	botY := gridY + ld.dmgH
 	contentTop := botY + 2           // border (1) + title (1)
 	contentBot := botY + ld.botH - 1 // inside the bottom border
@@ -703,28 +677,10 @@ func (m *Model) hoverTargetAt(x, y int) string {
 	return ""
 }
 
-// sessionAt returns the session index under screen cell (x,y) in the Sessions
-// panel (2 lines per fight), or -1.
-func (m *Model) sessionAt(x, y int) int {
-	ld := m.layout()
-	if x < 1 || x >= 1+ld.leftW {
-		return -1
-	}
-	contentTop := gridTop + 2 // gridY + border + title
-	if y < contentTop || y >= gridTop+ld.sessH-1 {
-		return -1
-	}
-	idx := ((y - contentTop) + m.vpSessions.YOffset) / 2
-	if idx < 0 || idx >= len(m.sessions) {
-		return -1
-	}
-	return idx
-}
-
 // mobAt returns the repop mob under screen cell (x,y) in the Mob Tracker, or "".
 func (m *Model) mobAt(x, y int) string {
 	ld := m.layout()
-	rightX := ld.leftW + 2
+	rightX := gridX // meter spans full width from the content left edge
 	botY := gridTop + ld.dmgH
 	contentTop := botY + 2
 	if y < contentTop || y >= botY+ld.botH-1 {
@@ -865,8 +821,10 @@ func (m Model) View() string {
 		if sel := m.effectiveSel(); sel >= 0 && sel < len(m.sessions) {
 			breakTitle = "Damage — " + truncate(m.sessions[sel].Name(), breakW-12)
 		}
+		// sticky header sits above the scrolling body inside the table card.
+		tableBody := lipgloss.JoinVertical(lipgloss.Left, m.sessHeader, m.vpSessTable.View())
 		grid := lipgloss.JoinHorizontal(lipgloss.Top,
-			card(th, tableW, fullH, "Sessions"+scrollHint(m.vpSessTable), m.vpSessTable.View()), " ",
+			card(th, tableW, fullH, "Sessions"+scrollHint(m.vpSessTable), tableBody), " ",
 			card(th, breakW, fullH, breakTitle+scrollHint(m.vpSessBreak), m.vpSessBreak.View()))
 		full := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, grid, m.footer(th, innerW))
 		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
@@ -881,8 +839,6 @@ func (m Model) View() string {
 	}
 
 	ld := m.layout()
-
-	left := card(th, ld.leftW, ld.sessH, "Sessions"+scrollHint(m.vpSessions), m.vpSessions.View())
 
 	dmgTitle := "Damage"
 	if sel := m.effectiveSel(); sel >= 0 {
@@ -923,9 +879,7 @@ func (m Model) View() string {
 		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
 			topRight, " ", card(th, ld.extrasW, ld.dmgH, "Offense · Defense"+scrollHint(m.vpExtras), m.vpExtras.View()))
 	}
-	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
-
-	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+	grid := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 	full := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, grid, m.footer(th, innerW))
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 		Width(m.w).Height(m.h).Padding(1, 1).Render(full)

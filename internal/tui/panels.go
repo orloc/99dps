@@ -37,33 +37,6 @@ func card(th theme, w, h int, title, body string) string {
 		Render(content)
 }
 
-// sessionsList: the fight list, newest last, with the selected one a gold
-// plaque. The full list is returned (no clip) — the Sessions viewport scrolls it.
-func sessionsList(th theme, sessions []*session.CombatSession, selected, w int) string {
-	if len(sessions) == 0 {
-		return th.fg(th.dim).Render("No fights yet.\nFight something!")
-	}
-	var lines []string
-	for i, s := range sessions {
-		live := i == len(sessions)-1 && s.EndTime().IsZero()
-		name := s.Name()
-		if live {
-			name += " ●"
-		}
-		marker, nameStyle, metaStyle := "  ", th.fg(th.text), th.fg(th.dim)
-		if i == selected {
-			marker = "▸ "
-			bar := lipgloss.NewStyle().Foreground(lipgloss.Color(th.bg)).
-				Background(lipgloss.Color(th.accent)).Width(w)
-			nameStyle, metaStyle = bar.Bold(true), bar // highlight both rows of the selection
-		}
-		lines = append(lines, nameStyle.Render(truncate(marker+name, w)))
-		meta := fmt.Sprintf("  %s · %s", fmtDuration(s.Duration()), humanize(s.Total()+s.MagicTotal()))
-		lines = append(lines, metaStyle.Render(truncate(meta, w)))
-	}
-	return strings.Join(lines, "\n")
-}
-
 // splitCCtimers partitions timers into crowd control (mez/charm/pacify) and rest.
 func splitCCtimers(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
 	for _, tm := range timers {

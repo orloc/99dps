@@ -155,7 +155,7 @@ func TestHoverDismiss(t *testing.T) {
 	// screen cell over Aragorn's group in the class (bottom-left) panel
 	ld := mm.layout()
 	contentTop := gridTop + ld.dmgH + 2 // outer pad + banner + dmg card + border + title
-	rightX := ld.leftW + 2
+	rightX := gridX
 	line := -1
 	for l, tgt := range mm.classTargets {
 		if tgt == "Aragorn" && (line < 0 || l < line) {
@@ -335,20 +335,6 @@ func TestClearSessions(t *testing.T) {
 	}
 }
 
-func TestSessionClickSelects(t *testing.T) {
-	var m tea.Model = New(twoSessionManager(), nil, "Kelkix")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	mm := m.(Model)
-	if len(mm.sessions) < 2 {
-		t.Fatalf("want >=2 sessions, got %d", len(mm.sessions))
-	}
-	// row 0 of the Sessions panel: content starts at gridTop(3)+border+title = 5
-	m2, _ := mm.Update(tea.MouseMsg{X: 3, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-	if mm2 := m2.(Model); mm2.selected != 0 || mm2.follow {
-		t.Errorf("clicking the first fight should pin it (selected=%d follow=%v)", mm2.selected, mm2.follow)
-	}
-}
-
 func TestMobTrackerSeparatorAndKiller(t *testing.T) {
 	out, targets := mobTracker(themes[0], mobSceneTracker(), 44, "")
 	if !strings.Contains(out, "killed by others") {
@@ -378,7 +364,7 @@ func TestRepopEditFlow(t *testing.T) {
 	if line < 0 {
 		t.Fatal("no mob targets to click")
 	}
-	mobX := ld.leftW + 2 + ld.classW + 1
+	mobX := gridX + ld.classW + 1
 	if ld.enemy {
 		mobX += ld.enemyW + 1
 	}
@@ -708,7 +694,7 @@ func TestEnemyColumnRouting(t *testing.T) {
 // and both buffs and debuffs fold back into the class panel.
 func TestEnemyColumnNarrowFallback(t *testing.T) {
 	var m tea.Model = New(sampleManager(), mixedCaster(t), "Kelkix")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 70, Height: 34})
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 58, Height: 34})
 	mm := m.(Model)
 	if mm.layout().enemy {
 		t.Fatal("expected no Enemy column on a narrow window")
@@ -798,7 +784,7 @@ func TestWriteShots(t *testing.T) {
 	ld := mc.layout()
 	for l, tgt := range mc.classTargets {
 		if tgt == "Aragorn" {
-			mc2, _ := mc.Update(tea.MouseMsg{X: ld.leftW + 5, Y: gridTop + ld.dmgH + 2 + l, Action: tea.MouseActionMotion})
+			mc2, _ := mc.Update(tea.MouseMsg{X: gridX + 4, Y: gridTop + ld.dmgH + 2 + l, Action: tea.MouseActionMotion})
 			mc = mc2.(Model)
 			break
 		}
@@ -1040,7 +1026,7 @@ func TestMeleeBuffsColumn(t *testing.T) {
 // into the Skills panel rather than vanish.
 func TestMeleeBuffsFoldNarrow(t *testing.T) {
 	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 70, Height: 40})
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 58, Height: 40})
 	mm := m.(Model)
 	if mm.layout().enemy {
 		t.Fatal("expected no middle column at this narrow width")
@@ -1066,28 +1052,5 @@ func TestBuffsYouPinnedTop(t *testing.T) {
 	// the rest stay soonest-first (Legolas 30s before Aragorn 60s)
 	if order[1] != "Legolas" || order[2] != "Aragorn" {
 		t.Errorf("non-You groups should stay soonest-first; got %v", order)
-	}
-}
-
-// TestSessionSelectionHighlightsBothRows: the selected fight highlights BOTH its
-// rows (name + meta), so both span the full width; an unselected fight's meta row
-// does not. (Color profile is stripped under test, so we check the width the
-// highlight bar pads to rather than the ANSI background.)
-func TestSessionSelectionHighlightsBothRows(t *testing.T) {
-	sm := &session.SessionManager{}
-	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 100, Target: "a rat"})
-	sm.Apply(&combat.DamageSet{ActionTime: 1000 + 40, Dealer: "You", Dmg: 100, Target: "a bat"}) // gap → 2 fights
-
-	const w = 24
-	lines := strings.Split(sessionsList(themes[0], sm.All(), 0, w), "\n") // select fight 0
-	if len(lines) < 4 {
-		t.Fatalf("expected two rows per fight; got %d lines", len(lines))
-	}
-	if lipgloss.Width(lines[0]) != w || lipgloss.Width(lines[1]) != w {
-		t.Errorf("selected fight: both rows should fill width %d; got %d (name) and %d (meta)",
-			w, lipgloss.Width(lines[0]), lipgloss.Width(lines[1]))
-	}
-	if lipgloss.Width(lines[3]) == w {
-		t.Error("an unselected fight's meta row should not be highlighted (full-width)")
 	}
 }
