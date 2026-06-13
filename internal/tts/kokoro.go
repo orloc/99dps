@@ -179,6 +179,26 @@ func labeled(fn func(string, int64), label string) func(int64) {
 	return func(done int64) { fn(label, done) }
 }
 
+// Setup downloads the neural assets (if missing), synthesizes a test phrase, and
+// plays it — the one-shot way to verify the whole runtime path (download → synth
+// → audio) on a real machine. Returns the path of the test WAV. Blocking; intended
+// for a `-tts-setup` CLI flow, not the UI.
+func Setup(progress func(label string, done int64)) (string, error) {
+	if err := EnsureAssets(progress); err != nil {
+		return "", err
+	}
+	k := newKokoro()
+	if k == nil {
+		return "", errors.New("assets missing after download (unexpected)")
+	}
+	out := filepath.Join(os.TempDir(), "99dps-tts-test.wav")
+	if err := k.synth("Audio cues are ready.", k.sid, out); err != nil {
+		return "", fmt.Errorf("synthesis failed: %w", err)
+	}
+	playWav(out)
+	return out, nil
+}
+
 // --- path helpers ---
 
 // cacheDirs returns the engine/model/clips dirs under the user cache, creating

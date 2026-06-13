@@ -2,7 +2,9 @@ package main
 
 import (
 	"99dps/internal/loader"
+	"99dps/internal/tts"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -11,8 +13,16 @@ func main() {
 	logDir := flag.String("logdir", "", "directory containing eqlog_*.txt files (default: saved choice, EQ_LOG_DIR, or auto-detect)")
 	logFile := flag.String("logfile", "", "replay/follow one specific eqlog file (debug; bypasses log-dir detection and character hot-swap)")
 	spells := flag.String("spells", "", "path to spells_us.txt (default: next to the logs, else <logdir>/../spells_us.txt)")
-	tts := flag.Bool("tts", false, "speak audio cues when your buffs get low (toggle in-app with 'a')")
+	ttsOn := flag.Bool("tts", false, "speak audio cues when your buffs get low (toggle in-app with 'a')")
+	ttsSetup := flag.Bool("tts-setup", false, "download the neural voice (~150MB, one time) and play a test phrase, then exit")
 	flag.Parse()
+
+	// -tts-setup verifies the whole neural-voice path (download → synth → audio)
+	// in one shot, then exits. Run it once before using -tts with neural voices.
+	if *ttsSetup {
+		runTTSSetup()
+		return
+	}
 
 	// -logfile points the meter at a single file (a captured test log) without
 	// touching the saved log-dir choice or the most-recently-modified heuristic.
@@ -22,7 +32,7 @@ func main() {
 		if spellsPath == "" {
 			spellsPath = defaultSpellsPath(dir)
 		}
-		launchFile(*logFile, dir, spellsPath, *tts)
+		launchFile(*logFile, dir, spellsPath, *ttsOn)
 		return
 	}
 
@@ -33,7 +43,29 @@ func main() {
 		spellsPath = defaultSpellsPath(dir)
 	}
 
-	launchTUI(dir, spellsPath, *tts)
+	launchTUI(dir, spellsPath, *ttsOn)
+}
+
+// runTTSSetup downloads the neural voice (with simple progress) and plays a test
+// phrase, reporting the outcome. It's a plain CLI flow (no TUI), so output goes
+// straight to the terminal.
+func runTTSSetup() {
+	fmt.Println("Downloading the neural voice (~150 MB, one time)…")
+	last := ""
+	wav, err := tts.Setup(func(label string, done int64) {
+		if line := fmt.Sprintf("\r  %s: %d MB ", label, done/(1024*1024)); line != last {
+			fmt.Print(line)
+			last = line
+		}
+	})
+	fmt.Println()
+	if err != nil {
+		fmt.Println("TTS setup failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Done — played a test phrase. If you heard it, neural cues work.")
+	fmt.Println("Test clip:", wav)
+	fmt.Println("Now run 99dps normally and press 'a' (or use -tts) for audio cues.")
 }
 
 // defaultSpellsPath locates spells_us.txt for a given log directory. A real EQ
