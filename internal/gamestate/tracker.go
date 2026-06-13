@@ -62,6 +62,10 @@ type Tracker struct {
 	resistSpell string
 	resistAt    int64
 
+	// charmBrokeAt is when the player's charm last broke ("Your charm spell has
+	// worn off.") — surfaced briefly so the UI can raise an urgent alert.
+	charmBrokeAt int64
+
 	// character is the tracked player (set by the host), used to flag the player's
 	// own pet. petName is the player's current pet; petOwners maps every seen pet
 	// (lowercased name) to its owner, from "My leader is <Owner>." lines (see
@@ -73,6 +77,7 @@ type Tracker struct {
 
 // resistGraceSec is how long a resist notice stays shown after it lands.
 const resistGraceSec = 5
+const charmBreakGraceSec = 5
 
 // NewTracker builds a tracker over a loaded spell book.
 func NewTracker(book *Book) *Tracker {
@@ -214,6 +219,17 @@ func (t *Tracker) Resisted(now int64) (string, bool) {
 	return "", false
 }
 
+// CharmBroke reports whether the player's charm broke recently (within
+// charmBreakGraceSec) — a transient, urgent signal for the UI.
+func (t *Tracker) CharmBroke(now int64) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.charmBrokeAt != 0 && now-t.charmBrokeAt >= 0 && now-t.charmBrokeAt <= charmBreakGraceSec
+}
+
 // normalizeMobName lowercases and strips a leading article so a mez-landing name
 // and a damage-line name for the same mob compare equal.
 func normalizeMobName(s string) string {
@@ -290,7 +306,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.matchIncomingDebuffLocked(body, at)
 	t.expireIncomingByFadeLocked(body)
 	t.observePetLocked(body)
-	t.expireByMessageLocked(body)
+	t.expireByMessageLocked(body, at)
 	t.expireOnSlainLocked(body)
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
 	t.zone.observeLocked(body, at, t.petName)
@@ -462,15 +478,16 @@ func (t *Tracker) expireSoonestLocked(spell string) {
 	}
 }
 
-func (t *Tracker) expireByMessageLocked(body string) {
+func (t *Tracker) expireByMessageLocked(body string, at int64) {
 	if len(t.timers) == 0 {
 		return // nothing to expire — skip the charm check and the per-timer scan
 	}
-	// a charm broke
+	// a charm broke — clear it and stamp the break so the UI can alert urgently.
 	if strings.HasPrefix(body, "Your charm spell has worn off") {
 		for k, tm := range t.timers {
 			if tm.Charm {
 				delete(t.timers, k)
+				t.charmBrokeAt = at
 			}
 		}
 	}

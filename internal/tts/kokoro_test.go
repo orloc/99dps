@@ -7,14 +7,17 @@ import (
 )
 
 func TestCacheKeyStable(t *testing.T) {
-	a := cacheKey(0, "Clarity low")
-	if a != cacheKey(0, "Clarity low") {
+	a := cacheKey(0, "1.1", "Clarity low")
+	if a != cacheKey(0, "1.1", "Clarity low") {
 		t.Error("cacheKey not stable for identical inputs")
 	}
-	if a == cacheKey(1, "Clarity low") {
+	if a == cacheKey(1, "1.1", "Clarity low") {
 		t.Error("cacheKey must differ by voice")
 	}
-	if a == cacheKey(0, "Snare low") {
+	if a == cacheKey(0, "1.0", "Clarity low") {
+		t.Error("cacheKey must differ by speed/scale")
+	}
+	if a == cacheKey(0, "1.1", "Snare low") {
 		t.Error("cacheKey must differ by text")
 	}
 }

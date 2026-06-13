@@ -68,6 +68,11 @@ const defaultVoice = "1"
 // changing it re-synthesizes cached cues.
 const kokoroLengthScale = "1.1"
 
+// urgentLengthScale is the snappier delivery for time-critical combat alerts
+// (charm break, resist) — at normal speed, it reads as more urgent than the
+// gentle buff cadence.
+const urgentLengthScale = "1.0"
+
 // binaryForOS reports the sherpa CLI package for the current OS, and whether one
 // is defined (only linux/windows amd64 are supported today).
 func binaryForOS() (artifact, bool) {

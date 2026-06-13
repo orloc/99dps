@@ -5,8 +5,11 @@ package tts
 // (EnsureAssets / the -tts-setup flow) the engine is simply unavailable and cues
 // no-op. Every method is safe to call on an unavailable engine.
 type Engine interface {
-	// Say speaks text without blocking.
+	// Say speaks text without blocking (normal, gentle delivery).
 	Say(text string)
+	// SayUrgent speaks text with a snappier delivery and jumps ahead of any
+	// queued normal cues — for time-critical combat alerts (charm break, resist).
+	SayUrgent(text string)
 	// Available reports whether a working speech engine was found.
 	Available() bool
 	// Voices lists the selectable voices, or nil when the engine offers no

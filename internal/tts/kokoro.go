@@ -29,9 +29,14 @@ type kokoroEngine struct {
 	mu  sync.Mutex
 	sid int // current speaker index
 
-	once  sync.Once   // lazily starts the playback worker
-	queue chan string // utterances awaiting serialized playback
+	once   sync.Once      // lazily starts the playback worker
+	queue  chan utterance // normal cues awaiting serialized playback
+	urgent chan utterance // urgent cues — drained ahead of the normal queue
 }
+
+// utterance is a queued cue: the text plus the length-scale (speed) it's spoken
+// at (gentle for buffs, snappier for urgent combat alerts).
+type utterance struct{ text, scale string }
 
 type modelPaths struct {
 	onnx, voices, tokens, dataDir string
@@ -65,27 +70,48 @@ func newKokoro() *kokoroEngine {
 // only when both the engine binary and a resolvable model were found).
 func (k *kokoroEngine) Available() bool { return k != nil && k.cli != "" }
 
-// Say queues an utterance for playback without blocking the caller. A single
-// worker plays the queue one item at a time, so cues never talk over each other.
-func (k *kokoroEngine) Say(text string) {
+// Say queues a normal (gentle) cue for playback without blocking the caller.
+func (k *kokoroEngine) Say(text string) { k.enqueue(text, kokoroLengthScale, false) }
+
+// SayUrgent queues a snappier cue that jumps ahead of the normal queue.
+func (k *kokoroEngine) SayUrgent(text string) { k.enqueue(text, urgentLengthScale, true) }
+
+func (k *kokoroEngine) enqueue(text, scale string, urgent bool) {
 	if !k.Available() || text == "" {
 		return
 	}
 	k.once.Do(func() {
-		k.queue = make(chan string, 16)
+		k.queue = make(chan utterance, 16)
+		k.urgent = make(chan utterance, 16)
 		go k.worker()
 	})
+	ch := k.queue
+	if urgent {
+		ch = k.urgent
+	}
 	select {
-	case k.queue <- text:
+	case ch <- utterance{text: text, scale: scale}:
 	default: // queue full — drop rather than let stale cues pile up
 	}
 }
 
-// worker plays queued utterances serially: each render synthesizes (cached) then
-// blocks on playback, so the next cue starts only after the current finishes.
+// worker plays queued cues serially (so they never overlap), always draining
+// the urgent queue first so a charm-break/resist alert isn't stuck behind a
+// gentle buff cue. Each render synthesizes (cached) then blocks on playback.
 func (k *kokoroEngine) worker() {
-	for text := range k.queue {
-		k.render(text, true)
+	for {
+		select {
+		case u := <-k.urgent:
+			k.render(u.text, true, u.scale)
+			continue
+		default:
+		}
+		select {
+		case u := <-k.urgent:
+			k.render(u.text, true, u.scale)
+		case u := <-k.queue:
+			k.render(u.text, true, u.scale)
+		}
 	}
 }
 
@@ -94,7 +120,7 @@ func (k *kokoroEngine) worker() {
 func (k *kokoroEngine) Warm(phrases []string) {
 	for _, p := range phrases {
 		if p != "" {
-			k.render(p, false)
+			k.render(p, false, kokoroLengthScale)
 		}
 	}
 }
@@ -134,17 +160,17 @@ func validVoice(id string) bool {
 // render ensures text is in the clip cache (synthesizing if needed) and, when
 // play is true, plays it. Best-effort: a synth/play failure silently no-ops,
 // matching the legacy engine (a cue is never worth stalling or crashing for).
-func (k *kokoroEngine) render(text string, play bool) {
+func (k *kokoroEngine) render(text string, play bool, scale string) {
 	k.mu.Lock()
 	sid := k.sid
 	k.mu.Unlock()
 
-	clip := filepath.Join(k.clips, cacheKey(sid, text)+".wav")
+	clip := filepath.Join(k.clips, cacheKey(sid, scale, text)+".wav")
 	if !fileExists(clip) {
 		// synth to a temp file and rename, so a concurrent reader never plays a
 		// half-written clip (the cache file appears atomically).
 		tmp := clip + ".tmp"
-		if err := k.synth(text, sid, tmp); err != nil {
+		if err := k.synth(text, sid, scale, tmp); err != nil {
 			return
 		}
 		if err := os.Rename(tmp, clip); err != nil {
@@ -156,8 +182,8 @@ func (k *kokoroEngine) render(text string, play bool) {
 	}
 }
 
-// synth runs the sherpa CLI to write a WAV for (text, sid).
-func (k *kokoroEngine) synth(text string, sid int, out string) error {
+// synth runs the sherpa CLI to write a WAV for (text, sid, scale).
+func (k *kokoroEngine) synth(text string, sid int, scale, out string) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return err
 	}
@@ -166,7 +192,7 @@ func (k *kokoroEngine) synth(text string, sid int, out string) error {
 		"--kokoro-voices=" + k.model.voices,
 		"--kokoro-tokens=" + k.model.tokens,
 		"--kokoro-data-dir=" + k.model.dataDir,
-		"--kokoro-length-scale=" + kokoroLengthScale, // a touch slower = gentler
+		"--kokoro-length-scale=" + scale, // gentle for buffs, snappier for alerts
 	}
 	if k.model.lexicon != "" {
 		args = append(args, "--kokoro-lexicon="+k.model.lexicon)
@@ -186,9 +212,10 @@ func (k *kokoroEngine) synth(text string, sid int, out string) error {
 }
 
 // cacheKey is a stable filename stem for a (voice, speed, text) clip — the
-// length scale is folded in so a speed change invalidates stale cached cues.
-func cacheKey(sid int, text string) string {
-	sum := sha1.Sum([]byte(strconv.Itoa(sid) + "\x00" + kokoroLengthScale + "\x00" + text))
+// length scale is folded in so urgent (faster) and normal cues cache separately
+// and a speed change invalidates stale clips.
+func cacheKey(sid int, scale, text string) string {
+	sum := sha1.Sum([]byte(strconv.Itoa(sid) + "\x00" + scale + "\x00" + text))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -230,7 +257,7 @@ func Setup(progress func(label string, done int64)) (string, error) {
 		return "", errors.New("assets missing after download (unexpected)")
 	}
 	out := filepath.Join(os.TempDir(), "99dps-tts-test.wav")
-	if err := k.synth("Audio cues are ready.", k.sid, out); err != nil {
+	if err := k.synth("Audio cues are ready.", k.sid, kokoroLengthScale, out); err != nil {
 		return "", fmt.Errorf("synthesis failed: %w", err)
 	}
 	playWav(out)

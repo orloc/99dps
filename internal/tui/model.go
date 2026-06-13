@@ -68,6 +68,12 @@ type Model struct {
 	ttsOn     bool
 	announced map[string]bool
 
+	// urgent combat-cue dedup (fire once per event, re-arm when it clears) and a
+	// rotating sequence for natural phrasing variety.
+	charmAnnounced  bool
+	resistAnnounced string
+	cueSeq          int
+
 	// transient status banner (character switch, action feedback, edit prompt),
 	// shown in the footer for a few seconds.
 	status   string
@@ -246,20 +252,46 @@ func (m *Model) refresh() {
 	mobStr, mobT := mobTracker(th, m.tracker, m.vpMob.Width, m.editMob)
 	m.vpMob.SetContent(mobStr)
 	m.mobTargets = mobT
-	m.announceLowBuffs()
+	m.announceCues()
 	m.ensureSelVisible(sel)
 }
 
-// announceLowBuffs speaks the cues due this tick as ONE combined utterance, so
-// several simultaneous fades don't talk over each other (cross-tick cues are
-// serialized by the speaker's own playback queue). No-op when audio is off.
-func (m *Model) announceLowBuffs() {
+// announceCues speaks this tick's audio cues. Urgent combat alerts (charm break,
+// resist) use SayUrgent — a snappier voice that jumps the playback queue — and
+// each fires once per event. Buff/debuff fades are gentler, combined into one
+// varied sentence so simultaneous fades don't overlap. No-op when audio is off.
+func (m *Model) announceCues() {
 	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
 		return
 	}
 	now := time.Now().Unix()
+
+	// charm break — scary and time-critical.
+	if m.tracker.CharmBroke(now) {
+		if !m.charmAnnounced {
+			m.charmAnnounced = true
+			m.speaker.SayUrgent(charmBreakPhrase(m.cueSeq))
+			m.cueSeq++
+		}
+	} else {
+		m.charmAnnounced = false
+	}
+
+	// a cast that didn't land — alert so you re-cast.
+	if spell, ok := m.tracker.Resisted(now); ok {
+		if spell != m.resistAnnounced {
+			m.resistAnnounced = spell
+			m.speaker.SayUrgent(resistPhrase(spell, m.cueSeq))
+			m.cueSeq++
+		}
+	} else {
+		m.resistAnnounced = ""
+	}
+
+	// gentle buff/debuff fades, combined into one varied utterance.
 	if due := m.dueAnnouncements(m.tracker.Active(now), now); len(due) > 0 {
-		m.speaker.Say(composeCue(due))
+		m.speaker.Say(composeCue(due, m.cueSeq))
+		m.cueSeq++
 	}
 }
 
@@ -311,9 +343,9 @@ func warnLeadSec(total int64) int64 {
 
 // composeCue turns the timers that just went low into one terse, natural
 // utterance, so simultaneous fades are spoken as a single sentence rather than
-// several cues overlapping. Self-buffs read by name; effects on a mob read as
-// "<spell> on <mob>".
-func composeCue(due []gamestate.Timer) string {
+// several cues overlapping. seq rotates the phrasing for variety. Self-buffs read
+// by name; effects on a mob read as "<spell> on <mob>".
+func composeCue(due []gamestate.Timer, seq int) string {
 	subjects := make([]string, 0, len(due))
 	for _, tm := range due {
 		if tm.Target == "" || tm.Target == "You" {
@@ -322,21 +354,54 @@ func composeCue(due []gamestate.Timer) string {
 			subjects = append(subjects, tm.Spell+" on "+tm.Target)
 		}
 	}
-	return fadingSentence(subjects)
+	if len(subjects) == 0 {
+		return ""
+	}
+	style := fadeStyles[seq%len(fadeStyles)]
+	if len(subjects) == 1 {
+		return fmt.Sprintf(style.one, joinList(subjects))
+	}
+	return fmt.Sprintf(style.many, joinList(subjects))
 }
 
-// fadingSentence joins subjects with natural list grammar and verb agreement:
-// "X is fading." / "X and Y are fading." / "X, Y, and Z are fading."
-func fadingSentence(s []string) string {
+// fadeStyles are the rotating phrasings for a buff/debuff fading (singular vs
+// plural form so verb agreement stays correct however many are listed).
+var fadeStyles = []struct{ one, many string }{
+	{"%s is fading.", "%s are fading."},
+	{"%s is wearing off.", "%s are wearing off."},
+	{"Heads up, %s is about to drop.", "Heads up, %s are about to drop."},
+}
+
+// joinList renders names with natural list grammar: "X" / "X and Y" /
+// "X, Y, and Z".
+func joinList(s []string) string {
 	switch len(s) {
 	case 0:
 		return ""
 	case 1:
-		return s[0] + " is fading."
+		return s[0]
 	case 2:
-		return s[0] + " and " + s[1] + " are fading."
+		return s[0] + " and " + s[1]
 	default:
-		return strings.Join(s[:len(s)-1], ", ") + ", and " + s[len(s)-1] + " are fading."
+		return strings.Join(s[:len(s)-1], ", ") + ", and " + s[len(s)-1]
+	}
+}
+
+// charmBreakPhrase is an urgent, varied alert that the player's charm broke.
+func charmBreakPhrase(seq int) string {
+	phrases := []string{"Charm broke!", "Your charm broke — careful!", "Charm just broke!"}
+	return phrases[seq%len(phrases)]
+}
+
+// resistPhrase is an urgent, varied alert that a cast was resisted.
+func resistPhrase(spell string, seq int) string {
+	switch seq % 3 {
+	case 0:
+		return spell + " resisted!"
+	case 1:
+		return spell + " was resisted."
+	default:
+		return "Resisted: " + spell + "."
 	}
 }
 
