@@ -457,9 +457,9 @@ func (m *Model) resizeViewports() {
 	set(&m.vpClass, ld.classW, ld.botH)
 	set(&m.vpMob, ld.mobW, ld.botH)
 	set(&m.vpEnemy, ld.enemyW, ld.botH)
-	// the extras card is title-less, so its body gets one more row (h-2, not h-3);
-	// clamp to 0 when there's no side column (narrow terminal).
-	if ew, eh := max(ld.extrasW-4, 0), max(ld.dmgH-2, 0); !m.ready {
+	// the extras card has a title ("Offense · Defense"), so reserve its row (h-3,
+	// like cardInner); clamp to 0 when there's no side column (narrow terminal).
+	if ew, eh := max(ld.extrasW-4, 0), max(ld.dmgH-3, 0); !m.ready {
 		m.vpExtras = viewport.New(ew, eh)
 	} else {
 		m.vpExtras.Width, m.vpExtras.Height = ew, eh
@@ -720,7 +720,7 @@ func (m Model) View() string {
 	topRight := card(th, ld.dmgW, ld.dmgH, dmgTitle+scrollHint(m.vpDamage), dmgBody)
 	if ld.extrasW > 0 {
 		topRight = lipgloss.JoinHorizontal(lipgloss.Top,
-			topRight, " ", card(th, ld.extrasW, ld.dmgH, "", m.vpExtras.View()))
+			topRight, " ", card(th, ld.extrasW, ld.dmgH, "Offense · Defense"+scrollHint(m.vpExtras), m.vpExtras.View()))
 	}
 	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
@@ -762,24 +762,13 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	if cur == nil {
 		return th.fg(th.dim).Render("No fight selected.\nFight something!")
 	}
-	stats := cur.GetAggressors()
-	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+	stats := cur.GetAggressors() // ranked below, after spell/pet damage is rolled in
 	magic := cur.MagicTotal()
 	encTotal := cur.Total() + magic // melee + unattributed spell damage
 	span := cur.LastUnix() - cur.StartTime().Unix()
 	if span < 1 {
 		span = 1
 	}
-	maxTotal := magic
-	for _, d := range stats {
-		if d.Total > maxTotal {
-			maxTotal = d.Total
-		}
-	}
-	if maxTotal < 1 {
-		maxTotal = 1
-	}
-
 	// encounter summary: duration · total · dps · live/ended. Colored when it
 	// fits; clipped (plain) on a very narrow panel so it never overflows.
 	lead := fmt.Sprintf("%s · %s · %s/s", fmtDuration(cur.Duration()), humanize(encTotal), humanize(int(int64(encTotal)/span)))
@@ -890,22 +879,12 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		stats = append(stats, combat.DamageStat{Dealer: "You"})
 		present["you"] = true // rollup nests the player's pet under the synthesized You row
 	}
-	if magic > 0 { // the player's bar includes their spells
+	if magic > 0 { // the player's row includes their own spell/proc/DoT damage
 		for i := range stats {
 			if strings.EqualFold(stats[i].Dealer, "You") {
 				stats[i].Total += magic
 				break
 			}
-		}
-		sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
-		maxTotal = magic
-		for _, d := range stats {
-			if d.Total > maxTotal {
-				maxTotal = d.Total
-			}
-		}
-		if maxTotal < 1 {
-			maxTotal = 1
 		}
 	}
 
@@ -929,6 +908,32 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 		kept = append(kept, d)
 	}
 	stats = kept
+
+	// a pet's damage rolls UP into its owner's row, so that row is inclusive of
+	// everything the owner put out (the player's: melee + spells + pet). The pet
+	// stays visible as a dim "↳ <pet>" breakdown child below; without the rollup
+	// the owner's Total/DPS/share silently dropped the pet's contribution.
+	for ownerLower, pets := range children {
+		sum := 0
+		for _, p := range pets {
+			sum += p.Total
+		}
+		for i := range stats {
+			if strings.ToLower(stats[i].Dealer) == ownerLower {
+				stats[i].Total += sum
+				break
+			}
+		}
+	}
+
+	// rank and scale the bars by the now-inclusive row totals
+	sort.SliceStable(stats, func(i, j int) bool { return stats[i].Total > stats[j].Total })
+	maxTotal := 1
+	for _, d := range stats {
+		if d.Total > maxTotal {
+			maxTotal = d.Total
+		}
+	}
 
 	// acc returns the hit%/crit% cells for a dealer (its own DamageStat for crits).
 	acc := func(d combat.DamageStat) (hit, crit string) {

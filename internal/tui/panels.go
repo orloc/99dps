@@ -190,6 +190,33 @@ func timerLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
 		rightCell(timeStr, tw, col)
 }
 
+// onYouLine is one hostile debuff on the player: the effect category on the left
+// (a leading "~" when the duration is an estimate — see incoming debuffs), the
+// remaining time on the right tinted by urgency. Mirrors timerLine but isn't
+// clickable (a debuff on you carries no dismissible target).
+func onYouLine(th theme, tm gamestate.Timer, now int64, w, tw int) string {
+	total, rem := tm.Expiry-tm.Start, tm.Expiry-now
+	if rem < 0 {
+		rem = 0
+	}
+	timeStr := mmss(rem)
+	if v := lipgloss.Width(timeStr); v > tw {
+		tw = v
+	}
+	col := urgencyColor(th, rem, total)
+
+	name := tm.Spell
+	if tm.Estimated {
+		name = "~" + name // ceiling estimate — don't trust the seconds to the wire
+	}
+	nameW := w - tw - 1
+	if nameW < 1 {
+		return rightCell(timeStr, w, col)
+	}
+	return th.fg(th.text).Width(nameW).Render(truncate(name, nameW)) + " " +
+		rightCell(timeStr, tw, col)
+}
+
 // ccLine is one crowd-control entry: mez (M, breaks on damage) or charm (⊗).
 // When hovered it reserves room for a trailing ✕ and tints the name, signalling
 // it's clickable to dismiss.
@@ -265,12 +292,15 @@ func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, w
 	}
 	now := time.Now().Unix()
 	cc, rest := splitCCtimers(tr.Active(now))
-	var buffs, debuffs []gamestate.Timer
+	var buffs, debuffs, onYou []gamestate.Timer
 	for _, tm := range rest {
-		if tm.Detrimental {
-			debuffs = append(debuffs, tm)
-		} else {
-			buffs = append(buffs, tm)
+		switch {
+		case tm.Detrimental && tm.Target == "You":
+			onYou = append(onYou, tm) // a hostile debuff on the player (its own section)
+		case tm.Detrimental:
+			debuffs = append(debuffs, tm) // on a mob
+		default:
+			buffs = append(buffs, tm) // on you/allies
 		}
 	}
 	// size the time column to the panel's longest remaining time (covers h:mm:ss)
@@ -318,6 +348,18 @@ func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, w
 		section("DEBUFFS", debuffs)
 	}
 	if wantBuffs {
+		// debuffs ON YOU pin above your buffs (they share the player-self column).
+		// They carry no caster, so there's nothing to dismiss — no target map entry.
+		if len(onYou) > 0 {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, th.fg("#e0564e").Bold(true).Render("ON YOU"))
+			bySoonest(onYou)
+			for _, tm := range onYou {
+				lines = append(lines, "  "+onYouLine(th, tm, now, w-2, tw))
+			}
+		}
 		// when buffs are the whole panel (the dedicated "Buffs" column), the card
 		// title already labels it — drop the redundant inner header.
 		label := "BUFFS"

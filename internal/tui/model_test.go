@@ -483,6 +483,53 @@ func TestPetRollup(t *testing.T) {
 	}
 }
 
+// TestYouRowInclusiveOfPetAndSpells: the You row's total rolls UP its pet and
+// spell damage (melee + spells + pet), so its share/DPS/ranking reflect the whole
+// of the player's output — while the pet and spells still show as breakdown
+// children. Guards the bug where the pet was broken out but never added back.
+func TestYouRowInclusiveOfPetAndSpells(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 100_000, Target: "a sand giant"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1001, Dealer: "Gabnador", Dmg: 120_000, Target: "a sand giant"})
+	sm.Apply(&combat.DamageSet{ActionTime: 1002, Dealer: "Xenab", Dmg: 80_000, Target: "a sand giant"}) // your pet
+	sm.ApplyMagic(&combat.Magic{ActionTime: 1003, Dmg: 40_000, Target: "a sand giant"})
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetCharacter("Kelkix")
+	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
+
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
+
+	lines := strings.Split(out, "\n")
+	youIdx, gabIdx := -1, -1
+	for i, l := range lines {
+		if youIdx < 0 && strings.Contains(l, "You") && !strings.Contains(l, "↳") {
+			youIdx = i
+		}
+		if gabIdx < 0 && strings.Contains(l, "Gabnador") {
+			gabIdx = i
+		}
+	}
+	if youIdx < 0 || gabIdx < 0 {
+		t.Fatalf("missing rows (you=%d gab=%d):\n%s", youIdx, gabIdx, out)
+	}
+	// You = 100k melee + 80k pet + 40k spells = 220k inclusive, shown on the row.
+	if want := humanize(220_000); !strings.Contains(lines[youIdx], want) {
+		t.Errorf("You row should show inclusive total %s; got %q", want, lines[youIdx])
+	}
+	// 220k inclusive outranks Gabnador's 120k (without the rollup You's 100k wouldn't)
+	if youIdx > gabIdx {
+		t.Errorf("inclusive You should rank above Gabnador (you=%d gab=%d)", youIdx, gabIdx)
+	}
+	// the breakdown children are still present
+	if !strings.Contains(out, "↳ Xenab") || !strings.Contains(out, "↳ spells") {
+		t.Errorf("pet and spells should still show as breakdown children:\n%s", out)
+	}
+}
+
 // TestSpellsAttributedToYou: non-melee damage is credited to You (a "↳ spells"
 // child), not shown as an unattributed lump, when a You row is present.
 func TestSpellsAttributedToYou(t *testing.T) {
