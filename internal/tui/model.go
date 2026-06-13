@@ -263,11 +263,10 @@ func (m *Model) announceLowBuffs() {
 
 // dueAnnouncements returns the low-buff phrases to speak this tick and updates
 // the announced set: each (non-charm) timer fires once when it first drops below
-// the threshold, re-arming when it's refreshed or gone. Speaking is left to the
-// caller so this stays testable. (Charm breaks before its cap, so a countdown
+// its warning lead, re-arming when it's refreshed or gone. Speaking is left to
+// the caller so this stays testable. (Charm breaks before its cap, so a countdown
 // "low" would cry wolf — it's skipped.)
 func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
-	const lowBuffSec = 15
 	var phrases []string
 	live := make(map[string]bool, len(active))
 	for _, tm := range active {
@@ -276,7 +275,7 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
 		}
 		k := tm.Spell + "\x00" + tm.Target
 		live[k] = true
-		if tm.Expiry-now <= lowBuffSec {
+		if tm.Expiry-now <= warnLeadSec(tm.Expiry-tm.Start) {
 			if !m.announced[k] {
 				m.announced[k] = true
 				phrases = append(phrases, lowBuffPhrase(tm))
@@ -291,6 +290,21 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
 		}
 	}
 	return phrases
+}
+
+// warnLeadSec is how many seconds before expiry the "low" cue fires, scaled to a
+// timer's total length: ~10% of the duration, clamped to [15s, 180s]. So a short
+// debuff still warns ~15s out, while a ~100-min Enchanter buff warns a full 3 min
+// early — enough time to recast — instead of a useless 15s.
+func warnLeadSec(total int64) int64 {
+	lead := total / 10
+	if lead < 15 {
+		lead = 15
+	}
+	if lead > 180 {
+		lead = 180
+	}
+	return lead
 }
 
 func lowBuffPhrase(tm gamestate.Timer) string {
