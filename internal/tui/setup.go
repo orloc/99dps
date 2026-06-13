@@ -14,8 +14,9 @@ import (
 type screen int
 
 const (
-	screenMeter screen = iota
-	screenSetup
+	screenMeter    screen = iota // the live DPS meter (default)
+	screenSettings               // audio / voice configuration (a tab)
+	screenSetup                  // first-run onboarding (full-screen, not a tab)
 )
 
 // setupPhase is the step within the first-run audio-cue setup.

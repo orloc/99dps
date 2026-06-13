@@ -154,7 +154,7 @@ func TestHoverDismiss(t *testing.T) {
 
 	// screen cell over Aragorn's group in the class (bottom-left) panel
 	ld := mm.layout()
-	contentTop := 2 + ld.dmgH + 2 // outer pad + banner + dmg card + border + title
+	contentTop := gridTop + ld.dmgH + 2 // outer pad + banner + dmg card + border + title
 	rightX := ld.leftW + 2
 	line := -1
 	for l, tgt := range mm.classTargets {
@@ -342,8 +342,8 @@ func TestSessionClickSelects(t *testing.T) {
 	if len(mm.sessions) < 2 {
 		t.Fatalf("want >=2 sessions, got %d", len(mm.sessions))
 	}
-	// row 0 of the Sessions panel: content starts at gridY(2)+border+title = 4
-	m2, _ := mm.Update(tea.MouseMsg{X: 3, Y: 4, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	// row 0 of the Sessions panel: content starts at gridTop(3)+border+title = 5
+	m2, _ := mm.Update(tea.MouseMsg{X: 3, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if mm2 := m2.(Model); mm2.selected != 0 || mm2.follow {
 		t.Errorf("clicking the first fight should pin it (selected=%d follow=%v)", mm2.selected, mm2.follow)
 	}
@@ -368,7 +368,7 @@ func TestRepopEditFlow(t *testing.T) {
 	mm := m.(Model)
 
 	ld := mm.layout()
-	contentTop := 2 + ld.dmgH + 2
+	contentTop := gridTop + ld.dmgH + 2
 	line, mob := -1, ""
 	for l, mb := range mm.mobTargets {
 		if line < 0 || l < line {
@@ -798,7 +798,7 @@ func TestWriteShots(t *testing.T) {
 	ld := mc.layout()
 	for l, tgt := range mc.classTargets {
 		if tgt == "Aragorn" {
-			mc2, _ := mc.Update(tea.MouseMsg{X: ld.leftW + 5, Y: 2 + ld.dmgH + 2 + l, Action: tea.MouseActionMotion})
+			mc2, _ := mc.Update(tea.MouseMsg{X: ld.leftW + 5, Y: gridTop + ld.dmgH + 2 + l, Action: tea.MouseActionMotion})
 			mc = mc2.(Model)
 			break
 		}

@@ -89,10 +89,10 @@ type Model struct {
 	spellInfo  string // data-source summary for the footer
 	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
 
-	// screen selects the active view: the live meter, or the first-run audio-cue
-	// setup screen (setup state lives here while that screen is up).
-	screen screen
-	setup  setupState
+	// screen selects the active view (meter / settings tab / first-run setup).
+	screen      screen
+	setup       setupState
+	settingsSel int // selected row on the Settings tab (0 = audio toggle, 1..n = voices)
 
 	w, h  int
 	ready bool
@@ -149,9 +149,14 @@ type layout struct {
 // Enemy column (falls back to class | mob, with CC+debuffs back in the class panel).
 const enemyColMinW = 60
 
+// gridTop is the Y of the first grid row: outer padding (1) + banner (1) + the
+// tab bar (1). Every mouse hit-tester derives from it so the tab row can't drift
+// the click math.
+const gridTop = 3
+
 func (m Model) layout() layout {
 	innerW := m.w - 2
-	areaH := m.h - 4 // banner + footer + outer padding
+	areaH := m.h - 5 // outer padding + banner + tab bar + footer
 	if areaH < 6 {
 		areaH = 6
 	}
@@ -462,10 +467,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editKey(msg)
 			return m, tea.Batch(cmds...)
 		}
+		// global: quit + tab-bar navigation (works on every screen).
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q":
 			return m, tea.Quit
-		case "t", "tab":
+		case "tab", "shift+tab":
+			return m.gotoScreen(m.nextTab()), nil
+		case "1":
+			return m.gotoScreen(screenMeter), nil
+		case "2":
+			return m.gotoScreen(screenSettings), nil
+		}
+		// the Settings tab owns the rest of its keys.
+		if m.screen == screenSettings {
+			return m.updateSettings(msg)
+		}
+		switch msg.String() {
+		case "t":
 			m.theme = (m.theme + 1) % len(themes)
 		case "a":
 			m.toggleTTS()
@@ -501,6 +519,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewports()
 		m.refresh()
 	case tea.MouseMsg:
+		// a left-click on the tab bar switches screens (on any screen).
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if scr, ok := m.tabAt(msg.X, msg.Y); ok {
+				return m.gotoScreen(scr), nil
+			}
+		}
+		if m.screen != screenMeter {
+			return m, tea.Batch(cmds...) // the Settings tab has no mouse targets
+		}
 		// wheel → scroll whichever panel the cursor is over.
 		if isWheel(msg.Button) {
 			if vp := m.panelAt(msg.X, msg.Y); vp != nil {
@@ -548,7 +575,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash("▶ now tracking " + msg.character)
 		m.refresh()
 	case tickMsg:
-		m.refresh()
+		if m.screen == screenMeter {
+			m.refresh()
+		} else {
+			m.announceCues() // keep audio alerts live while on the Settings tab
+		}
 		cmds = append(cmds, tick())
 	}
 	return m, tea.Batch(cmds...)
@@ -586,7 +617,7 @@ func (m *Model) resizeViewports() {
 // banner, then the grid (left column | right column) — see the layout comments.
 func (m *Model) panelAt(x, y int) *viewport.Model {
 	ld := m.layout()
-	gridY := 2              // outer pad (1) + banner (1)
+	gridY := gridTop        // outer pad (1) + banner (1)
 	rightX := ld.leftW + 2  // outer pad (1) + left column + 1-col gap
 	botY := gridY + ld.dmgH // bottom row starts after the Damage card
 	in := func(cx, cw, cy, ch int) bool { return x >= cx && x < cx+cw && y >= cy && y < cy+ch }
@@ -628,7 +659,7 @@ func isWheel(b tea.MouseButton) bool {
 // offset is added back so the lookup matches the rendered line.
 func (m *Model) hoverTargetAt(x, y int) string {
 	ld := m.layout()
-	gridY := 2
+	gridY := gridTop
 	rightX := ld.leftW + 2
 	botY := gridY + ld.dmgH
 	contentTop := botY + 2           // border (1) + title (1)
@@ -656,8 +687,8 @@ func (m *Model) sessionAt(x, y int) int {
 	if x < 1 || x >= 1+ld.leftW {
 		return -1
 	}
-	contentTop := 2 + 2 // gridY + border + title
-	if y < contentTop || y >= 2+ld.sessH-1 {
+	contentTop := gridTop + 2 // gridY + border + title
+	if y < contentTop || y >= gridTop+ld.sessH-1 {
 		return -1
 	}
 	idx := ((y - contentTop) + m.vpSessions.YOffset) / 2
@@ -671,7 +702,7 @@ func (m *Model) sessionAt(x, y int) int {
 func (m *Model) mobAt(x, y int) string {
 	ld := m.layout()
 	rightX := ld.leftW + 2
-	botY := 2 + ld.dmgH
+	botY := gridTop + ld.dmgH
 	contentTop := botY + 2
 	if y < contentTop || y >= botY+ld.botH-1 {
 		return ""
@@ -800,8 +831,17 @@ func (m Model) View() string {
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}
 
-	ld := m.layout()
 	banner := m.banner(th, innerW)
+	tabbar := m.tabBar(th)
+
+	// the Settings tab renders its own body under the banner + tab bar.
+	if m.screen == screenSettings {
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.settingsView(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
+	ld := m.layout()
 
 	left := card(th, ld.leftW, ld.sessH, "Sessions"+scrollHint(m.vpSessions), m.vpSessions.View())
 
@@ -847,7 +887,7 @@ func (m Model) View() string {
 	right := lipgloss.JoinVertical(lipgloss.Left, topRight, bottom)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-	full := lipgloss.JoinVertical(lipgloss.Left, banner, grid, m.footer(th, innerW))
+	full := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, grid, m.footer(th, innerW))
 	return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 		Width(m.w).Height(m.h).Padding(1, 1).Render(full)
 }
@@ -868,7 +908,7 @@ func (m Model) footer(th theme, w int) string {
 	} else if m.speaker == nil || !m.speaker.Available() {
 		audio = "audio n/a"
 	}
-	keys := "[t] theme  [a] " + audio + "  [↑↓/click] fight  [end] live  [wheel] scroll  [bksp] clear  [click repop] set timer  [q] quit"
+	keys := "[tab] screen  [t] theme  [a] " + audio + "  [↑↓/click] fight  [end] live  [wheel] scroll  [bksp] clear  [q] quit"
 	if m.spellInfo != "" {
 		keys = m.spellInfo + "  ·  " + keys
 	}
