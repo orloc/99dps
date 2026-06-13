@@ -64,8 +64,10 @@ func (z *zoneTracker) clear() {
 }
 
 // observeLocked tracks zone-in lines and mob deaths to drive the zone-aware
-// respawn list. Caller holds the lock.
-func (z *zoneTracker) observeLocked(body string, at int64) {
+// respawn list. petName is the player's own pet (or "" if unknown), so a kill its
+// pet lands is credited to the player rather than read as a stranger's. Caller
+// holds the lock.
+func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 	if zn, ok := strings.CutPrefix(body, "You have entered "); ok {
 		zn = strings.TrimSuffix(zn, ".")
 		if zn != z.name {
@@ -114,9 +116,18 @@ func (z *zoneTracker) observeLocked(body string, at int64) {
 	if i := strings.Index(body, " has been slain by "); i > 0 {
 		victim := body[:i]
 		killer := strings.TrimRight(body[i+len(" has been slain by "):], " !.")
-		if !killerIsMob(killer) {
-			z.recordKillLocked(victim, at, false, killer)
+		// your own pet's killing blow is YOUR kill: credit it to you (mine, "You"),
+		// not the pet. Check this BEFORE killerIsMob — a charmed pet keeps its
+		// mob-style name ("a gnoll pup"), which killerIsMob would otherwise treat
+		// as a player death and drop, costing the kill its repop timer.
+		if petName != "" && strings.EqualFold(killer, petName) {
+			z.recordKillLocked(victim, at, true, "You")
+			return
 		}
+		if killerIsMob(killer) {
+			return // a player died to a mob — not a kill we track
+		}
+		z.recordKillLocked(victim, at, false, killer)
 	}
 }
 

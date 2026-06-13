@@ -33,6 +33,7 @@ type Timer struct {
 	Charm       bool // a charm — display elapsed (counts up), not remaining
 	Mez         bool // a mez/enthrall — crowd control, breaks on damage
 	Pacify      bool // a pacify/lull/calm — crowd control (aggro lowered)
+	Estimated   bool // duration is a ceiling guess (an incoming debuff — caster level unknown)
 }
 
 // Tracker holds the player's active spell timers. It's fed parsed log signals
@@ -279,11 +280,17 @@ func (t *Tracker) Observe(body string, at int64) {
 		// emit no spell message at all) — matched by their item-specific line.
 		t.matchClickyLocked(body, at)
 	}
+	// a hostile debuff landing on you (cast_on_you emote) — caster/level unknown,
+	// so it's an estimated ceiling cleared early by its wear-off (fade) line. The
+	// emote can't collide with a self-cast (these are detrimental phrasings), so
+	// it's matched regardless of any pending cast.
+	t.matchIncomingDebuffLocked(body, at)
+	t.expireIncomingByFadeLocked(body)
 	t.observePetLocked(body)
 	t.expireByMessageLocked(body)
 	t.expireOnSlainLocked(body)
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
-	t.zone.observeLocked(body, at)
+	t.zone.observeLocked(body, at, t.petName)
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()
 	}

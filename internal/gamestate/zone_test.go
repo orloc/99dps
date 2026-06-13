@@ -11,6 +11,52 @@ func hasMob(rs []Respawn, mob string) bool {
 	return false
 }
 
+// TestPetKillCreditedToOwner: a mob your pet kills is YOUR kill — credited to you
+// (bold/Mine, "You"), not parked under "killed by others" with the pet's name.
+func TestPetKillCreditedToOwner(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.SetCharacter("Yatiri")
+	tr.Observe("You have entered Greater Faydark.", 1000)
+	tr.Observe("Xenab says 'My leader is Yatiri.'", 1000) // reveals your pet
+
+	tr.Observe("a large orc has been slain by Xenab!", 1100)
+	rs := tr.Respawns(1100)
+	if len(rs) != 1 {
+		t.Fatalf("pet kill should record one repop, got %d", len(rs))
+	}
+	if !rs[0].Mine || !rs[0].Group || rs[0].Killer != "You" {
+		t.Errorf("pet kill not credited to owner: %+v", rs[0])
+	}
+
+	// a *group-mate's* pet (not yours) still reads as someone else's kill
+	tr.Observe("Gribble says 'My leader is Borric.'", 1200)
+	tr.Observe("a young kodiak has been slain by Gribble!", 1300)
+	for _, r := range tr.Respawns(1300) {
+		if r.Mob == "a young kodiak" {
+			if r.Mine || r.Killer != "Gribble" {
+				t.Errorf("a group-mate's pet kill should stay theirs: %+v", r)
+			}
+		}
+	}
+
+	// a CHARMED pet keeps its mob-style name ("a gnoll pup"), which the
+	// killer-is-mob heuristic would otherwise drop — its kill must still credit you
+	tr.Observe("a gnoll pup says 'My leader is Yatiri.'", 1400)
+	tr.Observe("a decaying skeleton has been slain by a gnoll pup!", 1500)
+	var credited bool
+	for _, r := range tr.Respawns(1500) {
+		if r.Mob == "a decaying skeleton" {
+			credited = true
+			if !r.Mine || r.Killer != "You" {
+				t.Errorf("charmed-pet kill should be credited to you: %+v", r)
+			}
+		}
+	}
+	if !credited {
+		t.Error("charmed-pet kill should record a repop, got none")
+	}
+}
+
 func TestZoneRespawnTracking(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	if tr.Zone() != "" {
@@ -75,6 +121,27 @@ func TestZoneRespawnTracking(t *testing.T) {
 	tr.Clear()
 	if tr.Zone() != "" || len(tr.Respawns(3000)) != 0 {
 		t.Error("Clear should reset zone + repops")
+	}
+}
+
+// Regression: several table keys were transcribed as the game's internal short
+// names rather than the display names that appear in a "You have entered X" line,
+// so those zones silently produced no repop timers. These are the exact strings
+// EQ logs (verified against a real P99 log); each must resolve via ZoneRespawn.
+func TestZoneRespawnDisplayNames(t *testing.T) {
+	displayNames := []string{
+		"Permafrost Caverns", // was keyed "permafrost"
+		"The Wakening Lands", // was keyed "wakening land" (singular)
+		"Everfrost",          // was keyed "everfrost peaks"
+		"Nagafen's Lair",     // already correct — guard against regression
+		"Plane of Mischief",  // already correct
+		"Howling Stones",     // already correct
+		"The Overthere",      // leading "the " is stripped by normalizeZone
+	}
+	for _, zn := range displayNames {
+		if sec, ok := ZoneRespawn(zn); !ok || sec <= 0 {
+			t.Errorf("ZoneRespawn(%q) = (%d, %v), want a positive time and ok=true", zn, sec, ok)
+		}
 	}
 }
 
@@ -158,7 +225,7 @@ func TestRespawnGroupKillCreditedByXP(t *testing.T) {
 func TestZoneKillsPerHour_RollingWindow(t *testing.T) {
 	z := &zoneTracker{}
 	for i := 0; i < 30; i++ { // 30 kills over the first 10 minutes (every 20s)
-		z.observeLocked("You gain experience!!", int64(i)*20)
+		z.observeLocked("You gain experience!!", int64(i)*20, "")
 	}
 
 	// at the 10-minute mark: 30 kills / (1/6 hr) = 180/hr

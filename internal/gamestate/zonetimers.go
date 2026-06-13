@@ -11,7 +11,7 @@ import "strings"
 var zoneRespawnSec = map[string]int{
 	// Antonica — outdoors
 	"beholder's maze": 360, "east commonlands": 400, "eastern karana": 400,
-	"erud's crossing": 400, "everfrost peaks": 400, "highpass hold": 300,
+	"erud's crossing": 400, "everfrost": 400, "highpass hold": 300,
 	"innothule swamp": 400, "kithicor forest": 400, "lake rathetear": 400,
 	"lavastorm mountains": 400, "misty thicket": 400, "nektulos forest": 400,
 	"northern desert of ro": 400, "northern karana": 400, "oasis of marr": 990,
@@ -26,7 +26,7 @@ var zoneRespawnSec = map[string]int{
 	// Antonica — dungeons
 	"befallen": 1140, "blackburrow": 1320, "cazic thule": 1320,
 	"clan runnyeye": 1320, "high keep": 600, "lower guk": 1680,
-	"nagafen's lair": 1320, "najena": 1110, "permafrost": 1320,
+	"nagafen's lair": 1320, "najena": 1110, "permafrost caverns": 1320,
 	"qeynos catacombs": 1440, "solusek's eye": 1080, "splitpaw lair": 1320,
 	"temple of solusek ro": 300, "upper guk": 990,
 
@@ -55,7 +55,7 @@ var zoneRespawnSec = map[string]int{
 
 	// Velious — outdoors
 	"cobalt scar": 1200, "eastern wastes": 400, "great divide": 640,
-	"iceclad ocean": 400, "wakening land": 400,
+	"iceclad ocean": 400, "wakening lands": 400,
 
 	// Velious — cities
 	"icewell keep": 1260, "kael drakkal": 1680, "skyshrine": 1800,
