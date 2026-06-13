@@ -64,7 +64,7 @@ type Model struct {
 
 	// TTS audio cues for low buffs; announced re-arms per spell\x00target so each
 	// fires once until refreshed/expired.
-	speaker   *tts.Speaker
+	speaker   tts.Engine
 	ttsOn     bool
 	announced map[string]bool
 

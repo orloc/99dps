@@ -25,3 +25,8 @@ func (s *Speaker) Say(text string) {
 		go func() { _ = cmd.Wait() }() // reap, don't leave zombies
 	}
 }
+
+// The legacy OS engine exposes no in-app voice picker — these satisfy Engine.
+func (s *Speaker) Voices() []Voice      { return nil }
+func (s *Speaker) Voice() string        { return "" }
+func (s *Speaker) SetVoice(string) bool { return false }

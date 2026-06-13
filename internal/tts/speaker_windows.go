@@ -8,11 +8,11 @@ import (
 	"syscall"
 )
 
-// newSpeaker uses the built-in Windows SAPI voice via PowerShell's
+// newLegacy uses the built-in Windows SAPI voice via PowerShell's
 // System.Speech — always present on Windows, so audio cues work out of the box
 // with no install. Speak() blocks, but say() starts it detached. The console
 // window is hidden so the spawned PowerShell never flashes over the TUI.
-func New() *Speaker {
+func newLegacy() *Speaker {
 	ps, err := exec.LookPath("powershell")
 	if err != nil {
 		return &Speaker{} // no PowerShell (unusual) → silent

@@ -4,10 +4,10 @@ package tts
 
 import "os/exec"
 
-// newSpeaker picks the first available Unix TTS engine. spd-say
+// newLegacy picks the first available Unix TTS engine. spd-say
 // (speech-dispatcher) is preferred — asynchronous and desktop-integrated;
 // espeak is a fallback (run detached either way). No engine found → silent.
-func New() *Speaker {
+func newLegacy() *Speaker {
 	for _, c := range []struct {
 		bin  string
 		args []string
