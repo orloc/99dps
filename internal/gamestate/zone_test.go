@@ -130,16 +130,20 @@ func TestZoneRespawnTracking(t *testing.T) {
 // EQ logs (verified against a real P99 log); each must resolve via ZoneRespawn.
 func TestZoneRespawnDisplayNames(t *testing.T) {
 	displayNames := []string{
-		"Permafrost Caverns", // was keyed "permafrost"
-		"The Wakening Lands", // was keyed "wakening land" (singular)
-		"Everfrost",          // was keyed "everfrost peaks"
-		"Kael Drakkel",       // was misspelled "kael drakkal"
-		"Western Wastes",     // was missing (only eastern wastes existed)
-		"Nagafen's Lair",     // already correct — guard against regression
-		"Plane of Mischief",  // already correct
-		"Howling Stones",     // already correct
-		"The Overthere",      // leading "the " is stripped by normalizeZone
-		"Chardok",            // Iznoa's zone — resolves fine (the turn-in fix is separate)
+		"Permafrost Caverns",        // was keyed "permafrost"
+		"The Wakening Lands",        // was keyed "wakening land" (singular)
+		"Everfrost",                 // was keyed "everfrost peaks"
+		"Kael Drakkel",              // was misspelled "kael drakkal"
+		"Western Wastes",            // was missing (only eastern wastes existed)
+		"Northern Plains of Karana", // real zone-in (was keyed "northern karana")
+		"Southern Plains of Karana",
+		"Eastern Plains of Karana",
+		"Western Plains of Karana",
+		"Nagafen's Lair",    // already correct — guard against regression
+		"Plane of Mischief", // already correct
+		"Howling Stones",    // already correct
+		"The Overthere",     // leading "the " is stripped by normalizeZone
+		"Chardok",           // Iznoa's zone — resolves fine (the turn-in fix is separate)
 	}
 	for _, zn := range displayNames {
 		if sec, ok := ZoneRespawn(zn); !ok || sec <= 0 {

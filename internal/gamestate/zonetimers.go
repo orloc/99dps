@@ -10,14 +10,14 @@ import "strings"
 // to match a "You have entered X" zone-in line via normalizeZone.
 var zoneRespawnSec = map[string]int{
 	// Antonica — outdoors
-	"beholder's maze": 360, "east commonlands": 400, "eastern karana": 400,
+	"beholder's maze": 360, "east commonlands": 400, "eastern plains of karana": 400,
 	"erud's crossing": 400, "everfrost": 400, "highpass hold": 300,
 	"innothule swamp": 400, "kithicor forest": 400, "lake rathetear": 400,
 	"lavastorm mountains": 400, "misty thicket": 400, "nektulos forest": 400,
-	"northern desert of ro": 400, "northern karana": 400, "oasis of marr": 990,
+	"northern desert of ro": 400, "northern plains of karana": 400, "oasis of marr": 990,
 	"ocean of tears": 360, "qeynos hills": 400, "rathe mountains": 400,
-	"southern desert of ro": 400, "southern karana": 360, "feerrott": 400,
-	"west commonlands": 400, "western karana": 400,
+	"southern desert of ro": 400, "southern plains of karana": 360, "feerrott": 400,
+	"west commonlands": 400, "western plains of karana": 400,
 
 	// Antonica — cities (Freeport zones in as East/West/North, never bare "Freeport")
 	"grobb": 1440, "halas": 1440, "neriak": 1440,
