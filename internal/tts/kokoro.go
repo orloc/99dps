@@ -34,27 +34,31 @@ type modelPaths struct {
 	lexicon, fsts                 string // comma-joined optional extras (may be "")
 }
 
-// newKokoro returns the neural engine if its assets are already present in the
-// cache, else nil so New falls back to the legacy OS engine. It never downloads
-// (that's EnsureAssets, an explicit opt-in) — so default behavior is unchanged
-// until the user enables neural voices.
+// newKokoro builds the neural engine, resolving the cached assets if present. It
+// always returns a non-nil engine; when the assets aren't downloaded yet the
+// returned engine is not Available() and cues no-op. Downloading is a separate
+// explicit step (EnsureAssets), never done here.
 func newKokoro() *kokoroEngine {
+	k := &kokoroEngine{sid: defaultVoiceSID}
 	engineDir, modelDir, clips, ok := cacheDirs()
 	if !ok {
-		return nil
+		return k
 	}
 	cli := findFile(engineDir, ttsCLIName())
 	onnx := findFile(modelDir, "model.onnx")
 	if cli == "" || onnx == "" {
-		return nil
+		return k
 	}
 	mp, ok := resolveModel(filepath.Dir(onnx))
 	if !ok {
-		return nil
+		return k
 	}
-	return &kokoroEngine{cli: cli, model: mp, clips: clips, sid: defaultVoiceSID}
+	k.cli, k.model, k.clips = cli, mp, clips
+	return k
 }
 
+// Available reports whether the neural voice is downloaded and ready (cli set
+// only when both the engine binary and a resolvable model were found).
 func (k *kokoroEngine) Available() bool { return k != nil && k.cli != "" }
 
 // Say renders text (cached) and plays it, without blocking the caller.

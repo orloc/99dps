@@ -1,9 +1,9 @@
 package tts
 
-// Engine speaks short audio-cue phrases. Two implementations exist: the legacy
-// OS engine (spd-say/espeak on Unix, SAPI via PowerShell on Windows) and, later,
-// a neural backend (Kokoro via sherpa-onnx). Every method is safe to call on an
-// unavailable engine — cues then silently no-op.
+// Engine speaks short audio-cue phrases via the neural Kokoro backend (sherpa-
+// onnx). There is no robotic OS-voice fallback: until the voice is downloaded
+// (EnsureAssets / the -tts-setup flow) the engine is simply unavailable and cues
+// no-op. Every method is safe to call on an unavailable engine.
 type Engine interface {
 	// Say speaks text without blocking.
 	Say(text string)
@@ -25,13 +25,9 @@ type Voice struct {
 	Name string // human-friendly label
 }
 
-// New builds the speech engine: the neural Kokoro backend when its assets are
-// already downloaded (EnsureAssets), otherwise the legacy OS engine. Selection
-// is by presence, so default behavior is unchanged until neural voices are
-// explicitly fetched.
+// New builds the neural speech engine. It always returns a usable value; when
+// the voice assets aren't downloaded yet the engine reports Available()==false
+// and cues no-op until EnsureAssets (the -tts-setup flow) has run.
 func New() Engine {
-	if k := newKokoro(); k != nil {
-		return k
-	}
-	return newLegacy()
+	return newKokoro()
 }

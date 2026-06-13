@@ -603,7 +603,7 @@ func (m *Model) editKey(msg tea.KeyMsg) {
 // engine).
 func (m *Model) toggleTTS() {
 	if m.speaker == nil || !m.speaker.Available() {
-		m.flash("no TTS engine (install spd-say or espeak)")
+		m.flash("no voice yet — run: 99dps -tts-setup")
 		return
 	}
 	m.ttsOn = !m.ttsOn
