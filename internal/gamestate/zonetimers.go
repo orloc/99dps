@@ -19,8 +19,9 @@ var zoneRespawnSec = map[string]int{
 	"southern desert of ro": 400, "southern karana": 360, "feerrott": 400,
 	"west commonlands": 400, "western karana": 400,
 
-	// Antonica — cities
-	"grobb": 1440, "halas": 1440, "neriak": 1440, "freeport": 1440,
+	// Antonica — cities (Freeport zones in as East/West/North, never bare "Freeport")
+	"grobb": 1440, "halas": 1440, "neriak": 1440,
+	"east freeport": 1440, "west freeport": 1440, "north freeport": 1440,
 	"qeynos": 400, "oggok": 1440, "rivervale": 1320, "surefall glade": 400,
 
 	// Antonica — dungeons
@@ -54,11 +55,11 @@ var zoneRespawnSec = map[string]int{
 	"mines of nurga": 1230, "old sebilis": 1620, "temple of droga": 1230,
 
 	// Velious — outdoors
-	"cobalt scar": 1200, "eastern wastes": 400, "great divide": 640,
-	"iceclad ocean": 400, "wakening lands": 400,
+	"cobalt scar": 1200, "eastern wastes": 400, "western wastes": 400,
+	"great divide": 640, "iceclad ocean": 400, "wakening lands": 400,
 
 	// Velious — cities
-	"icewell keep": 1260, "kael drakkal": 1680, "skyshrine": 1800,
+	"icewell keep": 1260, "kael drakkel": 1680, "skyshrine": 1800,
 	"thurgadin": 420,
 
 	// Velious — dungeons

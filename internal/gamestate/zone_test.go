@@ -133,10 +133,13 @@ func TestZoneRespawnDisplayNames(t *testing.T) {
 		"Permafrost Caverns", // was keyed "permafrost"
 		"The Wakening Lands", // was keyed "wakening land" (singular)
 		"Everfrost",          // was keyed "everfrost peaks"
+		"Kael Drakkel",       // was misspelled "kael drakkal"
+		"Western Wastes",     // was missing (only eastern wastes existed)
 		"Nagafen's Lair",     // already correct — guard against regression
 		"Plane of Mischief",  // already correct
 		"Howling Stones",     // already correct
 		"The Overthere",      // leading "the " is stripped by normalizeZone
+		"Chardok",            // Iznoa's zone — resolves fine (the turn-in fix is separate)
 	}
 	for _, zn := range displayNames {
 		if sec, ok := ZoneRespawn(zn); !ok || sec <= 0 {
