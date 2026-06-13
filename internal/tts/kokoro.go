@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -45,11 +46,11 @@ func newKokoro() *kokoroEngine {
 		return k
 	}
 	cli := findFile(engineDir, ttsCLIName())
-	onnx := findFile(modelDir, "model.onnx")
+	onnx := findModelOnnx(modelDir)
 	if cli == "" || onnx == "" {
 		return k
 	}
-	mp, ok := resolveModel(filepath.Dir(onnx))
+	mp, ok := resolveModel(onnx)
 	if !ok {
 		return k
 	}
@@ -222,23 +223,39 @@ func cacheDirs() (engine, model, clips string, ok bool) {
 	return filepath.Join(root, "engine"), filepath.Join(root, "model"), filepath.Join(root, "clips"), true
 }
 
-// resolveModel fills modelPaths from an extracted model directory, requiring the
-// core files and folding in any optional lexicons / rule FSTs the package ships.
-func resolveModel(root string) (modelPaths, bool) {
+// resolveModel fills modelPaths given the model .onnx path. The onnx filename
+// varies (model.onnx fp32, model.int8.onnx int8) so it's discovered separately;
+// the sibling files have stable names. Folds in optional lexicons / rule FSTs.
+func resolveModel(onnx string) (modelPaths, bool) {
+	root := filepath.Dir(onnx)
 	mp := modelPaths{
-		onnx:    filepath.Join(root, "model.onnx"),
+		onnx:    onnx,
 		voices:  filepath.Join(root, "voices.bin"),
 		tokens:  filepath.Join(root, "tokens.txt"),
 		dataDir: filepath.Join(root, "espeak-ng-data"),
 	}
-	for _, p := range []string{mp.onnx, mp.voices, mp.tokens} {
-		if !fileExists(p) {
-			return mp, false
-		}
+	if !fileExists(mp.voices) || !fileExists(mp.tokens) {
+		return mp, false
 	}
 	mp.lexicon = joinGlob(root, "lexicon*.txt")
 	mp.fsts = joinGlob(root, "*.fst")
 	return mp, true
+}
+
+// findModelOnnx returns the Kokoro model file under root, tolerating the int8
+// name (model.int8.onnx) as well as model.onnx — preferring a "model*" match.
+func findModelOnnx(root string) string {
+	var best string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".onnx") {
+			return nil
+		}
+		if best == "" || strings.HasPrefix(d.Name(), "model") {
+			best = path
+		}
+		return nil
+	})
+	return best
 }
 
 func fileExists(p string) bool {

@@ -43,27 +43,43 @@ func TestVoicesCount(t *testing.T) {
 
 func TestResolveModel(t *testing.T) {
 	root := t.TempDir()
-	// missing core files → not resolvable
-	if _, ok := resolveModel(root); ok {
-		t.Fatal("resolveModel should fail without core files")
+	onnx := filepath.Join(root, "model.int8.onnx") // int8 naming
+	os.WriteFile(onnx, []byte("x"), 0o644)
+
+	// model present but siblings missing → not resolvable
+	if _, ok := resolveModel(onnx); ok {
+		t.Fatal("resolveModel should fail without voices/tokens")
 	}
-	for _, f := range []string{"model.onnx", "voices.bin", "tokens.txt"} {
-		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	os.WriteFile(filepath.Join(root, "voices.bin"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(root, "tokens.txt"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(root, "lexicon-us-en.txt"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(root, "date.fst"), []byte("x"), 0o644)
 
-	mp, ok := resolveModel(root)
+	mp, ok := resolveModel(onnx)
 	if !ok {
-		t.Fatal("resolveModel should succeed with core files present")
+		t.Fatal("resolveModel should succeed with siblings present")
+	}
+	if mp.onnx != onnx {
+		t.Errorf("onnx = %q, want %q", mp.onnx, onnx)
 	}
 	if mp.lexicon == "" {
 		t.Error("lexicon glob should have matched lexicon-us-en.txt")
 	}
 	if mp.fsts == "" {
 		t.Error("fst glob should have matched date.fst")
+	}
+}
+
+func TestFindModelOnnx(t *testing.T) {
+	root := t.TempDir()
+	deep := filepath.Join(root, "kokoro-int8-en-v0_19")
+	os.MkdirAll(deep, 0o755)
+	os.WriteFile(filepath.Join(deep, "model.int8.onnx"), []byte("x"), 0o644)
+	if got := findModelOnnx(root); got == "" {
+		t.Error("findModelOnnx should locate model.int8.onnx in a nested dir")
+	}
+	if got := findModelOnnx(t.TempDir()); got != "" {
+		t.Errorf("findModelOnnx should return \"\" when no .onnx exists, got %q", got)
 	}
 }
 
