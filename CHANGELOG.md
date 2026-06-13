@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.3.0
+
+A big release: realistic neural voice cues, a tabbed UI, a dedicated Sessions
+screen, a configurable meter layout, and a batch of tracking fixes.
+
+### Added
+- **Neural voice audio cues (Kokoro)** — replaces the robotic espeak/SAPI voice
+  with a realistic, fully-offline neural voice. It downloads once on first run
+  (~120 MB) into a local cache, then needs no network. A **first-run setup
+  screen** lets you enable cues and pick a voice (11 described English voices) or
+  skip; `-tts-setup` verifies the whole path from the command line.
+- **Tabbed UI** — a clickable tab bar: **Meter | Sessions | Settings** (click, or
+  `tab`/`shift+tab`, or `1`/`2`/`3`).
+- **Sessions tab** — a scrollable per-session stats table (#, fight, duration,
+  total, DPS, kills, top dealer) with a sticky header, beside a DPS breakdown of
+  the highlighted fight.
+- **Settings tab** — toggle audio cues + pick a voice; and a **Meter boxes**
+  section where the **Damage meter** and **Offense · Defense** each cycle
+  **Full / Compact / Off**. Compact slims the columns *and* shrinks the top row so
+  the bottom panels grow; Off hides the box and the layout reflows. Choices
+  persist across launches.
+- **More audio cues**, with natural varied phrasing: charm break and resist
+  (urgent), **failed feign death** (urgent), and **long cooldown ready** (gentle,
+  e.g. Mend). Simultaneous fades are combined into one sentence, cues no longer
+  talk over each other (serialized playback), and the warning lead scales with a
+  buff's length (≈3 min for a ~100-min buff instead of a flat 15s).
+
+### Changed
+- The Meter is now **full-width** — the Sessions list moved to its own tab.
+
+### Fixed
+- **Zone respawn timers** for zones whose table key didn't match the in-game
+  name, so they produced no repop timers: **Permafrost Caverns, The Wakening
+  Lands, Everfrost, Kael Drakkel, Western Wastes, Freeport (East/West/North)**.
+- **kills/hr** no longer counts **quest turn-ins** as kills (e.g. the Chardok
+  Green Goblin Skin grind was inflating the count massively).
+- **Charmed-pet kills** are now credited to you (so they get repop timers).
+
+### Windows
+Still a single `.exe`; the neural voice downloads on first run, so the shipped
+zip stays small. SmartScreen warns on the unsigned binary — "More info → Run
+anyway" (one time). Enable in-game logging with `/log on`.
+
 ## v0.2.1
 
 First public release since v0.1.0. New live-state tracking (incoming debuffs,
