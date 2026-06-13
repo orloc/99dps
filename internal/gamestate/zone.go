@@ -51,6 +51,12 @@ type zoneTracker struct {
 	deaths      int
 	firstKillAt int64
 	xpKillTimes []int64
+
+	// lastOwnKillAt is when you (or your pet) last landed a killing blow. A solo
+	// "You gain experience" only counts as a kill when one landed just before it —
+	// otherwise the xp is a quest turn-in / other non-kill source (see the xp
+	// branch in observeLocked).
+	lastOwnKillAt int64
 }
 
 // killRateWindowSec is the rolling window for kills/hr: the rate reflects your
@@ -58,9 +64,16 @@ type zoneTracker struct {
 // since the first kill — so old downtime doesn't drag the number down.
 const killRateWindowSec = 3600
 
+// killXPWindowSec is how recently one of your own kills must have landed for a
+// solo "You gain experience" to count as a kill rather than a quest turn-in.
+// The death line and its xp land in the same combat resolution (~1s apart);
+// turn-ins have no preceding own-kill, so a few seconds cleanly separates them.
+const killXPWindowSec = 6
+
 func (z *zoneTracker) clear() {
 	z.name, z.respawnSec, z.respawns = "", 0, nil
 	z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
+	z.lastOwnKillAt = 0
 }
 
 // observeLocked tracks zone-in lines and mob deaths to drive the zone-aware
@@ -75,13 +88,23 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 			z.respawnSec, _ = ZoneRespawn(zn)
 			z.respawns = nil // left the zone — old repops are moot
 			z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
+			z.lastOwnKillAt = 0
 		}
 		return
 	}
 
-	// xp-credited kills drive the zone kills/hr (solo "You gain experience" and
-	// grouped "You gain party experience" both count one credited kill).
-	if strings.HasPrefix(body, "You gain experience") || strings.HasPrefix(body, "You gain party experience") {
+	// xp-credited kills drive the zone kills/hr. A solo "You gain experience" only
+	// counts when one of your (or your pet's) kills landed just before it —
+	// otherwise it's a quest turn-in or other non-kill xp (e.g. Chardok goblin-skin
+	// turn-ins, which would otherwise inflate the count massively). Party xp always
+	// reflects a group kill (turn-ins don't grant party experience), so it counts
+	// regardless.
+	party := strings.HasPrefix(body, "You gain party experience")
+	solo := strings.HasPrefix(body, "You gain experience")
+	if party || solo {
+		if solo && !party && (z.lastOwnKillAt == 0 || at-z.lastOwnKillAt > killXPWindowSec) {
+			return // no recent own kill → not a kill (quest turn-in / other xp)
+		}
 		z.xpKills++
 		if z.firstKillAt == 0 {
 			z.firstKillAt = at
@@ -141,6 +164,9 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 func (z *zoneTracker) recordKillLocked(mob string, at int64, mine bool, killer string) {
 	if mob == "" {
 		return
+	}
+	if mine {
+		z.lastOwnKillAt = at // arms the solo-xp kill credit (see the xp branch)
 	}
 	sec := z.respawnSec
 	if o, ok := z.overrides.Get(z.name, mob); ok {

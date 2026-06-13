@@ -149,16 +149,17 @@ func TestZoneKillStats(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	tr.Observe("You have entered Greater Faydark.", 1000)
 
-	tr.Observe("You gain experience!!", 1000)       // credited kill 1
+	tr.Observe("You have slain a bat!", 1000)       // your kill...
+	tr.Observe("You gain experience!!", 1000)       // ...credits the solo xp (kill 1)
 	tr.Observe("You gain party experience!!", 1600) // credited kill 2 (grouped)
 	if k, ph, d := tr.ZoneKillStats(1600); k != 2 || ph != 12 || d != 0 {
 		t.Errorf("stats = %d kills / %d hr / %d deaths, want 2/12/0", k, ph, d)
 	}
 
-	// a non-xp killing-blow line must NOT bump the count (xp-credited only)
-	tr.Observe("You have slain a rat!", 1600)
-	if k, _, _ := tr.ZoneKillStats(1600); k != 2 {
-		t.Errorf("a non-xp 'slain' line must not count, got %d", k)
+	// a quest turn-in (solo xp with no preceding own kill) must NOT count as a kill
+	tr.Observe("You gain experience!!", 1700)
+	if k, _, _ := tr.ZoneKillStats(1700); k != 2 {
+		t.Errorf("a turn-in (no recent own kill) must not count, got %d", k)
 	}
 
 	// deaths count
@@ -224,17 +225,54 @@ func TestRespawnGroupKillCreditedByXP(t *testing.T) {
 // rather than leaving a stale lifetime average.
 func TestZoneKillsPerHour_RollingWindow(t *testing.T) {
 	z := &zoneTracker{}
-	for i := 0; i < 30; i++ { // 30 kills over the first 10 minutes (every 20s)
-		z.observeLocked("You gain experience!!", int64(i)*20, "")
+	base := int64(1_700_000_000) // realistic Unix time (literal 0 collides with the no-kill sentinel)
+	for i := 0; i < 30; i++ {    // 30 kills over the first 10 minutes (every 20s)
+		at := base + int64(i)*20
+		z.observeLocked("You have slain a rat!", at, "") // your kill arms the credit
+		z.observeLocked("You gain experience!!", at, "") // ...so the solo xp counts
 	}
 
 	// at the 10-minute mark: 30 kills / (1/6 hr) = 180/hr
-	if k, ph, _ := z.killStatsLocked(600); k != 30 || ph != 180 {
+	if k, ph, _ := z.killStatsLocked(base + 600); k != 30 || ph != 180 {
 		t.Errorf("at 10 min: kills=%d rate=%d, want 30 and 180/hr", k, ph)
 	}
 	// 90 minutes later with no kills: the last-hour window is empty → 0/hr, but the
 	// total kill count is unchanged. (The old lifetime average would still show ~20/hr.)
-	if k, ph, _ := z.killStatsLocked(90 * 60); k != 30 || ph != 0 {
+	if k, ph, _ := z.killStatsLocked(base + 90*60); k != 30 || ph != 0 {
 		t.Errorf("after 90 min idle: kills=%d rate=%d, want 30 and 0/hr", k, ph)
+	}
+}
+
+// TestQuestTurnInNotCountedAsKill reproduces the Chardok goblin-skin grind: many
+// "You gain experience" lines from quest turn-ins (no preceding kill) must NOT
+// inflate kills/hr, while interleaved real kills still count.
+func TestQuestTurnInNotCountedAsKill(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.SetCharacter("Hero")
+	tr.Observe("an armored shadow says 'My leader is Hero.'", 999) // pet known up front
+	tr.Observe("You have entered Chardok.", 1000)
+
+	// 100 quest turn-ins (Herald Telcha), each granting solo xp with no kill
+	for i := 0; i < 100; i++ {
+		at := int64(1000 + i*5)
+		tr.Observe("Herald Telcha says, 'Green Goblin Skin! You have indeed been busy!'", at)
+		tr.Observe("You gain experience!!", at)
+	}
+	if k, _, _ := tr.ZoneKillStats(1600); k != 0 {
+		t.Errorf("quest turn-ins must not count as kills, got %d", k)
+	}
+
+	// a genuine kill (own blow → xp) still counts
+	tr.Observe("You have slain a Di`zok Sergeant!", 2000)
+	tr.Observe("You gain experience!!", 2000)
+	if k, _, _ := tr.ZoneKillStats(2000); k != 1 {
+		t.Errorf("a real kill should count, got %d", k)
+	}
+
+	// a pet kill (credited via petName → mine) also arms the credit
+	tr.Observe("a Sarnak conscript has been slain by an armored shadow!", 2020)
+	tr.Observe("You gain experience!!", 2020)
+	if k, _, _ := tr.ZoneKillStats(2020); k != 2 {
+		t.Errorf("a pet kill should count, got %d", k)
 	}
 }
