@@ -83,6 +83,11 @@ type Model struct {
 	spellInfo  string // data-source summary for the footer
 	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
 
+	// screen selects the active view: the live meter, or the first-run audio-cue
+	// setup screen (setup state lives here while that screen is up).
+	screen screen
+	setup  setupState
+
 	w, h  int
 	ready bool
 }
@@ -338,6 +343,10 @@ func (m *Model) ensureSelVisible(sel int) {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	// the first-run setup screen owns all input until the user finishes/skips it.
+	if m.screen == screenSetup {
+		return m.updateSetup(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -676,9 +685,17 @@ func (m Model) View() string {
 		return "starting…"
 	}
 	th := themes[m.theme]
-	ld := m.layout()
 
 	innerW := m.w - 2 // content width inside the outer Padding(1,1)
+
+	// first-run audio-cue setup takes over the whole window.
+	if m.screen == screenSetup {
+		body := lipgloss.JoinVertical(lipgloss.Left, m.banner(th, innerW), "", m.setupView(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
+	ld := m.layout()
 	banner := m.banner(th, innerW)
 
 	left := card(th, ld.leftW, ld.sessH, "Sessions"+scrollHint(m.vpSessions), m.vpSessions.View())
@@ -1035,7 +1052,17 @@ type Program struct{ p *tea.Program }
 func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo string, ttsOn bool) *Program {
 	m := New(sm, tracker, character)
 	m.spellInfo = spellInfo
-	m.ttsOn = ttsOn && m.speaker.Available()
+
+	prefs := tts.LoadPrefs()
+	m.screen = initialScreen(prefs)
+	if m.screen == screenSetup {
+		m.setup = newSetupState()
+	} else if prefs.Voice != "" {
+		m.speaker.SetVoice(prefs.Voice)
+	}
+	// prefs drive cues once configured; the -tts flag is a manual force-on.
+	m.ttsOn = (prefs.Enabled || ttsOn) && m.speaker.Available()
+
 	return &Program{p: tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())}
 }
 
