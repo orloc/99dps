@@ -25,8 +25,13 @@ type Voice struct {
 	Name string // human-friendly label
 }
 
-// New builds the speech engine. For now it always returns the legacy OS engine;
-// the neural backend will be selected here once its assets are present.
+// New builds the speech engine: the neural Kokoro backend when its assets are
+// already downloaded (EnsureAssets), otherwise the legacy OS engine. Selection
+// is by presence, so default behavior is unchanged until neural voices are
+// explicitly fetched.
 func New() Engine {
+	if k := newKokoro(); k != nil {
+		return k
+	}
 	return newLegacy()
 }
