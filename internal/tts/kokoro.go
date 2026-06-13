@@ -28,6 +28,9 @@ type kokoroEngine struct {
 
 	mu  sync.Mutex
 	sid int // current speaker index
+
+	once  sync.Once   // lazily starts the playback worker
+	queue chan string // utterances awaiting serialized playback
 }
 
 type modelPaths struct {
@@ -62,12 +65,28 @@ func newKokoro() *kokoroEngine {
 // only when both the engine binary and a resolvable model were found).
 func (k *kokoroEngine) Available() bool { return k != nil && k.cli != "" }
 
-// Say renders text (cached) and plays it, without blocking the caller.
+// Say queues an utterance for playback without blocking the caller. A single
+// worker plays the queue one item at a time, so cues never talk over each other.
 func (k *kokoroEngine) Say(text string) {
 	if !k.Available() || text == "" {
 		return
 	}
-	go k.render(text, true)
+	k.once.Do(func() {
+		k.queue = make(chan string, 16)
+		go k.worker()
+	})
+	select {
+	case k.queue <- text:
+	default: // queue full — drop rather than let stale cues pile up
+	}
+}
+
+// worker plays queued utterances serially: each render synthesizes (cached) then
+// blocks on playback, so the next cue starts only after the current finishes.
+func (k *kokoroEngine) worker() {
+	for text := range k.queue {
+		k.render(text, true)
+	}
 }
 
 // Warm pre-synthesizes phrases into the cache without playing them, so later
@@ -122,7 +141,13 @@ func (k *kokoroEngine) render(text string, play bool) {
 
 	clip := filepath.Join(k.clips, cacheKey(sid, text)+".wav")
 	if !fileExists(clip) {
-		if err := k.synth(text, sid, clip); err != nil {
+		// synth to a temp file and rename, so a concurrent reader never plays a
+		// half-written clip (the cache file appears atomically).
+		tmp := clip + ".tmp"
+		if err := k.synth(text, sid, tmp); err != nil {
+			return
+		}
+		if err := os.Rename(tmp, clip); err != nil {
 			return
 		}
 	}

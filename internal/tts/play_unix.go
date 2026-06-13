@@ -7,9 +7,10 @@ import "os/exec"
 // hideWindow is a no-op off Windows (no console window to hide).
 func hideWindow(*exec.Cmd) {}
 
-// playWav plays a WAV file through the first available CLI player, detached so it
-// never blocks the UI. No player found → silent (same graceful-degrade contract
-// as the legacy engine).
+// playWav plays a WAV file through the first available CLI player and BLOCKS
+// until playback finishes — the speaker's worker goroutine calls this, so
+// blocking is what serializes cues (no overlap). No player found → silent (same
+// graceful-degrade contract as before).
 func playWav(path string) {
 	for _, p := range [][]string{
 		{"paplay"},
@@ -21,10 +22,7 @@ func playWav(path string) {
 		if err != nil {
 			continue
 		}
-		cmd := exec.Command(bin, append(p[1:], path)...)
-		if cmd.Start() == nil {
-			go func() { _ = cmd.Wait() }() // reap
-		}
+		_ = exec.Command(bin, append(p[1:], path)...).Run() // block until done
 		return
 	}
 }

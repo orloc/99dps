@@ -50,3 +50,21 @@ func TestDueAnnouncementsScalesByDuration(t *testing.T) {
 		t.Errorf("short debuff at 15s left should warn, got %v", got)
 	}
 }
+
+func TestComposeCue(t *testing.T) {
+	you := func(s string) gamestate.Timer { return gamestate.Timer{Spell: s, Target: "You"} }
+	cases := []struct {
+		due  []gamestate.Timer
+		want string
+	}{
+		{[]gamestate.Timer{you("Clarity")}, "Clarity is fading."},
+		{[]gamestate.Timer{you("Clarity"), you("Umbra")}, "Clarity and Umbra are fading."},
+		{[]gamestate.Timer{you("Clarity"), you("Brilliance"), you("Umbra")}, "Clarity, Brilliance, and Umbra are fading."},
+		{[]gamestate.Timer{{Spell: "Snare", Target: "a gnoll"}}, "Snare on a gnoll is fading."},
+	}
+	for _, c := range cases {
+		if got := composeCue(c.due); got != c.want {
+			t.Errorf("composeCue = %q, want %q", got, c.want)
+		}
+	}
+}

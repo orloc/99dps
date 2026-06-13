@@ -2,7 +2,6 @@ package tui
 
 import (
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -432,8 +431,8 @@ func TestDueAnnouncements(t *testing.T) {
 	charm := gamestate.Timer{Spell: "Charm", Target: "Charm", Expiry: now + 5, Charm: true}
 
 	got := m.dueAnnouncements([]gamestate.Timer{healthy, low, charm}, now)
-	if want := []string{"Healer, Clarity low"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("first pass = %v, want %v", got, want)
+	if len(got) != 1 || got[0].Spell != "Clarity" || got[0].Target != "Healer" {
+		t.Fatalf("first pass = %v, want one Clarity/Healer", got)
 	}
 	if got := m.dueAnnouncements([]gamestate.Timer{healthy, low, charm}, now); got != nil {
 		t.Errorf("repeat pass spoke again: %v", got)
@@ -442,11 +441,6 @@ func TestDueAnnouncements(t *testing.T) {
 	m.dueAnnouncements([]gamestate.Timer{{Spell: "Clarity", Target: "Healer", Expiry: now + 600}}, now)
 	if got := m.dueAnnouncements([]gamestate.Timer{{Spell: "Clarity", Target: "Healer", Expiry: now + 5}}, now); len(got) != 1 {
 		t.Errorf("refresh should re-arm; got %v", got)
-	}
-	m2 := New(&session.SessionManager{}, nil, "X")
-	self := gamestate.Timer{Spell: "Bedlam", Target: "You", Expiry: now + 5}
-	if got := m2.dueAnnouncements([]gamestate.Timer{self}, now); len(got) != 1 || got[0] != "Bedlam low" {
-		t.Errorf("self phrase = %v, want [\"Bedlam low\"]", got)
 	}
 }
 

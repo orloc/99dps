@@ -250,14 +250,16 @@ func (m *Model) refresh() {
 	m.ensureSelVisible(sel)
 }
 
-// announceLowBuffs speaks the cues due this tick (no-op when audio is off).
+// announceLowBuffs speaks the cues due this tick as ONE combined utterance, so
+// several simultaneous fades don't talk over each other (cross-tick cues are
+// serialized by the speaker's own playback queue). No-op when audio is off.
 func (m *Model) announceLowBuffs() {
 	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
 		return
 	}
 	now := time.Now().Unix()
-	for _, p := range m.dueAnnouncements(m.tracker.Active(now), now) {
-		m.speaker.Say(p)
+	if due := m.dueAnnouncements(m.tracker.Active(now), now); len(due) > 0 {
+		m.speaker.Say(composeCue(due))
 	}
 }
 
@@ -266,8 +268,8 @@ func (m *Model) announceLowBuffs() {
 // its warning lead, re-arming when it's refreshed or gone. Speaking is left to
 // the caller so this stays testable. (Charm breaks before its cap, so a countdown
 // "low" would cry wolf — it's skipped.)
-func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
-	var phrases []string
+func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestate.Timer {
+	var due []gamestate.Timer
 	live := make(map[string]bool, len(active))
 	for _, tm := range active {
 		if tm.Charm {
@@ -278,7 +280,7 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
 		if tm.Expiry-now <= warnLeadSec(tm.Expiry-tm.Start) {
 			if !m.announced[k] {
 				m.announced[k] = true
-				phrases = append(phrases, lowBuffPhrase(tm))
+				due = append(due, tm)
 			}
 		} else {
 			delete(m.announced, k) // refreshed / still healthy → re-arm
@@ -289,7 +291,7 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []string {
 			delete(m.announced, k) // timer gone → re-arm for next cast
 		}
 	}
-	return phrases
+	return due
 }
 
 // warnLeadSec is how many seconds before expiry the "low" cue fires, scaled to a
@@ -307,11 +309,35 @@ func warnLeadSec(total int64) int64 {
 	return lead
 }
 
-func lowBuffPhrase(tm gamestate.Timer) string {
-	if tm.Target == "You" {
-		return tm.Spell + " low"
+// composeCue turns the timers that just went low into one terse, natural
+// utterance, so simultaneous fades are spoken as a single sentence rather than
+// several cues overlapping. Self-buffs read by name; effects on a mob read as
+// "<spell> on <mob>".
+func composeCue(due []gamestate.Timer) string {
+	subjects := make([]string, 0, len(due))
+	for _, tm := range due {
+		if tm.Target == "" || tm.Target == "You" {
+			subjects = append(subjects, tm.Spell)
+		} else {
+			subjects = append(subjects, tm.Spell+" on "+tm.Target)
+		}
 	}
-	return tm.Target + ", " + tm.Spell + " low"
+	return fadingSentence(subjects)
+}
+
+// fadingSentence joins subjects with natural list grammar and verb agreement:
+// "X is fading." / "X and Y are fading." / "X, Y, and Z are fading."
+func fadingSentence(s []string) string {
+	switch len(s) {
+	case 0:
+		return ""
+	case 1:
+		return s[0] + " is fading."
+	case 2:
+		return s[0] + " and " + s[1] + " are fading."
+	default:
+		return strings.Join(s[:len(s)-1], ", ") + ", and " + s[len(s)-1] + " are fading."
+	}
 }
 
 // rebuildInteractive re-renders the hover-aware panels (class + enchanter CC)
