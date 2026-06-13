@@ -141,6 +141,7 @@ func (k *kokoroEngine) synth(text string, sid int, out string) error {
 		"--kokoro-voices=" + k.model.voices,
 		"--kokoro-tokens=" + k.model.tokens,
 		"--kokoro-data-dir=" + k.model.dataDir,
+		"--kokoro-length-scale=" + kokoroLengthScale, // a touch slower = gentler
 	}
 	if k.model.lexicon != "" {
 		args = append(args, "--kokoro-lexicon="+k.model.lexicon)
@@ -159,9 +160,10 @@ func (k *kokoroEngine) synth(text string, sid int, out string) error {
 	return cmd.Run()
 }
 
-// cacheKey is a stable filename stem for a (voice, text) pair.
+// cacheKey is a stable filename stem for a (voice, speed, text) clip — the
+// length scale is folded in so a speed change invalidates stale cached cues.
 func cacheKey(sid int, text string) string {
-	sum := sha1.Sum([]byte(strconv.Itoa(sid) + "\x00" + text))
+	sum := sha1.Sum([]byte(strconv.Itoa(sid) + "\x00" + kokoroLengthScale + "\x00" + text))
 	return hex.EncodeToString(sum[:])
 }
 

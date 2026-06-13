@@ -63,6 +63,11 @@ var kokoroVoices = []Voice{
 // defaultVoice is the sid used until the user picks one (af_bella).
 const defaultVoice = "1"
 
+// kokoroLengthScale slows the voice slightly (larger = slower) for a gentler,
+// sweeter delivery than the default 1.0. It's part of the clip cache key, so
+// changing it re-synthesizes cached cues.
+const kokoroLengthScale = "1.1"
+
 // binaryForOS reports the sherpa CLI package for the current OS, and whether one
 // is defined (only linux/windows amd64 are supported today).
 func binaryForOS() (artifact, bool) {
