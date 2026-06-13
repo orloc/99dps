@@ -53,6 +53,17 @@ func TestLayoutHonorsBoxModes(t *testing.T) {
 	if ld := both.layout(); ld.dmgH != 0 || ld.botH != ld.areaH {
 		t.Errorf("both off: top row should collapse (dmgH=0, botH=areaH), got %+v", ld)
 	}
+
+	// Compact shrinks the top row so the bottom panels grow.
+	compact := base
+	compact.layoutPrefs = layoutPrefs{panelCompact, panelCompact}
+	fl, cm := full.layout(), compact.layout()
+	if cm.dmgH >= fl.dmgH {
+		t.Errorf("compact top should be shorter than full (%d vs %d)", cm.dmgH, fl.dmgH)
+	}
+	if cm.botH <= fl.botH {
+		t.Errorf("compact should give the bottom row more height (%d vs %d)", cm.botH, fl.botH)
+	}
 }
 
 func TestDamageCompactDropsColumns(t *testing.T) {

@@ -175,17 +175,26 @@ func (m Model) layout() layout {
 	}
 	rightW := innerW // the meter spans the full width now (no Sessions sidebar)
 
-	// the top row (Damage meter + Offense·Defense) is user-toggleable. When both
-	// are off it collapses entirely and the bottom row takes the full height.
+	// the top row (Damage meter + Offense·Defense) is user-toggleable. Its height
+	// scales with the visible boxes: Full gets the bulk (52%), Compact a smaller
+	// slice (35%) so the bottom row (class/enemy/mob) grows, and both-Off collapses
+	// the top entirely.
 	showDmg := m.layoutPrefs.Damage != panelOff
 	showOD := m.layoutPrefs.OffDef != panelOff
-	dmgH := areaH * 52 / 100
-	if dmgH < 5 {
-		dmgH = 5
+	topFrac := 0
+	switch {
+	case m.layoutPrefs.Damage == panelFull || m.layoutPrefs.OffDef == panelFull:
+		topFrac = 52
+	case showDmg || showOD: // at least one box, all visible ones Compact
+		topFrac = 35
 	}
-	botH := areaH - dmgH - 1
-	if !showDmg && !showOD {
-		dmgH, botH = 0, areaH
+	dmgH, botH := 0, areaH
+	if topFrac > 0 {
+		dmgH = areaH * topFrac / 100
+		if dmgH < 5 {
+			dmgH = 5
+		}
+		botH = areaH - dmgH - 1
 	}
 
 	// every class gets a middle column when it fits: casters/hybrids → Enemy
