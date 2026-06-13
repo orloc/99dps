@@ -360,8 +360,8 @@ func TestSelfClickyTimer(t *testing.T) {
 // resolves to a normal Levitation, not the 6-tick "Levitate Test".
 func TestSelfClickyDisambiguation(t *testing.T) {
 	book := loadBook(t,
-		row(map[int]string{fName: "Levitate Test", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "1", fDurCap: "6"}),
-		row(map[int]string{fName: "Levitation", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "3", fDurCap: "120"}),
+		row(map[int]string{fName: "Levitate Test", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "1", fDurCap: "6", fGoodEffect: "1"}),
+		row(map[int]string{fName: "Levitation", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "3", fDurCap: "120", fGoodEffect: "1"}),
 	)
 	s, ok := book.SelfClicky("Your feet leave the ground.")
 	got := ""

@@ -234,7 +234,10 @@ func (t *Tracker) DismissTarget(target string) {
 	}
 	t.mu.Lock()
 	for k, tm := range t.timers {
-		if tm.Target == target {
+		// incoming debuffs on you (Estimated) share the "You" target with your
+		// buffs but carry no caster to dismiss — clearing your buff list must not
+		// wipe them, so skip them here. They clear only on their fade line / death.
+		if tm.Target == target && !(tm.Estimated && tm.Target == "You") {
 			delete(t.timers, k)
 		}
 	}

@@ -168,7 +168,10 @@ func LoadReader(r io.Reader) (*Book, error) {
 		// spells share an emote ("Your feet leave the ground." → Levitate, a dev
 		// "Levitate Test" stub, …), so skip obvious test stubs and keep the
 		// longest-duration candidate, which is the real buff rather than a stub.
-		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" &&
+		// Detrimental spells are excluded: a self-clicky is beneficial, and a
+		// hostile proc's cast_on_you emote is owned by the incoming-debuff path
+		// (incoming.go) — indexing it here would spawn a duplicate ON-YOU timer.
+		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" && !s.Detrimental &&
 			!strings.Contains(strings.ToLower(s.Name), "test") {
 			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s

@@ -89,3 +89,30 @@ func TestIncomingFadeWithoutLandingNoop(t *testing.T) {
 		t.Error("a stray fade line should create nothing")
 	}
 }
+
+// Dismissing your buff list (clicking the "You" group header) must NOT clear an
+// incoming debuff on you — it shares the "You" target but carries no caster to
+// dismiss, and only its fade line / your death should end it.
+func TestDismissTargetKeepsIncomingDebuff(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+	tr.Observe("You feel drowsy.", 1000) // Slowed (incoming, Estimated)
+	if _, ok := findTimer(tr, "Slowed", 1001); !ok {
+		t.Fatal("slow not detected")
+	}
+	tr.DismissTarget("You")
+	if _, ok := findTimer(tr, "Slowed", 1001); !ok {
+		t.Error("DismissTarget(\"You\") must not clear an incoming ON-YOU debuff")
+	}
+}
+
+// A hostile proc's cast_on_you emote belongs to the incoming-debuff path, not the
+// self-clicky index — so no detrimental spell may be indexed as a self-clicky, or
+// a proc would spawn a duplicate ON-YOU timer with a bogus spell-exact duration.
+func TestSelfClickyIndexExcludesDetrimental(t *testing.T) {
+	b := loadBook(t)
+	for emote, s := range b.byEmote {
+		if s.Detrimental {
+			t.Errorf("byEmote[%q] = %q is detrimental; self-clickies must be beneficial", emote, s.Name)
+		}
+	}
+}
