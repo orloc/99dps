@@ -288,3 +288,25 @@ func TestApply_ThresholdRollsSessions(t *testing.T) {
 		t.Fatalf("past-threshold hit on a new enemy didn't roll: got %d sessions", got)
 	}
 }
+
+// TestMobStatsFromApply: the mob-hit index captures every mob's melee on anyone
+// (pet, groupmate), excludes the player's own hits, and resets on Clear.
+func TestMobStatsFromApply(t *testing.T) {
+	sm := &SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "a sand giant", Dmg: 40, Target: "Pet"})
+	sm.Apply(&combat.DamageSet{ActionTime: 101, Dealer: "a sand giant", Dmg: 60, Target: "Groupmate"})
+	sm.Apply(&combat.DamageSet{ActionTime: 102, Dealer: "You", Dmg: 200, Target: "a sand giant"})
+
+	mi := sm.MobStats()
+	if avg, ok := mi.AvgHit("a sand giant"); !ok || avg != 50 {
+		t.Errorf("mob avg = %d ok=%v, want 50 (hits on pet+groupmate)", avg, ok)
+	}
+	if _, ok := mi.AvgHit("You"); ok {
+		t.Error("the player's own hits must not be in the mob index")
+	}
+
+	sm.Clear()
+	if _, ok := sm.MobStats().AvgHit("a sand giant"); ok {
+		t.Error("Clear should reset the mob index")
+	}
+}

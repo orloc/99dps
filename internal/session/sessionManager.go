@@ -2,6 +2,7 @@ package session
 
 import (
 	"99dps/internal/combat"
+	"99dps/internal/mobstats"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,10 @@ type SessionManager struct {
 	lastActivity int64   // timestamp of the last combat exchange
 	pulse        float64 // EWMA of inter-activity gaps, in seconds
 	forceRoll    bool    // a hard boundary closed the fight; next event opens a new one
+
+	// app-wide running index of how hard each mob hits in melee — accumulated
+	// across all fights (not per-encounter), read by the UI / rune estimate.
+	mobs *mobstats.Index
 }
 
 // Apply routes one melee damage event, opening or rolling a session per the
@@ -46,6 +51,23 @@ func (sm *SessionManager) Apply(set *combat.DamageSet) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.activeForLocked(set.ActionTime, set.Dealer, set.Target).adjustDamageLocked(set)
+	// feed the app-wide mob-hit index: every mob's melee on ANYONE (pet, group,
+	// you), so it works even when the player isn't the one being hit. Skip the
+	// player's own hits — it's an index of how hard mobs hit.
+	if set.Dealer != "You" {
+		if sm.mobs == nil {
+			sm.mobs = mobstats.New()
+		}
+		sm.mobs.Record(set.Dealer, set.Dmg)
+	}
+}
+
+// MobStats returns the running mob-hit index (how hard each mob hits in melee),
+// or nil before any combat — callers read it nil-safely via its methods.
+func (sm *SessionManager) MobStats() *mobstats.Index {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.mobs
 }
 
 // ApplySwing folds an avoided melee attempt into the fight. Swings are combat
@@ -223,4 +245,5 @@ func (sm *SessionManager) Clear() {
 	sm.lastActivity = 0
 	sm.pulse = 0
 	sm.forceRoll = false
+	sm.mobs.Clear() // nil-safe; keeps the same Index pointer for any holder
 }
