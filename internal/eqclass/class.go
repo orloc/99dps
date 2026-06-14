@@ -35,23 +35,11 @@ const (
 	ClassEnchanter    Class = "Enchanter"
 )
 
-// category maps each class to its panel category.
-var category = map[Class]Category{
-	ClassWarrior: CatMelee, ClassMonk: CatMelee, ClassRogue: CatMelee,
-
-	ClassPaladin: CatHybrid, ClassShadowKnight: CatHybrid, ClassRanger: CatHybrid,
-	ClassBard: CatHybrid, ClassBeastlord: CatHybrid,
-
-	ClassCleric: CatCaster, ClassDruid: CatCaster, ClassShaman: CatCaster,
-	ClassNecromancer: CatCaster, ClassWizard: CatCaster, ClassMagician: CatCaster,
-	ClassEnchanter: CatCaster,
-}
-
-// CategoryOf returns a class's panel category. An unknown class defaults to
-// CatCaster — the safe default, since the spell-timer panel is simply empty for
-// a melee player rather than wrong.
+// CategoryOf returns a class's panel category, read from its Profile. An unknown
+// class defaults to CatCaster — the safe default, since the spell-timer panel is
+// simply empty for a melee player rather than wrong.
 func CategoryOf(c Class) Category {
-	return category[c] // ClassUnknown and any unmapped class → CatCaster (zero value)
+	return profiles[c].Category // ClassUnknown / unmapped → CatCaster (zero value)
 }
 
 // titleToClass maps an EQ /who level-title to its base eqclass. /who prints a
