@@ -420,11 +420,11 @@ func (m *Model) announceCuesAt(now int64) {
 		}
 	}
 	if len(low) > 0 {
-		m.speaker.Say(composeCue(low, false, m.cueSeq))
+		m.speaker.Say(composeCue(low, false, now, m.cueSeq))
 		m.cueSeq++
 	}
 	if len(fading) > 0 {
-		m.speaker.Say(composeCue(fading, true, m.cueSeq))
+		m.speaker.Say(composeCue(fading, true, now, m.cueSeq))
 		m.cueSeq++
 	}
 }
@@ -482,49 +482,89 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []cueDue {
 	return due
 }
 
-// composeCue turns the timers that just escalated into one terse, natural
-// utterance, so simultaneous subjects are spoken as a single sentence rather than
-// several cues overlapping. fading picks the verbiage: the gentler "running low"
-// (gold zone) vs the urgent "fading / about to drop" (red zone). seq rotates the
-// phrasing for variety. Self-buffs read by name; effects on a mob read as
-// "<spell> on <mob>".
-func composeCue(due []gamestate.Timer, fading bool, seq int) string {
-	subjects := make([]string, 0, len(due))
-	for _, tm := range due {
-		if tm.Target == "" || tm.Target == "You" {
-			subjects = append(subjects, tm.Spell)
-		} else {
-			subjects = append(subjects, tm.Spell+" on "+tm.Target)
-		}
-	}
-	if len(subjects) == 0 {
+// composeCue turns the timers that just escalated into one terse, natural, varied
+// utterance — simultaneous subjects are combined into a single sentence rather
+// than overlapping cues. fading picks the register: the urgent, timeless "fading /
+// about to drop" (red zone) vs the calmer "running low" (gold zone), which also
+// speaks how much time is left. seq rotates the phrasing for variety; now lets the
+// low cue compute remaining time. Self-buffs read by name; effects on a mob read
+// as "<spell> on <mob>".
+func composeCue(due []gamestate.Timer, fading bool, now int64, seq int) string {
+	if len(due) == 0 {
 		return ""
 	}
-	styles := lowStyles
 	if fading {
-		styles = fadeStyles
+		return fadingPhrase(due, seq)
 	}
-	style := styles[seq%len(styles)]
-	if len(subjects) == 1 {
-		return fmt.Sprintf(style.one, joinList(subjects))
-	}
-	return fmt.Sprintf(style.many, joinList(subjects))
+	return lowPhrase(due, now, seq)
 }
 
-// lowStyles phrase a timer entering the gold "getting low" zone — a heads-up that
-// it's time to think about recasting, distinct from fadeStyles' "about to drop".
-var lowStyles = []struct{ one, many string }{
-	{"%s is running low.", "%s are running low."},
-	{"%s is getting low.", "%s are getting low."},
-	{"Heads up, %s is running low.", "Heads up, %s are running low."},
+// subjectName names a timer for a cue: a self/ally buff by spell, an effect on a
+// mob as "<spell> on <mob>".
+func subjectName(tm gamestate.Timer) string {
+	if tm.Target == "" || tm.Target == "You" {
+		return tm.Spell
+	}
+	return tm.Spell + " on " + tm.Target
 }
 
-// fadeStyles are the rotating phrasings for a timer in the red zone — actually
-// fading now (singular vs plural so verb agreement holds however many are listed).
-var fadeStyles = []struct{ one, many string }{
-	{"%s is fading.", "%s are fading."},
-	{"%s is wearing off.", "%s are wearing off."},
-	{"Heads up, %s is about to drop.", "Heads up, %s are about to drop."},
+// fadingPhrase is the urgent red-zone cue: no time (it's about to drop), varied
+// per seq, with a count summary when more than three drop at once.
+func fadingPhrase(due []gamestate.Timer, seq int) string {
+	names := make([]string, len(due))
+	for i := range due {
+		names[i] = subjectName(due[i])
+	}
+	if len(names) > 3 {
+		return fmt.Sprintf("%d effects are fading.", len(names))
+	}
+	subj := joinList(names)
+	if len(names) == 1 {
+		tpl := []string{"%s is fading.", "%s is wearing off.", "%s is about to drop.", "Quick, %s is fading."}
+		return fmt.Sprintf(tpl[seq%len(tpl)], subj)
+	}
+	tpl := []string{"%s are fading.", "%s are wearing off.", "%s are about to drop.", "Heads up, %s are fading."}
+	return fmt.Sprintf(tpl[seq%len(tpl)], subj)
+}
+
+// lowPhrase is the calmer gold-zone cue: it speaks the time left, varied per seq.
+// One subject reads "<name> … <time> left"; a few combine name+time into a list;
+// many collapse to a count (per-item times would be a mouthful).
+func lowPhrase(due []gamestate.Timer, now int64, seq int) string {
+	if len(due) == 1 {
+		name, left := subjectName(due[0]), spokenDuration(due[0].Expiry-now)
+		tpl := []string{
+			"%s is running low, %s left.",
+			"%s, %s remaining.",
+			"Heads up, %s has about %s left.",
+			"%s is getting low — %s to go.",
+		}
+		return fmt.Sprintf(tpl[seq%len(tpl)], name, left)
+	}
+	if len(due) > 3 {
+		return fmt.Sprintf("%d effects are running low.", len(due))
+	}
+	items := make([]string, len(due))
+	for i := range due {
+		items[i] = subjectName(due[i]) + ", " + spokenDuration(due[i].Expiry-now)
+	}
+	tpl := []string{"Running low: %s.", "Getting low — %s.", "%s are running low."}
+	return fmt.Sprintf(tpl[seq%len(tpl)], joinList(items))
+}
+
+// spokenDuration renders a remaining time for speech: rounded minutes when it's a
+// couple of minutes or more, "about a minute" near a minute, else seconds.
+func spokenDuration(sec int64) string {
+	if sec < 0 {
+		sec = 0
+	}
+	if m := (sec + 30) / 60; m >= 2 {
+		return fmt.Sprintf("%d minutes", m)
+	}
+	if sec >= 45 {
+		return "about a minute"
+	}
+	return fmt.Sprintf("%d seconds", sec)
 }
 
 // joinList renders names with natural list grammar: "X" / "X and Y" /

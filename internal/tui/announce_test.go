@@ -53,18 +53,63 @@ func TestComposeCue(t *testing.T) {
 		{[]gamestate.Timer{{Spell: "Snare", Target: "a gnoll"}}, "Snare on a gnoll is fading."},
 	}
 	for _, c := range cases {
-		if got := composeCue(c.due, true, 0); got != c.want {
+		if got := composeCue(c.due, true, 0, 0); got != c.want {
 			t.Errorf("composeCue = %q, want %q", got, c.want)
 		}
 	}
 }
 
-// TestComposeCueLow: the gold-zone verbiage reads "running low", distinct from the
-// red-zone "fading".
+// TestComposeCueLow: the gold-zone cue names the buff, reads "low" (not "fading"),
+// and speaks the time remaining.
 func TestComposeCueLow(t *testing.T) {
-	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
-	if got := composeCue(due, false, 0); got != "Clarity is running low." {
-		t.Errorf("low cue = %q, want \"Clarity is running low.\"", got)
+	now := int64(1000)
+	due := []gamestate.Timer{{Spell: "Clarity", Target: "You", Expiry: now + 300}} // 5 min left
+	got := composeCue(due, false, now, 0)
+	if !strings.Contains(got, "Clarity") || !strings.Contains(got, "low") {
+		t.Errorf("low cue should name the buff and say it's low: %q", got)
+	}
+	if !strings.Contains(got, "5 minutes") {
+		t.Errorf("low cue should speak the time left (5 minutes): %q", got)
+	}
+	if strings.Contains(got, "fading") {
+		t.Errorf("low cue should not say 'fading': %q", got)
+	}
+}
+
+// TestComposeCueCombines: several subjects in a zone combine into one sentence,
+// and more than three collapse to a count.
+func TestComposeCueCombines(t *testing.T) {
+	now := int64(1000)
+	tm := func(name string) gamestate.Timer {
+		return gamestate.Timer{Spell: name, Target: "You", Expiry: now + 300}
+	}
+	two := composeCue([]gamestate.Timer{tm("Clarity"), tm("Aegolism")}, false, now, 0)
+	if !strings.Contains(two, "Clarity") || !strings.Contains(two, "Aegolism") {
+		t.Errorf("two low buffs should combine into one cue: %q", two)
+	}
+	many := composeCue([]gamestate.Timer{tm("A"), tm("B"), tm("C"), tm("D")}, true, now, 0)
+	if !strings.Contains(many, "4") || !strings.Contains(many, "fading") {
+		t.Errorf("more than three fading should collapse to a count: %q", many)
+	}
+}
+
+func TestSpokenDuration(t *testing.T) {
+	cases := []struct {
+		sec  int64
+		want string
+	}{
+		{300, "5 minutes"},
+		{250, "4 minutes"},
+		{90, "2 minutes"},
+		{60, "about a minute"},
+		{50, "about a minute"},
+		{30, "30 seconds"},
+		{-5, "0 seconds"},
+	}
+	for _, c := range cases {
+		if got := spokenDuration(c.sec); got != c.want {
+			t.Errorf("spokenDuration(%d) = %q, want %q", c.sec, got, c.want)
+		}
 	}
 }
 
@@ -72,7 +117,7 @@ func TestFadeVariety(t *testing.T) {
 	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
 	seen := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
-		seen[composeCue(due, true, seq)] = true
+		seen[composeCue(due, true, 0, seq)] = true
 	}
 	if len(seen) != 3 {
 		t.Errorf("expected 3 distinct phrasings across seqs, got %v", seen)
@@ -80,7 +125,7 @@ func TestFadeVariety(t *testing.T) {
 	// plural agreement holds in every style
 	two := []gamestate.Timer{{Spell: "Clarity", Target: "You"}, {Spell: "Umbra", Target: "You"}}
 	for seq := 0; seq < 3; seq++ {
-		if got := composeCue(two, true, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
+		if got := composeCue(two, true, 0, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
 			t.Errorf("seq %d plural phrasing wrong: %q", seq, got)
 		}
 	}

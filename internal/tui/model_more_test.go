@@ -102,7 +102,7 @@ func TestJoinList(t *testing.T) {
 
 // TestComposeCueEmpty: with no due timers there's no phrase.
 func TestComposeCueEmpty(t *testing.T) {
-	if got := composeCue(nil, false, 0); got != "" {
+	if got := composeCue(nil, false, 0, 0); got != "" {
 		t.Errorf("composeCue(nil) = %q, want empty", got)
 	}
 }
