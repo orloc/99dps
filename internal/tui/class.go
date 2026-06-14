@@ -164,7 +164,7 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 	}
 	if cds := tr.Cooldowns(now); len(cds) > 0 {
 		for i := range cds { // name the generic kick/strike by level (Flying Kick, etc.)
-			cds[i].Name = displaySkillName(cds[i].Name, class, level)
+			cds[i].Name = eqclass.SkillName(class, cds[i].Name, level)
 		}
 		sections = append(sections, cooldownRows(th, cds, w))
 	}
@@ -316,8 +316,8 @@ func skillsBody(th theme, cur *session.CombatSession, class eqclass.Class, level
 	}
 	var rows []row
 	for n, s := range cur.Skills() {
-		if skillRelevant(n, class) {
-			rows = append(rows, row{displaySkillName(n, class, level), s})
+		if eqclass.SkillRelevant(class, n) {
+			rows = append(rows, row{eqclass.SkillName(class, n, level), s})
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].s.Total > rows[j].s.Total })
@@ -359,7 +359,7 @@ func skillsSummaryLine(cur *session.CombatSession, class eqclass.Class, level in
 	}
 	var parts []string
 	if name, s := topSkill(cur.Skills(), class); name != "" {
-		parts = append(parts, fmt.Sprintf("%s %s", displaySkillName(name, class, level), humanize(s.Total)))
+		parts = append(parts, fmt.Sprintf("%s %s", eqclass.SkillName(class, name, level), humanize(s.Total)))
 	}
 	if you := playerStat(cur); you.Hits > 0 {
 		if c := cur.CritFor("You"); c.Count > 0 {
@@ -373,40 +373,6 @@ func skillsSummaryLine(cur *session.CombatSession, class eqclass.Class, level in
 }
 
 // ---- ported skill/stat helpers (from the old render layer) -----------------------
-
-// displaySkillName labels a generic monk skill bucket by level — the kick and
-// hand-strike specials log generically, so the level-right name is a best guess.
-func displaySkillName(generic string, class eqclass.Class, level int) string {
-	if class != eqclass.ClassMonk {
-		return generic
-	}
-	switch generic {
-	case "Kick":
-		switch {
-		case level >= 30:
-			return "Flying Kick"
-		case level >= 5:
-			return "Round Kick"
-		}
-	case "Strike":
-		switch {
-		case level >= 25:
-			return "Dragon Punch"
-		case level >= 10:
-			return "Eagle Strike"
-		default:
-			return "Tiger Claw"
-		}
-	}
-	return generic
-}
-
-func skillRelevant(generic string, class eqclass.Class) bool {
-	if generic == "Strike" {
-		return class == eqclass.ClassMonk
-	}
-	return true
-}
 
 func critPct(crits, hits int) int {
 	if hits <= 0 {
@@ -422,7 +388,7 @@ func topSkill(skills map[string]combat.SkillStat, class eqclass.Class) (string, 
 	var name string
 	var best combat.SkillStat
 	for n, s := range skills {
-		if skillRelevant(n, class) && s.Total > best.Total {
+		if eqclass.SkillRelevant(class, n) && s.Total > best.Total {
 			name, best = n, s
 		}
 	}

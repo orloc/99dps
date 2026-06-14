@@ -50,6 +50,45 @@ func TestProfileCapabilities(t *testing.T) {
 	}
 }
 
+// TestSkillName: the generic kick/strike buckets are named by the monk's level,
+// and a non-monk's bucket stays generic.
+func TestSkillName(t *testing.T) {
+	cases := []struct {
+		class Class
+		gen   string
+		lvl   int
+		want  string
+	}{
+		{ClassMonk, "Kick", 60, "Flying Kick"}, {ClassMonk, "Kick", 12, "Round Kick"},
+		{ClassMonk, "Kick", 3, "Kick"}, // below the lowest rank → generic
+		{ClassMonk, "Strike", 60, "Dragon Punch"}, {ClassMonk, "Strike", 15, "Eagle Strike"},
+		{ClassMonk, "Strike", 4, "Tiger Claw"},
+		{ClassWarrior, "Kick", 60, "Kick"}, // non-monk → generic
+		{ClassMonk, "Crush", 60, "Crush"},  // bucket with no override → generic
+	}
+	for _, c := range cases {
+		if got := SkillName(c.class, c.gen, c.lvl); got != c.want {
+			t.Errorf("SkillName(%s, %q, %d) = %q, want %q", c.class, c.gen, c.lvl, got, c.want)
+		}
+	}
+}
+
+// TestSkillRelevant: the monk hand-strike bucket shows only for monks; universal
+// buckets show for everyone.
+func TestSkillRelevant(t *testing.T) {
+	if !SkillRelevant(ClassMonk, "Strike") {
+		t.Error("Strike should be relevant for a Monk")
+	}
+	if SkillRelevant(ClassWarrior, "Strike") {
+		t.Error("Strike should be hidden for a non-Monk")
+	}
+	for _, c := range []Class{ClassWarrior, ClassMonk, ClassRogue} {
+		if !SkillRelevant(c, "Kick") {
+			t.Errorf("Kick should be relevant for %s", c)
+		}
+	}
+}
+
 func TestRecastWatched(t *testing.T) {
 	if !RecastWatched(ClassEnchanter, "Dictate") || !RecastWatched(ClassEnchanter, "Rapture") {
 		t.Error("Enchanter should watch Dictate and Rapture")
