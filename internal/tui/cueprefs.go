@@ -84,33 +84,18 @@ type cueCaps struct {
 	all                bool // class unknown (pre-/who) → show everything
 }
 
-// cueCapsFor maps a class to its cue capabilities. Buff/debuff/resist follow the
-// class category (casters + hybrids cast spells; pure melee don't); feign is the
-// two feign classes; crowd control is the per-class table.
+// cueCapsFor maps a class to its cue capabilities, read from its eqclass
+// Profile. Crowd control / feign come straight off the profile; buff/debuff/
+// resist follow the class category (casters + hybrids cast spells; pure melee
+// don't). An unknown class (pre-/who) shows everything.
 func cueCapsFor(class eqclass.Class) cueCaps {
 	if class == eqclass.ClassUnknown {
 		return cueCaps{mez: true, charm: true, pacify: true, buffs: true, debuffs: true, feign: true, resist: true, all: true}
 	}
-	c := cueCaps{}
-	if cat := eqclass.CategoryOf(class); cat == eqclass.CatCaster || cat == eqclass.CatHybrid {
+	p := eqclass.ProfileOf(class)
+	c := cueCaps{mez: p.Mez, charm: p.Charm, pacify: p.Pacify, feign: p.Feign}
+	if p.Category == eqclass.CatCaster || p.Category == eqclass.CatHybrid {
 		c.buffs, c.debuffs, c.resist = true, true, true
-	}
-	if class == eqclass.ClassMonk || class == eqclass.ClassNecromancer {
-		c.feign = true
-	}
-	switch class {
-	case eqclass.ClassEnchanter:
-		c.mez, c.charm, c.pacify = true, true, true
-	case eqclass.ClassNecromancer:
-		c.mez, c.charm, c.pacify = true, true, true // undead mez/charm + pacify
-	case eqclass.ClassBard:
-		c.mez, c.charm = true, true
-	case eqclass.ClassDruid:
-		c.charm, c.pacify = true, true // charm animals + calm/harmony
-	case eqclass.ClassCleric:
-		c.pacify = true
-	case eqclass.ClassRanger:
-		c.pacify = true // harmony
 	}
 	return c
 }
