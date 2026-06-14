@@ -2,6 +2,42 @@ package eqclass
 
 import "testing"
 
+func TestIsKnown(t *testing.T) {
+	for _, c := range classList {
+		if !IsKnown(c) {
+			t.Errorf("IsKnown(%q) = false, want true", c)
+		}
+	}
+	if IsKnown(ClassUnknown) {
+		t.Error("ClassUnknown should not be a known class")
+	}
+	if IsKnown("Bard the Bold") {
+		t.Error("a bogus class string should not be known")
+	}
+}
+
+// TestCategoryOfPerClass pins each class's panel category directly (the category
+// map was folded into the profile, so a mis-set Category in the table should be
+// caught here, not only indirectly via the tui tests).
+func TestCategoryOfPerClass(t *testing.T) {
+	want := map[Class]Category{
+		ClassWarrior: CatMelee, ClassMonk: CatMelee, ClassRogue: CatMelee,
+		ClassPaladin: CatHybrid, ClassShadowKnight: CatHybrid, ClassRanger: CatHybrid,
+		ClassBard: CatHybrid, ClassBeastlord: CatHybrid,
+		ClassCleric: CatCaster, ClassDruid: CatCaster, ClassShaman: CatCaster,
+		ClassNecromancer: CatCaster, ClassWizard: CatCaster, ClassMagician: CatCaster,
+		ClassEnchanter: CatCaster,
+	}
+	for _, c := range classList {
+		if got := CategoryOf(c); got != want[c] {
+			t.Errorf("CategoryOf(%q) = %d, want %d", c, got, want[c])
+		}
+	}
+	if CategoryOf(ClassUnknown) != CatCaster {
+		t.Error("ClassUnknown should default to CatCaster")
+	}
+}
+
 func TestProfileCompleteness(t *testing.T) {
 	for _, c := range classList {
 		if _, ok := profiles[c]; !ok {

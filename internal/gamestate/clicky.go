@@ -65,6 +65,9 @@ var clickyRegistry = map[eqclass.Class][]Clicky{
 
 // RegisterClicky adds (or appends) a clicky for a class at runtime — handy for
 // tests and for wiring a user config later without editing the literal above.
+// It mutates the package-level registry without synchronization, so call it
+// only during startup (before the parser goroutine begins Observe-ing); a call
+// after that races the matcher reads.
 func RegisterClicky(class eqclass.Class, c Clicky) {
 	clickyRegistry[class] = append(clickyRegistry[class], c)
 }

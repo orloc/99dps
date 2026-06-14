@@ -60,7 +60,7 @@ var profiles = map[Class]Profile{
 
 // classList is every real (non-unknown) class, in a stable order. It's the
 // companion to the profiles map (TestProfileCompleteness keeps them in lockstep)
-// and the source for Classes/IsKnown.
+// and the source for IsKnown.
 var classList = []Class{
 	ClassWarrior, ClassMonk, ClassRogue,
 	ClassPaladin, ClassShadowKnight, ClassRanger, ClassBard, ClassBeastlord,
@@ -68,19 +68,20 @@ var classList = []Class{
 	ClassWizard, ClassMagician, ClassEnchanter,
 }
 
-// Classes returns every real class (excluding ClassUnknown), in a stable order.
-func Classes() []Class { return slices.Clone(classList) }
-
 // IsKnown reports whether c is a real class (not ClassUnknown or an unmapped
 // value) — used to validate class references in other layers' tables.
 func IsKnown(c Class) bool { return slices.Contains(classList, c) }
 
-// ProfileOf returns a class's descriptor (the zero Profile for an unknown class).
+// ProfileOf returns a class's descriptor (the zero Profile for an unknown
+// class). The result is READ-ONLY: its Skills map and RecastWatch slice alias
+// the canonical table, so callers must not mutate them.
 func ProfileOf(c Class) Profile { return profiles[c] }
 
 // restrictedSkills marks generic skill buckets that are meaningful for only one
 // class — the monk hand-strike bucket logs as "Strike"; for anyone else it's
 // noise. A bucket not listed here is universal melee, shown for every class.
+// (This is keyed by bucket, not class, so it stays out of Profile.Skills — the
+// owning class also lists the bucket in its Skills table, see ClassMonk above.)
 var restrictedSkills = map[string]Class{"Strike": ClassMonk}
 
 // SkillName resolves a generic combat bucket to its level-appropriate display
