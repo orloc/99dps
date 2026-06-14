@@ -1005,12 +1005,20 @@ func (m Model) footer(th theme, w int) string {
 	return th.fg(th.dim).Render(truncate(keys, w))
 }
 
-// damageContent is the scrollable damage breakdown for the selected fight: an
+// damageContent forwards to damageMeter using this Model's theme/tracker/character
+// and the Meter tab's compact preference. The Sessions tab calls damageMeter
+// directly with compact=false, so its breakdown is always full regardless of the
+// Meter's layout setting.
+func (m Model) damageContent(cur *session.CombatSession, live bool, width int) string {
+	return damageMeter(themes[m.theme], m.tracker, m.character, cur, live, m.layoutPrefs.Damage == panelCompact, width)
+}
+
+// damageMeter is the scrollable damage breakdown for the selected fight: an
 // encounter summary, a ranked per-dealer table (share bar + DPS/Total/% and
 // width-gated Hit%/Crit%), the unattributed spell line, then the Specials and
-// Avoidance sub-tables — matching the old Damage panel.
-func (m Model) damageContent(cur *session.CombatSession, live bool, width int) string {
-	th := themes[m.theme]
+// Avoidance sub-tables — matching the old Damage panel. Pure (no Model state), so
+// it's unit-testable directly; compact slims the columns to name + bar + Total + DPS.
+func damageMeter(th theme, tracker *gamestate.Tracker, character string, cur *session.CombatSession, live, compact bool, width int) string {
 	if cur == nil {
 		return th.fg(th.dim).Render("No fight selected.\nFight something!")
 	}
@@ -1041,7 +1049,7 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	showPct := width >= 34
 	showHit := width >= 60
 	showCrit := width >= 70
-	if m.layoutPrefs.Damage == panelCompact {
+	if compact {
 		showPct, showHit, showCrit = false, false, false // slim: name + bar + Total + DPS
 	}
 
@@ -1122,9 +1130,9 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	// them, their pet links under them, and (a damage-shield-only or pet-only
 	// caster) still shows up. Owning a fighting pet alone also puts them on the board.
 	playerOwnsPet := false
-	if m.tracker != nil {
+	if tracker != nil {
 		for _, d := range stats {
-			if o := m.tracker.PetOwner(d.Dealer); o != "" && strings.EqualFold(o, m.character) {
+			if o := tracker.PetOwner(d.Dealer); o != "" && strings.EqualFold(o, character) {
 				playerOwnsPet = true
 				break
 			}
@@ -1144,11 +1152,11 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 	}
 
 	ownerRow := func(dealer string) string { // the dealer a pet nests under, or ""
-		o := m.tracker.PetOwner(dealer)
+		o := tracker.PetOwner(dealer)
 		if o == "" {
 			return ""
 		}
-		if strings.EqualFold(o, m.character) {
+		if strings.EqualFold(o, character) {
 			return "You"
 		}
 		return o
@@ -1215,8 +1223,8 @@ func (m Model) damageContent(cur *session.CombatSession, live bool, width int) s
 			nameStyle = nameStyle.Bold(true).Foreground(lipgloss.Color(th.accent))
 		}
 		name := d.Dealer
-		if o := m.tracker.PetOwner(d.Dealer); o != "" { // orphan pet — credit its owner
-			if strings.EqualFold(o, m.character) {
+		if o := tracker.PetOwner(d.Dealer); o != "" { // orphan pet — credit its owner
+			if strings.EqualFold(o, character) {
 				name = "your pet"
 			} else {
 				name = o + "'s pet"

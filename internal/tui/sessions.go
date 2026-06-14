@@ -108,7 +108,9 @@ func (m *Model) refreshSessions() {
 		cur = m.sessions[sel]
 	}
 	live := cur != nil && cur.EndTime().IsZero()
-	m.vpSessBreak.SetContent(m.damageContent(cur, live, m.vpSessBreak.Width))
+	// the Sessions tab breakdown is always full — its dedicated panel has the room,
+	// independent of the Meter tab's compact preference.
+	m.vpSessBreak.SetContent(damageMeter(th, m.tracker, m.character, cur, live, false, m.vpSessBreak.Width))
 
 	m.announceCues()
 	m.ensureSessRowVisible(sel)
