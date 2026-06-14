@@ -45,6 +45,26 @@ func TestMendCooldown(t *testing.T) {
 	}
 }
 
+// TestCooldownCatalog is the pluggable-cue contract: every registry ability plus
+// the macro-driven Feign Death is enumerable (with its reuse) before any timer
+// fires, so the settings UI can list per-skill cues.
+func TestCooldownCatalog(t *testing.T) {
+	cat := CooldownCatalog()
+	want := map[string]int64{"Mend": 360, "Kick": monkSpecialReuseSec, "Feign Death": feignReuseSec}
+	got := map[string]int64{}
+	for _, c := range cat {
+		got[c.Name] = c.ReuseSec
+		if c.Class != eqclass.ClassMonk {
+			t.Errorf("%s: class = %v, want Monk (all current abilities are Monk)", c.Name, c.Class)
+		}
+	}
+	for name, reuse := range want {
+		if got[name] != reuse {
+			t.Errorf("catalog[%q] reuse = %d, want %d (have %v)", name, got[name], reuse, got)
+		}
+	}
+}
+
 // TestMendMatcherRejectsSpoof guards the anchored matcher: another player can
 // quote "mend your wounds" in a tell/say, which logs verbatim in our file. That
 // must not start the Mend cooldown or mis-infer us as a Monk — only a first-

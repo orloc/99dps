@@ -66,6 +66,29 @@ var cooldownRegistry = []Cooldown{
 	},
 }
 
+// CooldownInfo is one statically-registered ability's identity, independent of
+// any live timer — so the UI can list every cue-able skill (for per-skill audio
+// settings) before it has ever fired. The set is the cooldownRegistry plus the
+// macro-driven Feign Death.
+type CooldownInfo struct {
+	Name     string
+	Class    eqclass.Class
+	ReuseSec int64
+}
+
+// CooldownCatalog returns every ability the tracker can put on cooldown, in a
+// stable order (registry order, then Feign Death). This is the single extension
+// point for per-skill cue settings: adding an entry to cooldownRegistry makes it
+// appear in the settings UI automatically — no UI change needed.
+func CooldownCatalog() []CooldownInfo {
+	out := make([]CooldownInfo, 0, len(cooldownRegistry)+1)
+	for _, cd := range cooldownRegistry {
+		out = append(out, CooldownInfo{Name: cd.Name, Class: cd.Class, ReuseSec: cd.ReuseSec})
+	}
+	out = append(out, CooldownInfo{Name: "Feign Death", Class: eqclass.ClassMonk, ReuseSec: feignReuseSec})
+	return out
+}
+
 // CooldownTimer is one ability's live reuse state for the panel.
 type CooldownTimer struct {
 	Name      string
