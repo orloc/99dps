@@ -25,11 +25,65 @@ func (m Model) classBoxTitle() string {
 	return "Class"
 }
 
-// classBoxView renders the small class box body. Placeholder for now — this is a
-// home for class-specific UI timers/widgets, filled in next.
+// classBoxView renders the small class box body. Prototype: a rune-health
+// estimate. EQ never reports absorbed amounts, so we estimate from the blows the
+// runes have soaked × the mobs' average melee hit (mobstats), draining the active
+// shields in their stacking order. Everything's a guess, so it reads with a "~".
 func (m Model) classBoxView(w int) string {
 	th := themes[m.theme]
-	return th.fg(th.dim).Render(truncate("class timers — soon", max(w-4, 1)))
+	iw := max(w-4, 1)
+	now := time.Now().Unix()
+
+	shields, blows := m.tracker.RuneShields(now)
+	if len(shields) == 0 {
+		return th.fg(th.dim).Render(truncate("no rune up", iw))
+	}
+
+	avg, haveAvg := 0, false
+	if m.sm != nil {
+		avg, haveAvg = m.sm.MobStats().Overall() // mob's typical melee hit
+	}
+	rem := runeRemaining(shields, blows, avg)
+
+	var lines []string
+	for i, s := range shields {
+		var detail string
+		if !haveAvg || avg <= 0 {
+			detail = th.fg(th.dim).Render(fmt.Sprintf("%d soaked", blows)) // no hit data → raw count
+		} else {
+			col := urgencyColor(th, int64(rem[i]), int64(s.Pool))
+			detail = th.fg(col).Render(fmt.Sprintf("~%d (%dh)", rem[i], rem[i]/avg))
+		}
+		lines = append(lines, truncate(th.fg(th.text).Render(runeShort(s.Name)+" ")+detail, iw))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// runeRemaining estimates each shield's leftover absorb, draining them in order:
+// total damage soaked (blows × average hit) eats the first shield, then overflows
+// into the next.
+func runeRemaining(shields []gamestate.RuneShield, blows, avgHit int) []int {
+	absorbed := blows * avgHit
+	out := make([]int, len(shields))
+	for i, s := range shields {
+		r := s.Pool - absorbed
+		if r < 0 {
+			r = 0
+		}
+		out[i] = r
+		if absorbed -= s.Pool; absorbed < 0 {
+			absorbed = 0
+		}
+	}
+	return out
+}
+
+// runeShort compacts a rune name for the narrow box ("Rune V" → "RV").
+func runeShort(name string) string {
+	if s, ok := strings.CutPrefix(name, "Rune "); ok {
+		return "R" + s
+	}
+	return name
 }
 
 // classPanelTitle labels the class-aware bottom panel by the player's category.

@@ -78,6 +78,10 @@ type Tracker struct {
 	// debuff timers (a real slain line or an inferred xp-only kill). The UI diffs it
 	// to flush stale queued audio cues about the now-dead mob.
 	slainClears int
+
+	// runeAbsorbs counts melee blows the player's runes have soaked since they were
+	// last (re)cast — drives the rune-health estimate (see rune.go).
+	runeAbsorbs int
 }
 
 // resistGraceSec is how long a resist notice stays shown after it lands.
@@ -319,6 +323,9 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.observePetLocked(body)
 	t.expireByMessageLocked(body, at)
 	t.expireOnSlainLocked(body)
+	if strings.Contains(body, runeAbsorbEmote) { // a rune soaked a melee blow
+		t.runeAbsorbs++
+	}
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked
@@ -414,6 +421,9 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 		Mez:         t.pending.Mez,
 		Pacify:      t.pending.Pacify,
 	}, at)
+	if isRune(t.pending.Name) {
+		t.runeAbsorbs = 0 // a fresh rune resets the absorb estimate
+	}
 	// pending is left set on purpose: an AoE lands on several mobs, each with its
 	// own emote line, so we keep matching until the cast window (landWindowSec)
 	// expires the pending cast or a new cast supersedes it. (Same-named mobs in
@@ -669,6 +679,7 @@ func (t *Tracker) Clear() {
 	t.class = eqclass.ClassUnknown
 	t.petName = ""
 	t.petOwners = nil
+	t.runeAbsorbs = 0
 	t.mu.Unlock()
 }
 
