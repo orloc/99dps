@@ -59,6 +59,9 @@ const LOG_SUBJECT_INDEX_START = 27
 func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver) {
 	p := DmgParser{character: character, tracker: tracker}
 	for line := range t.Lines {
+		if line.Err != nil {
+			continue // a tail read/watch error yields empty Text — skip it
+		}
 		// EQ writes CRLF; strip the trailing \r so exact/suffix matches (spell
 		// landing emotes, wear-offs) aren't thrown off by it.
 		text := strings.TrimRight(line.Text, "\r\n")

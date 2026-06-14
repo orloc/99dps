@@ -314,33 +314,22 @@ func TestParseDamage_BasicYou(t *testing.T) {
 	}
 }
 
-// Bug #2: getTarget normalizes `s` to "YOU" / "non-melee" but then emits the
-// un-normalized `replaced` instead. With vanilla EQ inputs the trim happens to
-// produce the same string, hiding the bug. Construct a target that contains
-// "YOU" as a substring so the two diverge: the normalization branch (intent)
-// would produce "YOU"; the actual code emits the raw target.
-func TestParseDamage_TargetNormalizationIsDeadCode(t *testing.T) {
+// A damage target containing the "YOU" token normalizes to the player ("YOU")
+// so the player's own incoming-hit lines attribute correctly. (The check is a
+// substring match, so a mob name literally containing "YOU" would also collapse
+// — harmless in practice; no P99 mob name does.)
+func TestParseDamage_TargetNormalizationToYou(t *testing.T) {
 	_, target, _ := parseLine(t, "Foo slashes the GREAT YOU MONSTER for 99 points of damage.")
-
-	// The normalization branch in getTarget says: if the trimmed target
-	// contains "YOU", set s = "YOU". The emitted value should therefore be
-	// "YOU". Today it is the un-normalized "the GREAT YOU MONSTER".
 	if target != "YOU" {
-		t.Errorf("target = %q, want %q (normalization branch is unreachable — getTarget emits `replaced`, not `s`)", target, "YOU")
+		t.Errorf("target = %q, want %q (a target containing YOU normalizes to the player)", target, "YOU")
 	}
 }
 
-// Companion check: the substring-contains check for "non-melee" is also dead.
-// We feed a line where the target contains "non-melee" so the intent ("emit
-// non-melee") diverges from the current behavior (emit the raw string).
-func TestParseDamage_NonMeleeNormalizationIsDeadCode(t *testing.T) {
+// Likewise, a target containing "non-melee" normalizes to the "non-melee"
+// sentinel — a guard for a non-melee line that slips into the melee parser.
+func TestParseDamage_NonMeleeNormalization(t *testing.T) {
 	_, target, _ := parseLine(t, "Foo crushes a non-melee aura for 12 points of damage.")
-
 	if target != "non-melee" {
-		// Today this emits "a non-melee aura".
-		if !strings.Contains(target, "non-melee") {
-			t.Fatalf("sanity: target %q lost the non-melee substring", target)
-		}
-		t.Errorf("target = %q, want %q (non-melee normalization branch is unreachable)", target, "non-melee")
+		t.Errorf("target = %q, want %q", target, "non-melee")
 	}
 }
