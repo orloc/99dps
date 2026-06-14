@@ -251,8 +251,8 @@ func TestZoneKillsPerHour_RollingWindow(t *testing.T) {
 	base := int64(1_700_000_000) // realistic Unix time (literal 0 collides with the no-kill sentinel)
 	for i := 0; i < 30; i++ {    // 30 kills over the first 10 minutes (every 20s)
 		at := base + int64(i)*20
-		z.observeLocked("You have slain a rat!", at, "") // your kill arms the credit
-		z.observeLocked("You gain experience!!", at, "") // ...so the solo xp counts
+		z.observeLocked("You have slain a rat!", at, "", "") // your kill arms the credit
+		z.observeLocked("You gain experience!!", at, "", "") // ...so the solo xp counts
 	}
 
 	// at the 10-minute mark: 30 kills / (1/6 hr) = 180/hr

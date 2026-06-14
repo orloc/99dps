@@ -80,7 +80,11 @@ func (z *zoneTracker) clear() {
 // respawn list. petName is the player's own pet (or "" if unknown), so a kill its
 // pet lands is credited to the player rather than read as a stranger's. Caller
 // holds the lock.
-func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
+// observeLocked folds one log line into the zone state. inferredVictim is the
+// single mob we're currently debuffing (or ""), used to attribute an xp-only kill
+// (no slain line) to it; the function returns that victim when it inferred such a
+// kill, so the caller can clear the mob's timers. All other lines return "".
+func (z *zoneTracker) observeLocked(body string, at int64, petName, inferredVictim string) string {
 	if zn, ok := strings.CutPrefix(body, "You have entered "); ok {
 		zn = strings.TrimSuffix(zn, ".")
 		if zn != z.name {
@@ -90,7 +94,7 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 			z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
 			z.lastOwnKillAt = 0
 		}
-		return
+		return ""
 	}
 
 	// xp-credited kills drive the zone kills/hr. A solo "You gain experience" only
@@ -102,8 +106,17 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 	party := strings.HasPrefix(body, "You gain party experience")
 	solo := strings.HasPrefix(body, "You gain experience")
 	if party || solo {
+		inferred := ""
 		if solo && !party && (z.lastOwnKillAt == 0 || at-z.lastOwnKillAt > killXPWindowSec) {
-			return // no recent own kill → not a kill (quest turn-in / other xp)
+			// solo xp with no own/pet slain line just before it. If we were debuffing
+			// a single mob, that mob died (a DoT or charmed-pet kill EQ logged only as
+			// xp) — record its repop and report it so its timers clear. With no such
+			// mob it's non-kill xp (a quest turn-in) — skip it as before.
+			if inferredVictim == "" {
+				return ""
+			}
+			z.recordKillLocked(inferredVictim, at, true, "You")
+			inferred = inferredVictim
 		}
 		z.xpKills++
 		if z.firstKillAt == 0 {
@@ -119,17 +132,17 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 		}
 		z.xpKillTimes = z.xpKillTimes[drop:]
 		z.creditGroupKillLocked(at) // the mob we just got xp for is a group kill
-		return
+		return inferred
 	}
 	if strings.HasPrefix(body, "You have been slain by") {
 		z.deaths++
-		return
+		return ""
 	}
 
 	// the player's own killing blow
 	if mob, ok := strings.CutPrefix(body, "You have slain "); ok {
 		z.recordKillLocked(strings.TrimSuffix(mob, "!"), at, true, "You")
-		return
+		return ""
 	}
 
 	// anyone's kill: "<victim> has been slain by <killer>!" — covers group kills
@@ -145,13 +158,14 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName string) {
 		// as a player death and drop, costing the kill its repop timer.
 		if petName != "" && strings.EqualFold(killer, petName) {
 			z.recordKillLocked(victim, at, true, "You")
-			return
+			return ""
 		}
 		if killerIsMob(killer) {
-			return // a player died to a mob — not a kill we track
+			return "" // a player died to a mob — not a kill we track
 		}
 		z.recordKillLocked(victim, at, false, killer)
 	}
+	return ""
 }
 
 // recordKillLocked records a mob death. A per-(zone, mob) override wins over the

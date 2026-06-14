@@ -73,6 +73,11 @@ type Tracker struct {
 	character string
 	petName   string
 	petOwners map[string]string
+
+	// slainClears counts how many times a mob death cleared one or more of its
+	// debuff timers (a real slain line or an inferred xp-only kill). The UI diffs it
+	// to flush stale queued audio cues about the now-dead mob.
+	slainClears int
 }
 
 // resistGraceSec is how long a resist notice stays shown after it lands.
@@ -309,7 +314,12 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.expireByMessageLocked(body, at)
 	t.expireOnSlainLocked(body)
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
-	t.zone.observeLocked(body, at, t.petName)
+	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
+	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked
+	// returns the inferred victim (or "") so we can drop its timers here.
+	if v := t.zone.observeLocked(body, at, t.petName, t.soleDebuffedMobLocked()); v != "" {
+		t.clearMobTimersLocked(v)
+	}
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()
 	}
@@ -561,26 +571,59 @@ func (t *Tracker) expireOnSlainLocked(body string) {
 	default:
 		return
 	}
-	// one death clears one mob's worth of debuffs. With several same-named mobs
-	// each holding a copy of a spell, drop the soonest instance of each spell on
-	// the victim — not every copy — so the surviving same-named mobs keep theirs.
-	// (For "You", each buff is unique, so this clears all your buffs as before.)
-	soonestKey := map[string]string{}
-	soonestExp := map[string]int64{}
+	// a mob's death ends ALL debuffs on it. The death line names only the mob, not
+	// which same-named instance, and a single-target caster (necro DoTs, a charmed
+	// pet) can stack several instances on one mob — all of which die with it. (For
+	// "You", this clears all your buffs on death, as before.) Contrast the fade path
+	// (expireByMessageLocked), where one *named debuff* wearing off clears one
+	// instance.
+	t.clearMobTimersLocked(victim)
+}
+
+// clearMobTimersLocked drops every timer on a mob (case-insensitive: landing
+// emotes capitalize the leading name, death/xp lines don't) and counts the clear
+// so the UI can flush stale audio. Caller holds the lock.
+func (t *Tracker) clearMobTimersLocked(victim string) {
+	n := 0
 	for k, tm := range t.timers {
-		// case-insensitive: EQ capitalizes the leading name in landing emotes
-		// (timer target) but not in death lines (victim).
-		if !strings.EqualFold(tm.Target, victim) {
+		if strings.EqualFold(tm.Target, victim) {
+			delete(t.timers, k)
+			n++
+		}
+	}
+	if n > 0 {
+		t.slainClears++
+	}
+}
+
+// soleDebuffedMobLocked returns the name of the single mob we're debuffing, or ""
+// when there are zero or several distinct debuffed mobs (ambiguous — don't guess).
+// Used to infer which mob died when a kill logs only "You gain experience" with no
+// slain line (a DoT or charmed-pet kill). Incoming "ON YOU" debuffs are excluded.
+func (t *Tracker) soleDebuffedMobLocked() string {
+	name := ""
+	for _, tm := range t.timers {
+		if !tm.Detrimental || tm.Estimated || strings.EqualFold(tm.Target, "You") {
 			continue
 		}
-		if _, seen := soonestKey[tm.Spell]; !seen || tm.Expiry < soonestExp[tm.Spell] {
-			soonestKey[tm.Spell] = k
-			soonestExp[tm.Spell] = tm.Expiry
+		if name == "" {
+			name = tm.Target
+		} else if !strings.EqualFold(name, tm.Target) {
+			return "" // more than one distinct debuffed mob
 		}
 	}
-	for _, k := range soonestKey {
-		delete(t.timers, k)
+	return name
+}
+
+// SlainClearCount reports how many mob deaths have cleared debuff timers. The UI
+// diffs it across ticks to flush stale queued audio when a mob dies.
+func (t *Tracker) SlainClearCount() int {
+	if t == nil {
+		return 0
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.slainClears
 }
 
 // Active returns the timers still running at now (unix seconds), soonest-to-

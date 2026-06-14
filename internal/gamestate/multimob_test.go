@@ -80,16 +80,18 @@ func TestTimer_FadeClearsOneInstance(t *testing.T) {
 	}
 }
 
-// TestTimer_SlainClearsOneInstance: killing one of two same-named mobs drops one
-// debuff timer, not every same-named copy.
-func TestTimer_SlainClearsOneInstance(t *testing.T) {
+// TestTimer_SlainClearsAllOnMob: a mob's death ends ALL debuffs on it. The death
+// line names only the mob (not which same-named instance), and a single-target
+// caster stacks several instances on one mob — all die with it. (A *fade* line,
+// by contrast, clears just one instance: see TestTimer_FadeClearsOneInstance.)
+func TestTimer_SlainClearsAllOnMob(t *testing.T) {
 	tr := NewTracker(loadBook(t, malo()))
 	tr.SetLevel(60)
 	castMalo(tr, 1000)
-	castMalo(tr, 1001)
+	castMalo(tr, 1001) // two instances on "a sand giant"
 	tr.Observe("You have slain a sand giant!", 1003)
-	if act := tr.Active(1004); len(act) != 1 {
-		t.Fatalf("slaying one same-named mob should clear one instance, got %d", len(act))
+	if act := tr.Active(1004); len(act) != 0 {
+		t.Fatalf("slaying the mob should clear all its debuffs, got %d", len(act))
 	}
 }
 
