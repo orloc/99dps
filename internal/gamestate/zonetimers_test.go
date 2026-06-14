@@ -13,7 +13,7 @@ func TestZoneRespawn(t *testing.T) {
 		{"The Feerrott", 400, true},    // leading "the" stripped
 		{"the feerrott.", 400, true},   // case + trailing period normalized
 		{"Plane of Fear", 28800, true}, // 8 hours
-		{"Sleeper's Tomb", 28800, true},
+		{"Sleepers Tomb", 28800, true}, // no apostrophe — the real zone-in string
 		{"Nonexistent Zone", 0, false},
 	}
 	for _, c := range cases {

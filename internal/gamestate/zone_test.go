@@ -139,11 +139,27 @@ func TestZoneRespawnDisplayNames(t *testing.T) {
 		"Southern Plains of Karana",
 		"Eastern Plains of Karana",
 		"Western Plains of Karana",
-		"Nagafen's Lair",    // already correct — guard against regression
-		"Plane of Mischief", // already correct
-		"Howling Stones",    // already correct
-		"The Overthere",     // leading "the " is stripped by normalizeZone
-		"Chardok",           // Iznoa's zone — resolves fine (the turn-in fix is separate)
+		// the following are the exact "You have entered" strings from real logs,
+		// each of which the old wiki-transcribed key did NOT match:
+		"Kithicor Woods",             // was "kithicor forest"
+		"Lost Temple of Cazic-Thule", // was "cazic thule"
+		"Eastern Wastelands",         // was "eastern wastes"
+		"Sirens Grotto",              // was "siren's grotto"
+		"Sleepers Tomb",              // was "sleeper's tomb"
+		"Neriak Commons",             // "neriak" was a dead bare key
+		"Neriak Foreign Quarter",
+		"Neriak Third Gate",
+		"North Kaladim", // "kaladim" was a dead bare key
+		"South Kaladim",
+		"Cabilis East", // "cabilis" was a dead bare key
+		"Cabilis West",
+		"Dagnor's Cauldron",  // was missing
+		"The Emerald Jungle", // was missing
+		"Nagafen's Lair",     // already correct — guard against regression
+		"Plane of Mischief",  // already correct
+		"Howling Stones",     // already correct
+		"The Overthere",      // leading "the " is stripped by normalizeZone
+		"Chardok",            // Iznoa's zone — resolves fine (the turn-in fix is separate)
 	}
 	for _, zn := range displayNames {
 		if sec, ok := ZoneRespawn(zn); !ok || sec <= 0 {

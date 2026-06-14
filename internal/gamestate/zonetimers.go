@@ -10,34 +10,36 @@ import "strings"
 // to match a "You have entered X" zone-in line via normalizeZone.
 var zoneRespawnSec = map[string]int{
 	// Antonica — outdoors
-	"beholder's maze": 360, "east commonlands": 400, "eastern plains of karana": 400,
+	"gorge of king xorbb": 360, "east commonlands": 400, "eastern plains of karana": 400,
 	"erud's crossing": 400, "everfrost": 400, "highpass hold": 300,
-	"innothule swamp": 400, "kithicor forest": 400, "lake rathetear": 400,
+	"innothule swamp": 400, "kithicor woods": 400, "lake rathetear": 400,
 	"lavastorm mountains": 400, "misty thicket": 400, "nektulos forest": 400,
 	"northern desert of ro": 400, "northern plains of karana": 400, "oasis of marr": 990,
 	"ocean of tears": 360, "qeynos hills": 400, "rathe mountains": 400,
 	"southern desert of ro": 400, "southern plains of karana": 360, "feerrott": 400,
 	"west commonlands": 400, "western plains of karana": 400,
 
-	// Antonica — cities (Freeport zones in as East/West/North, never bare "Freeport")
-	"grobb": 1440, "halas": 1440, "neriak": 1440,
+	// Antonica — cities (Freeport/Neriak zone in by sub-zone, never the bare name)
+	"grobb": 1440, "halas": 1440,
+	"neriak commons": 1440, "neriak foreign quarter": 1440, "neriak third gate": 1440,
 	"east freeport": 1440, "west freeport": 1440, "north freeport": 1440,
 	"qeynos": 400, "oggok": 1440, "rivervale": 1320, "surefall glade": 400,
 
 	// Antonica — dungeons
-	"befallen": 1140, "blackburrow": 1320, "cazic thule": 1320,
+	"befallen": 1140, "blackburrow": 1320, "lost temple of cazic-thule": 1320,
 	"clan runnyeye": 1320, "high keep": 600, "lower guk": 1680,
 	"nagafen's lair": 1320, "najena": 1110, "permafrost caverns": 1320,
 	"qeynos catacombs": 1440, "solusek's eye": 1080, "splitpaw lair": 1320,
 	"temple of solusek ro": 300, "upper guk": 990,
 
 	// Odus
-	"erudin": 400, "erudin palace": 1500, "paineel": 630, "kerra island": 1065,
+	"erudin": 400, "erudin palace": 1500, "paineel": 630, "kerra isle": 1065,
 	"toxxulia forest": 400, "hole": 1290, "stonebrunt mountains": 670,
 	"warrens": 400,
 
-	// Faydwer
-	"ak'anon": 400, "felwithe": 1440, "kaladim": 400,
+	// Faydwer (Kaladim zones in as North/South)
+	"ak'anon": 400, "dagnor's cauldron": 400, "felwithe": 1440,
+	"north kaladim": 400, "south kaladim": 400,
 	"butcherblock mountains": 600, "greater faydark": 425, "lesser faydark": 390,
 	"steamfont mountains": 400, "crushbone": 540, "kedge keep": 1320,
 	"mistmoore castle": 1320, "estate of unrest": 1320,
@@ -47,7 +49,7 @@ var zoneRespawnSec = map[string]int{
 	"firiona vie": 400, "frontier mountains": 400, "lake of ill omen": 400,
 	"overthere": 400, "skyfire mountains": 780, "swamp of no hope": 400,
 	"timorous deep": 720, "trakanon's teeth": 400, "warsliks woods": 400,
-	"cabilis": 400,
+	"cabilis east": 400, "cabilis west": 400, "emerald jungle": 400,
 
 	// Kunark — dungeons
 	"chardok": 1080, "city of mist": 1320, "dalnir": 720, "howling stones": 1230,
@@ -55,7 +57,7 @@ var zoneRespawnSec = map[string]int{
 	"mines of nurga": 1230, "old sebilis": 1620, "temple of droga": 1230,
 
 	// Velious — outdoors
-	"cobalt scar": 1200, "eastern wastes": 400, "western wastes": 400,
+	"cobalt scar": 1200, "eastern wastelands": 400, "western wastes": 400,
 	"great divide": 640, "iceclad ocean": 400, "wakening lands": 400,
 
 	// Velious — cities
@@ -63,8 +65,8 @@ var zoneRespawnSec = map[string]int{
 	"thurgadin": 420,
 
 	// Velious — dungeons
-	"crystal caverns": 885, "dragon necropolis": 1620, "siren's grotto": 1680,
-	"sleeper's tomb": 28800, "temple of veeshan": 4320,
+	"crystal caverns": 885, "dragon necropolis": 1620, "sirens grotto": 1680,
+	"sleepers tomb": 28800, "temple of veeshan": 4320,
 	"tower of frozen shadow": 1200, "velketor's labyrinth": 1970,
 
 	// Planes
