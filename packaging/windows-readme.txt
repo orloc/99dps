@@ -51,7 +51,10 @@ Tips
   Windows Terminal:  Settings -> your profile -> Appearance ->
   Font face -> Iosevka Term. Any monospace font works; this one just
   fits more on screen while staying readable.
-- Press the 'a' key to toggle spoken audio cues for low buffs.
+- Press the 'a' key to toggle spoken audio cues on/off. For more
+  control, open the Settings tab (click it at the top, or press 3):
+  pick a voice and choose exactly which cues you want to hear. Your
+  choices are remembered per character.
 - To quit: press Ctrl+C, or just close the window.
 
 Have fun!
