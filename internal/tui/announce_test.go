@@ -9,48 +9,35 @@ import (
 	"99dps/internal/tts"
 )
 
-func TestWarnLeadSec(t *testing.T) {
-	cases := []struct {
-		total, want int64
-	}{
-		{60, 15},    // 1m buff: 10% = 6s → floored to 15s
-		{300, 30},   // 5m: 30s
-		{900, 90},   // 15m: 90s
-		{6006, 180}, // ~100m (Gift of Brilliance): capped at 180s, not 15s
-		{5946, 180}, // ~99m (Umbra): capped at 180s
-		{10, 15},    // degenerate short: floor
-	}
-	for _, c := range cases {
-		if got := warnLeadSec(c.total); got != c.want {
-			t.Errorf("warnLeadSec(%d) = %d, want %d", c.total, got, c.want)
-		}
-	}
-}
-
-func TestDueAnnouncementsScalesByDuration(t *testing.T) {
-	m := &Model{announced: map[string]bool{}}
+// TestDueAnnouncementsTwoLevels: a buff cues once on entering the gold "low" zone
+// and again on the red "fading" zone (the same TimerUrgency the flash uses), and a
+// refresh re-arms both levels.
+func TestDueAnnouncementsTwoLevels(t *testing.T) {
+	m := &Model{announced: map[string]gamestate.Urgency{}}
 	now := int64(1_000_000)
-
-	// a 100-min buff with 2 minutes (120s) left: that's inside the 180s lead → fires
-	longBuff := gamestate.Timer{Spell: "Gift of Brilliance", Target: "You", Start: now - 5886, Expiry: now + 120}
-	if got := m.dueAnnouncements([]gamestate.Timer{longBuff}, now); len(got) != 1 {
-		t.Fatalf("long buff at 120s left should warn (180s lead), got %v", got)
-	}
-	// fires once only
-	if got := m.dueAnnouncements([]gamestate.Timer{longBuff}, now); len(got) != 0 {
-		t.Errorf("should not re-announce the same timer, got %v", got)
+	// a 100-min buff: low (gold) caps at 300s left, fading (red) at 60s left.
+	buff := func(remaining int64) gamestate.Timer {
+		return gamestate.Timer{Spell: "Clarity", Target: "You", Start: now - (6000 - remaining), Expiry: now + remaining}
 	}
 
-	// a short 60s debuff with 30s left is NOT yet in its 15s lead → silent
-	m2 := &Model{announced: map[string]bool{}}
-	shortDot := gamestate.Timer{Spell: "Snare", Target: "a gnoll", Start: now - 30, Expiry: now + 30}
-	if got := m2.dueAnnouncements([]gamestate.Timer{shortDot}, now); len(got) != 0 {
-		t.Errorf("short debuff at 30s left should stay silent (15s lead), got %v", got)
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(400)}, now); len(got) != 0 {
+		t.Fatalf("fresh buff (400s left) should be silent, got %v", got)
 	}
-	// ...but at 15s left it fires
-	shortDot.Expiry = now + 15
-	if got := m2.dueAnnouncements([]gamestate.Timer{shortDot}, now); len(got) != 1 {
-		t.Errorf("short debuff at 15s left should warn, got %v", got)
+	got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now)
+	if len(got) != 1 || got[0].fading {
+		t.Fatalf("entering the low zone should give one non-fading cue, got %+v", got)
+	}
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now); len(got) != 0 {
+		t.Errorf("still low should not re-announce, got %v", got)
+	}
+	got = m.dueAnnouncements([]gamestate.Timer{buff(50)}, now)
+	if len(got) != 1 || !got[0].fading {
+		t.Fatalf("entering the red zone should give one fading cue, got %+v", got)
+	}
+	// refreshed back to fresh → re-arm; decaying to low warns "low" again
+	m.dueAnnouncements([]gamestate.Timer{buff(400)}, now)
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now); len(got) != 1 || got[0].fading {
+		t.Errorf("a refreshed buff should warn low again, got %+v", got)
 	}
 }
 
@@ -66,9 +53,18 @@ func TestComposeCue(t *testing.T) {
 		{[]gamestate.Timer{{Spell: "Snare", Target: "a gnoll"}}, "Snare on a gnoll is fading."},
 	}
 	for _, c := range cases {
-		if got := composeCue(c.due, 0); got != c.want {
+		if got := composeCue(c.due, true, 0); got != c.want {
 			t.Errorf("composeCue = %q, want %q", got, c.want)
 		}
+	}
+}
+
+// TestComposeCueLow: the gold-zone verbiage reads "running low", distinct from the
+// red-zone "fading".
+func TestComposeCueLow(t *testing.T) {
+	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
+	if got := composeCue(due, false, 0); got != "Clarity is running low." {
+		t.Errorf("low cue = %q, want \"Clarity is running low.\"", got)
 	}
 }
 
@@ -76,7 +72,7 @@ func TestFadeVariety(t *testing.T) {
 	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
 	seen := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
-		seen[composeCue(due, seq)] = true
+		seen[composeCue(due, true, seq)] = true
 	}
 	if len(seen) != 3 {
 		t.Errorf("expected 3 distinct phrasings across seqs, got %v", seen)
@@ -84,7 +80,7 @@ func TestFadeVariety(t *testing.T) {
 	// plural agreement holds in every style
 	two := []gamestate.Timer{{Spell: "Clarity", Target: "You"}, {Spell: "Umbra", Target: "You"}}
 	for seq := 0; seq < 3; seq++ {
-		if got := composeCue(two, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
+		if got := composeCue(two, true, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
 			t.Errorf("seq %d plural phrasing wrong: %q", seq, got)
 		}
 	}
@@ -127,7 +123,7 @@ func TestAnnounceCuesResistIsUrgent(t *testing.T) {
 	now := time.Now().Unix()
 	tr.Observe("Your target resisted the Bedlam spell.", now) // sets the resist signal
 
-	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}}
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}}
 	m.announceCues()
 	if len(fe.urgent) != 1 || !strings.Contains(fe.urgent[0], "Bedlam") {
 		t.Fatalf("resist should use the urgent voice with the spell name, got urgent=%v normal=%v", fe.urgent, fe.normal)
@@ -156,7 +152,7 @@ func TestFeignFailIsUrgent(t *testing.T) {
 	book, _ := gamestate.LoadReader(strings.NewReader(""))
 	tr := gamestate.NewTracker(book)
 	tr.FeignFailed(1000)
-	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
 
 	m.announceCuesAt(1000)
 	if len(fe.urgent) != 1 || !strings.Contains(strings.ToLower(fe.urgent[0]), "feign") {
@@ -173,7 +169,7 @@ func TestLongCooldownReadyCue(t *testing.T) {
 	book, _ := gamestate.LoadReader(strings.NewReader(""))
 	tr := gamestate.NewTracker(book)
 	tr.Observe("You mend your wounds and heal some damage.", 1000) // Mend → 360s cooldown
-	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
 
 	m.announceCuesAt(1000) // just used → records not-ready, no cue
 	if len(fe.normal) != 0 {
@@ -194,7 +190,7 @@ func TestShortCooldownNoCue(t *testing.T) {
 	book, _ := gamestate.LoadReader(strings.NewReader(""))
 	tr := gamestate.NewTracker(book)
 	tr.FeignAttempt(2000) // Feign Death → 11s reuse (short)
-	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]bool{}, cdReady: map[string]bool{}}
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
 
 	m.announceCuesAt(2000)
 	m.announceCuesAt(2000 + 12) // ready, but too short to announce
@@ -204,7 +200,7 @@ func TestShortCooldownNoCue(t *testing.T) {
 }
 
 func TestDueAnnouncementsSkipsEstimated(t *testing.T) {
-	m := &Model{announced: map[string]bool{}}
+	m := &Model{announced: map[string]gamestate.Urgency{}}
 	now := int64(1_000)
 	// an incoming debuff on you, near (estimated) expiry — must NOT announce
 	est := gamestate.Timer{Spell: "Slowed", Target: "You", Start: now - 360, Expiry: now + 5, Estimated: true}

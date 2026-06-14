@@ -14,7 +14,7 @@ import (
 // types still fire from the same tick.
 func TestDueAnnouncementsGatesByType(t *testing.T) {
 	m := &Model{
-		announced: map[string]bool{},
+		announced: map[string]gamestate.Urgency{},
 		cues:      cuePrefs{Overrides: map[string]bool{cueMez: false}}, // mez cues off
 	}
 	now := int64(1000)
@@ -30,7 +30,7 @@ func TestDueAnnouncementsGatesByType(t *testing.T) {
 // TestDebuffCueFiresOncePerMob: a debuff/DoT on a mob warns at most once, even
 // when re-applied (refreshed) — a necro re-dotting shouldn't re-announce.
 func TestDebuffCueFiresOncePerMob(t *testing.T) {
-	m := &Model{announced: map[string]bool{}}
+	m := &Model{announced: map[string]gamestate.Urgency{}}
 	now := int64(1000)
 	dot := func(exp int64) gamestate.Timer {
 		return gamestate.Timer{Spell: "Heat Blood", Target: "a spectre", Start: now - 100, Expiry: exp, Detrimental: true}

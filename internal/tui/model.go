@@ -68,11 +68,12 @@ type Model struct {
 	enemyTargets map[int]string
 	hover        string
 
-	// TTS audio cues for low buffs; announced re-arms per spell\x00target so each
-	// fires once until refreshed/expired.
+	// TTS audio cues for buff/debuff timers. announced records the loudest urgency
+	// already spoken per spell\x00target, so a buff cues once on entering "low"
+	// (gold) and again on "fading" (red), re-arming when refreshed/expired.
 	speaker   tts.Engine
 	ttsOn     bool
-	announced map[string]bool
+	announced map[string]gamestate.Urgency
 
 	// urgent combat-cue dedup (fire once per event, re-arm when it clears) and a
 	// rotating sequence for natural phrasing variety.
@@ -117,7 +118,7 @@ type Model struct {
 func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
-		speaker: tts.New(), announced: map[string]bool{},
+		speaker: tts.New(), announced: map[string]gamestate.Urgency{},
 		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
 	}
 }
@@ -332,7 +333,7 @@ func (m *Model) announceCuesAt(now int64) {
 		m.cdHalf = map[string]bool{}
 	}
 	if m.announced == nil {
-		m.announced = map[string]bool{}
+		m.announced = map[string]gamestate.Urgency{}
 	}
 
 	// a mob died (a slain line or an inferred xp-only kill) → drop any queued fade
@@ -406,9 +407,24 @@ func (m *Model) announceCuesAt(now int64) {
 		m.cdHalf[cd.Name] = half
 	}
 
-	// gentle buff/debuff fades, combined into one varied utterance.
-	if due := m.dueAnnouncements(m.tracker.Active(now), now); len(due) > 0 {
-		m.speaker.Say(composeCue(due, m.cueSeq))
+	// buff/debuff timers crossing into the gold (low) or red (fading) zones — the
+	// SAME classifier as the visual flash, so what you hear matches what you see.
+	// "Low" and "fading" get distinct verbiage; simultaneous subjects in a zone are
+	// combined into one utterance.
+	var low, fading []gamestate.Timer
+	for _, d := range m.dueAnnouncements(m.tracker.Active(now), now) {
+		if d.fading {
+			fading = append(fading, d.Timer)
+		} else {
+			low = append(low, d.Timer)
+		}
+	}
+	if len(low) > 0 {
+		m.speaker.Say(composeCue(low, false, m.cueSeq))
+		m.cueSeq++
+	}
+	if len(fading) > 0 {
+		m.speaker.Say(composeCue(fading, true, m.cueSeq))
 		m.cueSeq++
 	}
 }
@@ -417,18 +433,26 @@ func (m *Model) announceCuesAt(now int64) {
 // excluding short skill reuses like feign (11s) or monk specials (5s).
 const longCooldownSec = 60
 
-// dueAnnouncements returns the low-buff phrases to speak this tick and updates
-// the announced set: each timer fires once when it first drops below its warning
-// lead, re-arming when it's refreshed or gone. Each timer's type (mez / pacify /
-// debuff / buff) is gated on its cue toggle, so a disabled category stays silent
-// (but is still marked announced, so it isn't re-checked every tick). Speaking is
-// left to the caller so this stays testable. Charm is skipped (it breaks before its cap, so a countdown
-// "low" would cry wolf). Estimated incoming debuffs (the "~" ON-YOU timers) are
-// skipped too: their duration is a deliberate over-estimate, so "Slowed low" /
-// "fading" would fire at an untrustworthy moment — and a debuff ending is good
-// news, not something to warn about.
-func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestate.Timer {
-	var due []gamestate.Timer
+// cueDue is a timer that escalated to a louder urgency this tick, tagged with
+// whether it entered the red "fading" zone (vs the gold "low" zone) so the caller
+// can pick the right verbiage.
+type cueDue struct {
+	gamestate.Timer
+	fading bool
+}
+
+// dueAnnouncements returns the timers that just escalated this tick and updates
+// the per-timer announced urgency. It drives off gamestate.TimerUrgency — the SAME
+// classifier as the visual countdown color — so a buff cues once on entering the
+// gold "low" zone and again on the red "fading" zone, matching the flash. A debuff
+// on a mob (DoT) announces only ONCE per mob (its first escalation), so a re-dot
+// doesn't nag. Each timer's type (mez / pacify / debuff / buff) is gated on its cue
+// toggle. Speaking is left to the caller so this stays testable. Charm is skipped
+// (it breaks before its cap, so a countdown would cry wolf); estimated incoming
+// "~" ON-YOU debuffs are skipped too (their duration is a deliberate over-estimate,
+// and a debuff ending on you is good news).
+func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []cueDue {
+	var due []cueDue
 	live := make(map[string]bool, len(active))
 	for _, tm := range active {
 		if tm.Charm || tm.Estimated {
@@ -436,50 +460,35 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestat
 		}
 		k := tm.Spell + "\x00" + tm.Target
 		live[k] = true
-		if tm.Expiry-now <= warnLeadSec(tm.Expiry-tm.Start) {
-			if !m.announced[k] {
-				m.announced[k] = true // mark regardless, so a disabled type isn't re-checked
-				if m.cues.enabled(cueIDForTimer(tm), true) {
-					due = append(due, tm)
-				}
+		u := gamestate.TimerUrgency(tm.Expiry-now, tm.Expiry-tm.Start)
+		prev := m.announced[k]
+		switch {
+		case u > prev:
+			// a debuff on a mob announces only its first escalation (once per mob); a
+			// buff announces each new zone it enters (low, then fading).
+			if !(tm.Detrimental && prev > gamestate.Fresh) && m.cues.enabled(cueIDForTimer(tm), true) {
+				due = append(due, cueDue{Timer: tm, fading: u == gamestate.Expiring})
 			}
-		} else if !tm.Detrimental {
-			// healthy again → re-arm so it can warn on a later low. A debuff on a mob
-			// (DoT) is the exception: it warns at most once per mob, so re-applying it
-			// (a re-dot) doesn't re-announce every cast. It re-arms only when the timer
-			// leaves the active set entirely (the mob dies / the debuff drops), handled
-			// by the live-set sweep below.
-			delete(m.announced, k)
+			m.announced[k] = u
+		case u < prev && !tm.Detrimental:
+			m.announced[k] = u // a buff refreshed back to a calmer zone → re-arm
 		}
 	}
 	for k := range m.announced {
 		if !live[k] {
-			delete(m.announced, k) // timer gone → re-arm for next cast
+			delete(m.announced, k) // timer gone (expired / mob died) → re-arm
 		}
 	}
 	return due
 }
 
-// warnLeadSec is how many seconds before expiry the "low" cue fires, scaled to a
-// timer's total length: ~10% of the duration, clamped to [15s, 180s]. So a short
-// debuff still warns ~15s out, while a ~100-min Enchanter buff warns a full 3 min
-// early — enough time to recast — instead of a useless 15s.
-func warnLeadSec(total int64) int64 {
-	lead := total / 10
-	if lead < 15 {
-		lead = 15
-	}
-	if lead > 180 {
-		lead = 180
-	}
-	return lead
-}
-
-// composeCue turns the timers that just went low into one terse, natural
-// utterance, so simultaneous fades are spoken as a single sentence rather than
-// several cues overlapping. seq rotates the phrasing for variety. Self-buffs read
-// by name; effects on a mob read as "<spell> on <mob>".
-func composeCue(due []gamestate.Timer, seq int) string {
+// composeCue turns the timers that just escalated into one terse, natural
+// utterance, so simultaneous subjects are spoken as a single sentence rather than
+// several cues overlapping. fading picks the verbiage: the gentler "running low"
+// (gold zone) vs the urgent "fading / about to drop" (red zone). seq rotates the
+// phrasing for variety. Self-buffs read by name; effects on a mob read as
+// "<spell> on <mob>".
+func composeCue(due []gamestate.Timer, fading bool, seq int) string {
 	subjects := make([]string, 0, len(due))
 	for _, tm := range due {
 		if tm.Target == "" || tm.Target == "You" {
@@ -491,15 +500,27 @@ func composeCue(due []gamestate.Timer, seq int) string {
 	if len(subjects) == 0 {
 		return ""
 	}
-	style := fadeStyles[seq%len(fadeStyles)]
+	styles := lowStyles
+	if fading {
+		styles = fadeStyles
+	}
+	style := styles[seq%len(styles)]
 	if len(subjects) == 1 {
 		return fmt.Sprintf(style.one, joinList(subjects))
 	}
 	return fmt.Sprintf(style.many, joinList(subjects))
 }
 
-// fadeStyles are the rotating phrasings for a buff/debuff fading (singular vs
-// plural form so verb agreement stays correct however many are listed).
+// lowStyles phrase a timer entering the gold "getting low" zone — a heads-up that
+// it's time to think about recasting, distinct from fadeStyles' "about to drop".
+var lowStyles = []struct{ one, many string }{
+	{"%s is running low.", "%s are running low."},
+	{"%s is getting low.", "%s are getting low."},
+	{"Heads up, %s is running low.", "Heads up, %s are running low."},
+}
+
+// fadeStyles are the rotating phrasings for a timer in the red zone — actually
+// fading now (singular vs plural so verb agreement holds however many are listed).
 var fadeStyles = []struct{ one, many string }{
 	{"%s is fading.", "%s are fading."},
 	{"%s is wearing off.", "%s are wearing off."},
