@@ -24,10 +24,17 @@ type Cooldown struct {
 // Measured from Kelkix's logs: kicks chain no faster than ~5s apart.
 const monkSpecialReuseSec = 5
 
-// cooldownRegistry lists the tracked skill cooldowns. Activation strings are
-// matched leniently to cover the success / partial / fail message variants, since
-// every variant still consumes the reuse timer. Add abilities here as their
-// exact messages are confirmed from real logs.
+// cooldownRegistry lists the tracked skill cooldowns. It is the behavioral
+// half of a class's definition — the log-line matchers that need this layer's
+// types — and so lives here rather than in the declarative eqclass.Profile (see
+// also clickyRegistry). Unlike the clicky table it's a flat slice keyed by a
+// Class field, NOT a map[Class], because matchLocked must try every matcher to
+// INFER the class (seeing "You mend…" reveals Monk before any /who); a map keyed
+// by the not-yet-known class couldn't do that.
+//
+// Activation strings are matched leniently to cover the success / partial / fail
+// message variants, since every variant still consumes the reuse timer. Add
+// abilities here as their exact messages are confirmed from real logs.
 var cooldownRegistry = []Cooldown{
 	{
 		Name:     "Mend",

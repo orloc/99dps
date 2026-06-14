@@ -20,8 +20,11 @@ type Clicky struct {
 }
 
 // clickyRegistry maps each class to the insta-clicky items its players use whose
-// landing isn't otherwise tracked. ADD YOUR ITEMS HERE (or at runtime with
-// RegisterClicky).
+// landing isn't otherwise tracked. It's the behavioral half of a class's
+// definition (the log-line matchers; the declarative facts live in
+// eqclass.Profile) — keyed by class because, unlike cooldownRegistry, a clicky
+// requires an already-known class (it never infers one), so a map[Class] lookup
+// fits. ADD YOUR ITEMS HERE (or at runtime with RegisterClicky).
 //
 // The match is GATED ON THE DETECTED CLASS: only entries under the player's
 // current class are considered, so an ambiguous emote can resolve to a

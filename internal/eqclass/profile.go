@@ -58,6 +58,23 @@ var profiles = map[Class]Profile{
 		RecastWatch: []string{"Dictate", "Rapture"}},
 }
 
+// classList is every real (non-unknown) class, in a stable order. It's the
+// companion to the profiles map (TestProfileCompleteness keeps them in lockstep)
+// and the source for Classes/IsKnown.
+var classList = []Class{
+	ClassWarrior, ClassMonk, ClassRogue,
+	ClassPaladin, ClassShadowKnight, ClassRanger, ClassBard, ClassBeastlord,
+	ClassCleric, ClassDruid, ClassShaman, ClassNecromancer,
+	ClassWizard, ClassMagician, ClassEnchanter,
+}
+
+// Classes returns every real class (excluding ClassUnknown), in a stable order.
+func Classes() []Class { return slices.Clone(classList) }
+
+// IsKnown reports whether c is a real class (not ClassUnknown or an unmapped
+// value) — used to validate class references in other layers' tables.
+func IsKnown(c Class) bool { return slices.Contains(classList, c) }
+
 // ProfileOf returns a class's descriptor (the zero Profile for an unknown class).
 func ProfileOf(c Class) Profile { return profiles[c] }
 

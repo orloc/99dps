@@ -2,20 +2,16 @@ package eqclass
 
 import "testing"
 
-// allClasses is every real class constant — used to assert the profile table is
-// complete (a missing melee/hybrid entry would silently default to CatCaster).
-var allClasses = []Class{
-	ClassWarrior, ClassMonk, ClassRogue,
-	ClassPaladin, ClassShadowKnight, ClassRanger, ClassBard, ClassBeastlord,
-	ClassCleric, ClassDruid, ClassShaman, ClassNecromancer,
-	ClassWizard, ClassMagician, ClassEnchanter,
-}
-
 func TestProfileCompleteness(t *testing.T) {
-	for _, c := range allClasses {
+	for _, c := range classList {
 		if _, ok := profiles[c]; !ok {
 			t.Errorf("class %q has no profile entry", c)
 		}
+	}
+	// classList and profiles must stay in lockstep — a class added to one but not
+	// the other (e.g. a new profile entry never added to classList) is a bug.
+	if len(profiles) != len(classList) {
+		t.Errorf("profiles has %d entries, classList has %d — they must match", len(profiles), len(classList))
 	}
 }
 
@@ -42,7 +38,7 @@ func TestProfileCapabilities(t *testing.T) {
 	}
 
 	// Feign Death is the two feign classes only
-	for _, c := range allClasses {
+	for _, c := range classList {
 		want := c == ClassMonk || c == ClassNecromancer
 		if got := ProfileOf(c).Feign; got != want {
 			t.Errorf("%s feign = %v, want %v", c, got, want)
