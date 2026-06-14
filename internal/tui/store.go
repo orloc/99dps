@@ -11,11 +11,12 @@ import (
 // charSettings is everything a single character can configure: audio on/off and
 // voice, the meter-box layout, and the audio-cue toggle overrides.
 type charSettings struct {
-	AudioOn bool            `json:"audioOn"`
-	Voice   string          `json:"voice,omitempty"`
-	Damage  panelMode       `json:"damage"`
-	OffDef  panelMode       `json:"offDef"`
-	Cues    map[string]bool `json:"cues,omitempty"`
+	AudioOn  bool            `json:"audioOn"`
+	Voice    string          `json:"voice,omitempty"`
+	Damage   panelMode       `json:"damage"`
+	OffDef   panelMode       `json:"offDef"`
+	ClassBox bool            `json:"classBox"`
+	Cues     map[string]bool `json:"cues,omitempty"`
 }
 
 // store is the consolidated settings file (settings.json): one install-level flag

@@ -30,10 +30,11 @@ func (p panelMode) String() string {
 func (p panelMode) next() panelMode { return (p + 1) % 3 }
 
 // layoutPrefs is the persisted per-box visibility choice for the meter screen.
-// The zero value (both Full) is the default for a fresh install.
+// The zero value (meters Full, class box off) is the default for a fresh install.
 type layoutPrefs struct {
-	Damage panelMode `json:"damage"`
-	OffDef panelMode `json:"offDef"`
+	Damage   panelMode `json:"damage"`
+	OffDef   panelMode `json:"offDef"`
+	ClassBox bool      `json:"classBox"` // small class-specific box under the Mob Tracker
 }
 
 func layoutPrefsPath() (string, error) {

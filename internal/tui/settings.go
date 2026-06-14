@@ -149,10 +149,11 @@ func (m Model) settingsVoices() []tts.Voice {
 
 // The Settings rows: a few fixed controls, then the voice list.
 const (
-	settingsAudioRow  = 0
-	settingsDamageRow = 1 // Damage meter: Full/Compact/Off
-	settingsOffDefRow = 2 // Offense·Defense: Full/Compact/Off
-	settingsFixedRows = 3 // rows before the voice list
+	settingsAudioRow    = 0
+	settingsDamageRow   = 1 // Damage meter: Full/Compact/Off
+	settingsOffDefRow   = 2 // Offense·Defense: Full/Compact/Off
+	settingsClassBoxRow = 3 // Class box: On/Off (small box under the Mob Tracker)
+	settingsFixedRows   = 4 // rows before the voice list
 )
 
 // updateSettings handles input while the Settings tab is focused (tab-navigation
@@ -216,6 +217,10 @@ func (m *Model) applyLeftSetting(sel int) {
 		m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
 		m.saveSettings()
 		m.flash("✓ saved · Offense · Defense " + m.layoutPrefs.OffDef.String())
+	case settingsClassBoxRow:
+		m.layoutPrefs.ClassBox = !m.layoutPrefs.ClassBox
+		m.saveSettings()
+		m.flash("✓ saved · Class box " + onOff(m.layoutPrefs.ClassBox))
 	default:
 		if v, ok := voiceIndex(m.settingsVoices(), sel-settingsFixedRows); ok {
 			m.speaker.SetVoice(v.ID)
@@ -239,6 +244,14 @@ func (m *Model) toggleCue(idx int) {
 		state = "on"
 	}
 	m.flash("✓ saved · " + r.label + " " + state)
+}
+
+// onOff renders a bool toggle's state for the settings labels.
+func onOff(b bool) string {
+	if b {
+		return "On"
+	}
+	return "Off"
 }
 
 func voiceIndex(voices []tts.Voice, i int) (tts.Voice, bool) {
@@ -321,6 +334,7 @@ func (m Model) leftSettingsColumn(th theme, w int) (out []string, sel []int) {
 	add("", -1)
 	add(menuRow(th, focused && m.settingsSel == settingsDamageRow, "Damage meter: "+m.layoutPrefs.Damage.String(), w), settingsDamageRow)
 	add(menuRow(th, focused && m.settingsSel == settingsOffDefRow, "Offense · Defense: "+m.layoutPrefs.OffDef.String(), w), settingsOffDefRow)
+	add(menuRow(th, focused && m.settingsSel == settingsClassBoxRow, "Class box: "+onOff(m.layoutPrefs.ClassBox), w), settingsClassBoxRow)
 	add("", -1)
 	add(paint(th, th.accent, "Voice", w), -1)
 

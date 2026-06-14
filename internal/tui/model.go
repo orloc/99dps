@@ -158,6 +158,8 @@ type layout struct {
 	dmgH, botH           int
 	dmgW, extrasW        int // top-right split: dealer meter | Specials/Avoidance
 	classW, enemyW, mobW int // bottom row: class panel | [Enemy] | mob tracker
+	mobH, boxH           int // mob column split: Mob Tracker (mobH) over the class box (boxH)
+	classBox             bool
 	enemy                bool
 	areaH                int
 }
@@ -237,6 +239,17 @@ func (m Model) layout() layout {
 	} else {
 		ld.classW = rightW / 2
 		ld.mobW = rightW - ld.classW - 1
+	}
+	// the small class box sits under the Mob Tracker, splitting that column's
+	// height (it stays the taller of the two). Drops out if the column is too short.
+	ld.mobH = ld.botH
+	if m.layoutPrefs.ClassBox {
+		bh := min(max(ld.botH/3, 5), 9)
+		if ld.botH-bh-1 >= 6 { // keep the Mob Tracker usefully tall
+			ld.classBox = true
+			ld.boxH = bh
+			ld.mobH = ld.botH - bh - 1
+		}
 	}
 	return ld
 }
@@ -891,7 +904,7 @@ func (m *Model) resizeViewports() {
 	m.vpSessTable.Height = max(m.vpSessTable.Height-1, 1)
 	set(&m.vpSessBreak, breakW, fullH)
 	set(&m.vpClass, ld.classW, ld.botH)
-	set(&m.vpMob, ld.mobW, ld.botH)
+	set(&m.vpMob, ld.mobW, ld.mobH) // shorter when the class box splits the column
 	set(&m.vpEnemy, ld.enemyW, ld.botH)
 	// the extras card has a title ("Offense · Defense"), so reserve its row (h-3,
 	// like cardInner); clamp to 0 when there's no side column (narrow terminal).
@@ -931,10 +944,10 @@ func (m *Model) panelAt(x, y int) *viewport.Model {
 		switch {
 		case in(ccX, ld.enemyW, botY, ld.botH):
 			return &m.vpEnemy
-		case in(mobX, ld.mobW, botY, ld.botH):
+		case in(mobX, ld.mobW, botY, ld.mobH):
 			return &m.vpMob
 		}
-	} else if in(rightX+ld.classW+1, ld.mobW, botY, ld.botH) {
+	} else if in(rightX+ld.classW+1, ld.mobW, botY, ld.mobH) {
 		return &m.vpMob
 	}
 	return nil
@@ -979,7 +992,7 @@ func (m *Model) mobAt(x, y int) string {
 	rightX := gridX // meter spans full width from the content left edge
 	botY := gridTop + ld.dmgH
 	contentTop := botY + 2
-	if y < contentTop || y >= botY+ld.botH-1 {
+	if y < contentTop || y >= botY+ld.mobH-1 { // mob column is shorter when the class box splits it
 		return ""
 	}
 	mobX := rightX + ld.classW + 1
@@ -1025,7 +1038,7 @@ func (m *Model) editKey(msg tea.KeyMsg) {
 // cue toggles, audio + voice). Used on a character hot-swap so each toon shows its
 // own settings. Audio only switches on when the engine is actually available.
 func (m *Model) applyCharSettings(cs charSettings) {
-	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef}
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox}
 	m.cues = cuePrefs{Overrides: cs.Cues}
 	if cs.Voice != "" && m.speaker != nil {
 		m.speaker.SetVoice(cs.Voice)
@@ -1042,11 +1055,12 @@ func (m *Model) saveSettings() {
 		voice = m.speaker.Voice()
 	}
 	m.store.setChar(m.character, charSettings{
-		AudioOn: m.ttsOn,
-		Voice:   voice,
-		Damage:  m.layoutPrefs.Damage,
-		OffDef:  m.layoutPrefs.OffDef,
-		Cues:    m.cues.Overrides,
+		AudioOn:  m.ttsOn,
+		Voice:    voice,
+		Damage:   m.layoutPrefs.Damage,
+		OffDef:   m.layoutPrefs.OffDef,
+		ClassBox: m.layoutPrefs.ClassBox,
+		Cues:     m.cues.Overrides,
 	})
 	_ = saveStore(m.store)
 }
@@ -1187,16 +1201,22 @@ func (m Model) View() string {
 	if m.middleIsBuffs() {
 		midTitle = "Buffs" // self-buff / clicky timers (melee)
 	}
+	// the mob column: Mob Tracker on top, optionally a small class box beneath it.
+	mobCol := card(th, ld.mobW, ld.mobH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View())
+	if ld.classBox {
+		box := card(th, ld.mobW, ld.boxH, m.classBoxTitle(), m.classBoxView(ld.mobW))
+		mobCol = lipgloss.JoinVertical(lipgloss.Left, mobCol, "", box)
+	}
 	var bottom string
 	if ld.enemy {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
 			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
 			card(th, ld.enemyW, ld.botH, midTitle+scrollHint(m.vpEnemy), m.vpEnemy.View()), " ",
-			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
+			mobCol)
 	} else {
 		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
 			card(th, ld.classW, ld.botH, classTitle, m.vpClass.View()), " ",
-			card(th, ld.mobW, ld.botH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View()))
+			mobCol)
 	}
 	// top-right: the dealer meter beside its Specials / Avoidance side column.
 	// The side card has no title — its SPECIALS / AVOIDANCE section headers label
@@ -1551,7 +1571,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 
 	m.store = loadStore()
 	cs := m.store.forChar(character) // this character's saved profile (or the Default)
-	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef}
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox}
 	m.cues = cuePrefs{Overrides: cs.Cues}
 	m.screen = initialScreen(m.store.Configured)
 	if m.screen == screenSetup {

@@ -267,6 +267,21 @@ func TestViewFitsWindow(t *testing.T) {
 				t.Errorf("settings %dx%d: line %d width %d > %d: %q", w, h, i, lw, w, line)
 			}
 		}
+
+		// the optional class box (under the Mob Tracker) must also fit.
+		mm.screen = screenMeter
+		mm.layoutPrefs.ClassBox = true
+		mm.resizeViewports()
+		mm.refresh()
+		boxOut := strings.Split(mm.View(), "\n")
+		if len(boxOut) > h {
+			t.Errorf("class box %dx%d: %d lines > height %d", w, h, len(boxOut), h)
+		}
+		for i, line := range boxOut {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("class box %dx%d: line %d width %d > %d: %q", w, h, i, lw, w, line)
+			}
+		}
 	}
 
 	// a degenerate early size must not flip the model into rendering (stay "starting…")

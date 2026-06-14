@@ -14,6 +14,24 @@ import (
 	"99dps/internal/session"
 )
 
+// classBoxTitle labels the small class box under the Mob Tracker — the detected
+// class, or "Class" until a /who reveals it.
+func (m Model) classBoxTitle() string {
+	if m.tracker != nil {
+		if c := m.tracker.Class(); c != eqclass.ClassUnknown {
+			return string(c)
+		}
+	}
+	return "Class"
+}
+
+// classBoxView renders the small class box body. Placeholder for now — this is a
+// home for class-specific UI timers/widgets, filled in next.
+func (m Model) classBoxView(w int) string {
+	th := themes[m.theme]
+	return th.fg(th.dim).Render(truncate("class timers — soon", max(w-4, 1)))
+}
+
 // classPanelTitle labels the class-aware bottom panel by the player's category.
 // When the Enemy column is split out, the panel holds only buffs (+ skills for a
 // hybrid), so the title reflects that.
