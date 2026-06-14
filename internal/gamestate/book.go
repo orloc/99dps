@@ -37,6 +37,14 @@ var genericBuffEmotes = map[string]bool{
 	"You begin to regenerate.": true,
 }
 
+// nonPlayerSpell reports a spell players can't cast — the NPC/GM variants, by the
+// spells_us naming convention (e.g. "NPCAegolism", "GM SoW"). Their often-instant
+// copies must not be indexed as self-clickies, where they'd hijack a real buff's
+// shared landing emote.
+func nonPlayerSpell(name string) bool {
+	return strings.HasPrefix(name, "NPC") || strings.HasPrefix(name, "GM ")
+}
+
 // Spell is the decoded subset of one spells_us.txt row.
 type Spell struct {
 	Name        string
@@ -182,8 +190,12 @@ func LoadReader(r io.Reader) (*Book, error) {
 		// Detrimental spells are excluded: a self-clicky is beneficial, and a
 		// hostile proc's cast_on_you emote is owned by the incoming-debuff path
 		// (incoming.go) — indexing it here would spawn a duplicate ON-YOU timer.
+		// NPC/GM variants are excluded too: many are instant copies of a real buff
+		// (NPCAegolism vs the castable Aegolism), and being instant they'd win the
+		// shared landing emote — so a cleric's Aegolism on you showed as NPCAegolism.
 		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" && !s.Detrimental &&
-			!strings.Contains(strings.ToLower(s.Name), "test") && !genericBuffEmotes[s.CastOnYou] {
+			!strings.Contains(strings.ToLower(s.Name), "test") && !genericBuffEmotes[s.CastOnYou] &&
+			!nonPlayerSpell(s.Name) {
 			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s
 			}

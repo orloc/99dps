@@ -40,6 +40,35 @@ func TestSelfClickyRegenExcludedBootsKept(t *testing.T) {
 	}
 }
 
+// TestSelfClickyExcludesNPCVariant: an instant NPC/GM copy of a real buff must not
+// be indexed as a self-clicky — otherwise a cleric's Aegolism on you (the castable
+// one has a cast time, so it's not a clicky) resolves to the instant "NPCAegolism".
+func TestSelfClickyExcludesNPCVariant(t *testing.T) {
+	const emote = "You are filled with the power of Aegolism."
+	b := loadBook(t,
+		// the castable buff: has a cast time, so it's never a self-clicky
+		row(map[int]string{
+			fName: "Aegolism", fCastOnYou: emote, fCastTime: "14000",
+			fDurFormula: "3", fDurCap: "1500", fGoodEffect: "1",
+		}),
+		// the NPC variant: instant, would otherwise win the shared emote
+		row(map[int]string{
+			fName: "NPCAegolism", fCastOnYou: emote, fCastTime: "0",
+			fDurFormula: "3", fDurCap: "1500", fGoodEffect: "1",
+		}),
+	)
+	if s, ok := b.SelfClicky(emote); ok {
+		t.Errorf("Aegolism cast on you must not resolve to a clicky (got %q)", s.Name)
+	}
+
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	tr.Observe(emote, 1000) // a cleric's Aegolism lands on you
+	if got := tr.Active(1001); len(got) != 0 {
+		t.Errorf("an NPC buff variant must not be tracked as a self-buff, got %+v", got)
+	}
+}
+
 // TestSelfClickyWhileCastPending: an insta-clicky must still be tracked when an
 // unrelated cast is still pending (it just hasn't matched a landing). An
 // enchanter is almost always mid-cast, so the old "skip clickies whenever a cast
