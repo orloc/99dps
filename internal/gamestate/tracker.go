@@ -338,6 +338,11 @@ func (t *Tracker) Observe(body string, at int64) {
 			t.cool.startSpellRecastLocked(sp, at)
 		}
 	}
+	// unmemorizing a spell ("You forget Dictate.") drops its refresh timer — the
+	// gem is gone, so the cooldown no longer applies.
+	if name, ok := strings.CutPrefix(body, "You forget "); ok {
+		t.cool.dropLocked(strings.TrimSuffix(name, "."))
+	}
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked

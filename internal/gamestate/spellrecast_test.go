@@ -92,6 +92,12 @@ func TestSpellRecastOnMemorize(t *testing.T) {
 	if got := len(tr.Cooldowns(now)); got != 1 {
 		t.Errorf("memorizing an unwatched spell must not add a cooldown, have %d", got)
 	}
+
+	// unmemorizing it ("You forget Dictate.") drops the timer — no longer applicable
+	tr.Observe("You forget Dictate.", now+5)
+	if got := len(tr.Cooldowns(now + 5)); got != 0 {
+		t.Errorf("forgetting Dictate should drop its cooldown, have %d", got)
+	}
 }
 
 // TestSpellRecastSurvivesZeroRecast: a watched spell whose book entry has no

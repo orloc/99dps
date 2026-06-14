@@ -143,6 +143,13 @@ func (c *cooldownTracker) clear() {
 	c.bindStartAt, c.bindDoneAt = 0, 0
 }
 
+// dropLocked removes a single named cooldown — used when a spell is unmemorized
+// ("You forget X."), since its gem (and refresh) no longer exists. No-op for a
+// name that isn't on cooldown.
+func (c *cooldownTracker) dropLocked(name string) {
+	delete(c.cooldowns, name)
+}
+
 // clearZoneScopedLocked drops the cooldowns tied to the current zone (spell
 // recasts) — called on a zone change, since zoning lets you recast freely.
 func (c *cooldownTracker) clearZoneScopedLocked() {
