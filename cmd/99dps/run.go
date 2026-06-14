@@ -34,7 +34,11 @@ func loadTracker(spellsPath, logDir string) (*gamestate.Tracker, string) {
 // pipeline, runs the Bubble Tea UI (internal/tui), and watches for a character
 // switch in-game to hot-swap. The only UI.
 func launchTUI(logDir, spellsPath string, tts bool) {
-	runTUI(loader.LoadFile(logDir), logDir, spellsPath, tts, true)
+	src, err := loader.LoadFile(logDir)
+	if err != nil {
+		log.Fatal(err) // startup discovery failure — nothing to fall back to
+	}
+	runTUI(src, logDir, spellsPath, tts, true)
 }
 
 // launchFile runs the same pipeline against one explicit log file (the -logfile

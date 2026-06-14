@@ -3,7 +3,6 @@ package loader
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,17 +24,14 @@ type LogSource struct {
 }
 
 // LoadFile picks the most-recently-active eqlog_*.txt under dir and follows it
-// from the start of the file.
-func LoadFile(dir string) *LogSource {
+// from the start of the file. The caller decides how to handle a discovery/open
+// failure (this is library code — it doesn't exit the process).
+func LoadFile(dir string) (*LogSource, error) {
 	path, err := Latest(dir)
 	if err != nil {
-		log.Fatal(err) // startup discovery failure — nothing to fall back to
+		return nil, err
 	}
-	src, err := Follow(path, false)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return src
+	return Follow(path, false)
 }
 
 var eqlogName = regexp.MustCompile(`^eqlog_.*\.txt$`)
