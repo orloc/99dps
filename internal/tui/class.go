@@ -29,7 +29,7 @@ func (m Model) classBoxTitle() string {
 // estimate. EQ never reports absorbed amounts, so we estimate from the blows the
 // runes have soaked × the mobs' average melee hit (mobstats), draining the active
 // shields in their stacking order. Everything's a guess, so it reads with a "~".
-func (m Model) classBoxView(w int) string {
+func (m Model) classBoxView(w, h int) string {
 	th := themes[m.theme]
 	iw := max(w-4, 1)
 	now := time.Now().Unix()
@@ -45,7 +45,13 @@ func (m Model) classBoxView(w int) string {
 	}
 	rem := runeRemaining(shields, blows, avg)
 
+	// header: the average hit the estimate is built from (so the guess is legible).
 	var lines []string
+	if haveAvg && avg > 0 {
+		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("avg hit %d · %d soaked", avg, blows), iw)))
+	} else {
+		lines = append(lines, th.fg(th.dim).Render(truncate("no hit data yet", iw)))
+	}
 	for i, s := range shields {
 		var detail string
 		if !haveAvg || avg <= 0 {
@@ -55,6 +61,9 @@ func (m Model) classBoxView(w int) string {
 			detail = th.fg(col).Render(fmt.Sprintf("~%d (%dh)", rem[i], rem[i]/avg))
 		}
 		lines = append(lines, truncate(th.fg(th.text).Render(runeShort(s.Name)+" ")+detail, iw))
+	}
+	if ih := max(h-3, 1); len(lines) > ih { // clip to the card's inner height
+		lines = lines[:ih]
 	}
 	return strings.Join(lines, "\n")
 }

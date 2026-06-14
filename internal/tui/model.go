@@ -244,8 +244,8 @@ func (m Model) layout() layout {
 	// height (it stays the taller of the two). Drops out if the column is too short.
 	ld.mobH = ld.botH
 	if m.layoutPrefs.ClassBox {
-		bh := min(max(ld.botH/3, 5), 9)
-		if ld.botH-bh-1 >= 6 { // keep the Mob Tracker usefully tall
+		bh := min(max(ld.botH/3, 6), 9) // ≥6 so the avg-hit line + two shields fit
+		if ld.botH-bh-1 >= 6 {          // keep the Mob Tracker usefully tall
 			ld.classBox = true
 			ld.boxH = bh
 			ld.mobH = ld.botH - bh - 1
@@ -1204,7 +1204,7 @@ func (m Model) View() string {
 	// the mob column: Mob Tracker on top, optionally a small class box beneath it.
 	mobCol := card(th, ld.mobW, ld.mobH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View())
 	if ld.classBox {
-		box := card(th, ld.mobW, ld.boxH, m.classBoxTitle(), m.classBoxView(ld.mobW))
+		box := card(th, ld.mobW, ld.boxH, m.classBoxTitle(), m.classBoxView(ld.mobW, ld.boxH))
 		mobCol = lipgloss.JoinVertical(lipgloss.Left, mobCol, "", box)
 	}
 	var bottom string
