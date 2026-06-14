@@ -82,6 +82,7 @@ type Model struct {
 	feignFailAnnounced bool
 	cdReady            map[string]bool // cooldown name → was-ready last tick
 	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
+	spawnAnnounced     map[string]bool // repop expiry-key → "spawn soon" cue already spoken
 	lastSlainClears    int             // tracker.SlainClearCount() last seen → flush queued cues on a kill
 	cues               cuePrefs        // which cues fire (per-skill / per-category toggles)
 	store              store           // consolidated per-character settings (settings.json)
@@ -335,6 +336,9 @@ func (m *Model) announceCuesAt(now int64) {
 	if m.announced == nil {
 		m.announced = map[string]gamestate.Urgency{}
 	}
+	if m.spawnAnnounced == nil {
+		m.spawnAnnounced = map[string]bool{}
+	}
 
 	// a mob died (a slain line or an inferred xp-only kill) → drop any queued fade
 	// cues about its now-gone debuffs, so they don't spam after the kill.
@@ -427,6 +431,48 @@ func (m *Model) announceCuesAt(now int64) {
 		m.speaker.Say(composeCue(fading, true, now, m.cueSeq))
 		m.cueSeq++
 	}
+
+	// tracked mobs about to repop (~spawnLeadSec out) — fires once per spawn, keyed
+	// by its stable expiry (now+Remaining), re-arming when the spawn pops/purges.
+	if m.cues.enabled(cueSpawnSoon, true) {
+		var soon []string
+		liveSpawn := map[string]bool{}
+		for _, r := range m.tracker.Respawns(now) {
+			key := r.Mob + "\x00" + strconv.FormatInt(now+r.Remaining, 10)
+			liveSpawn[key] = true
+			if r.Remaining > 0 && r.Remaining <= spawnLeadSec && !m.spawnAnnounced[key] {
+				m.spawnAnnounced[key] = true
+				soon = append(soon, r.Mob)
+			}
+		}
+		for k := range m.spawnAnnounced {
+			if !liveSpawn[k] {
+				delete(m.spawnAnnounced, k) // spawn popped / purged → re-arm for next kill
+			}
+		}
+		if len(soon) > 0 {
+			m.speaker.Say(spawnPhrase(soon, m.cueSeq))
+			m.cueSeq++
+		}
+	}
+}
+
+// spawnLeadSec is how far out a repop's "about to spawn" cue fires.
+const spawnLeadSec = 30
+
+// spawnPhrase announces mobs about to repop, varied per seq, collapsing to a
+// count when several pop at once.
+func spawnPhrase(mobs []string, seq int) string {
+	if len(mobs) > 3 {
+		return fmt.Sprintf("%d spawns incoming.", len(mobs))
+	}
+	subj := joinList(mobs)
+	if len(mobs) == 1 {
+		tpl := []string{"%s is about to spawn.", "Heads up, %s is about to pop.", "%s spawns soon."}
+		return fmt.Sprintf(tpl[seq%len(tpl)], subj)
+	}
+	tpl := []string{"%s are about to spawn.", "Heads up, %s are about to pop.", "%s spawn soon."}
+	return fmt.Sprintf(tpl[seq%len(tpl)], subj)
 }
 
 // longCooldownSec gates which cooldowns get a "ready" cue — Mend (360s) and up,

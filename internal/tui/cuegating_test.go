@@ -67,6 +67,43 @@ func TestSlainFlushesQueuedCues(t *testing.T) {
 	}
 }
 
+// TestSpawnSoonCue: a tracked repop cues once when it crosses ~30s out, and the
+// toggle silences it.
+func TestSpawnSoonCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	now := time.Now().Unix()
+	tr.Observe("You have entered east commonlands.", now)
+	tr.UseOverrides(gamestate.LoadOverrides(t.TempDir() + "/ov.json"))
+	tr.SetOverride("a griffon", 60)              // 60s repop
+	tr.Observe("You have slain a griffon!", now) // repop at now+60
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe}
+
+	m.announceCuesAt(now + 20) // 40s out → not yet in the 30s window
+	if len(fe.normal) != 0 {
+		t.Fatalf("no spawn cue at 40s out, got %v", fe.normal)
+	}
+	m.announceCuesAt(now + 35) // 25s out → fires
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "griffon") {
+		t.Fatalf("spawn cue expected ~30s out, got %v", fe.normal)
+	}
+	m.announceCuesAt(now + 36) // still in window → no repeat
+	if len(fe.normal) != 1 {
+		t.Errorf("spawn cue should fire once per spawn, got %v", fe.normal)
+	}
+
+	// the toggle silences it: a fresh kill with the cue disabled stays quiet.
+	fe2 := &fakeEngine{}
+	m2 := &Model{ttsOn: true, tracker: tr, speaker: fe2, cues: cuePrefs{Overrides: map[string]bool{cueSpawnSoon: false}}}
+	tr.SetOverride("a griffon", 60)
+	tr.Observe("You have slain a griffon!", now+200) // a second spawn, repop at now+260
+	m2.announceCuesAt(now + 235)                     // 25s out, but disabled
+	if len(fe2.normal) != 0 {
+		t.Errorf("disabled spawn cue should stay silent, got %v", fe2.normal)
+	}
+}
+
 // TestHalfCooldownCue: the 50% cue fires once at the halfway mark, then the ready
 // cue fires once at expiry.
 func TestHalfCooldownCue(t *testing.T) {

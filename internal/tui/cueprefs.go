@@ -58,6 +58,7 @@ const (
 	cueDebuffFade = "debuff.fade" // a debuff on a mob fading
 	cueFeignFail  = "alert.feignfail"
 	cueResist     = "alert.resist"
+	cueSpawnSoon  = "spawn.soon" // a tracked mob about to repop (~30s out)
 )
 
 func cueCDReady(skill string) string { return "cd.ready." + skill }
@@ -96,6 +97,8 @@ func cueRows() []cueRow {
 		cueRow{header: true, label: "Alerts"},
 		cueRow{label: "Feign failed", id: cueFeignFail, def: true},
 		cueRow{label: "Resisted", id: cueResist, def: true},
+		cueRow{header: true, label: "Mob Tracker"},
+		cueRow{label: "Spawn soon (~30s)", id: cueSpawnSoon, def: true},
 	)
 	return rows
 }
