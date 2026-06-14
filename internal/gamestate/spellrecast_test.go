@@ -1,6 +1,10 @@
 package gamestate
 
-import "testing"
+import (
+	"testing"
+
+	"99dps/internal/eqclass"
+)
 
 // TestSpellRecastCooldown: casting a watched recast spell (Dictate charm /
 // Rapture mez) starts a zone-scoped reuse cooldown read from the spell's own
@@ -97,6 +101,25 @@ func TestSpellRecastOnMemorize(t *testing.T) {
 	tr.Observe("You forget Dictate.", now+5)
 	if got := len(tr.Cooldowns(now + 5)); got != 0 {
 		t.Errorf("forgetting Dictate should drop its cooldown, have %d", got)
+	}
+}
+
+// TestSpellRecastClassGated: once the class is known, a recast spell that isn't
+// on that class's watch list is ignored (the class param flows from the tracker
+// through to eqclass.RecastWatched).
+func TestSpellRecastClassGated(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Dictate", fFades: "You are no longer charmed.",
+		fCastTime: "5000", fRecastTime: "300000",
+		fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassWarrior) // not the Enchanter that watches Dictate
+	tr.Observe("You have entered Lake of Ill Omen.", 1000)
+	tr.Observe("You have finished memorizing Dictate.", 1000)
+	if cds := tr.Cooldowns(1000); len(cds) != 0 {
+		t.Errorf("a Warrior must not track Dictate's recast, got %+v", cds)
 	}
 }
 

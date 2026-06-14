@@ -96,17 +96,6 @@ type CooldownTimer struct {
 	Total     int64 // full reuse duration, for the panel's charge bar
 }
 
-// spellRecastWatch is the set of cast spells whose recast/recovery lockout we
-// surface as a cooldown — high-value spells where the reuse gate matters (an
-// Enchanter's Dictate charm and Rapture mez). The duration is the spell book's
-// own RecastMs (read at cast time, not hardcoded); the timer is zone-scoped, so
-// it only shows for a spell cast in the current zone and clears on a zone change
-// (a fresh zone-in lets you recast freely). Extend by adding a name here.
-var spellRecastWatch = map[string]bool{
-	"Dictate": true,
-	"Rapture": true,
-}
-
 const (
 	// bindDurationSec is how long bind wound channels — measured from Kelkix's
 	// logs (begin → "complete" is a consistent 10s).
@@ -160,13 +149,14 @@ func (c *cooldownTracker) clearZoneScopedLocked() {
 	}
 }
 
-// startSpellRecastLocked starts a zone-scoped reuse cooldown for a watched
-// recast spell (Dictate/Rapture) when it goes off OR when it's freshly
-// memorized (a long-recast spell must clear its first refresh before it can be
-// cast), using the spell's own RecastMs. No-op for any other spell or when the
-// spell carries no recast. Caller holds the lock.
-func (c *cooldownTracker) startSpellRecastLocked(s *Spell, at int64) {
-	if s == nil || !spellRecastWatch[s.Name] || s.RecastMs <= 0 {
+// startSpellRecastLocked starts a zone-scoped reuse cooldown for a class's
+// recast-watched spell (the Enchanter's Dictate/Rapture, per the eqclass
+// Profile) when it goes off OR when it's freshly memorized (a long-recast spell
+// must clear its first refresh before it can be cast), using the spell's own
+// RecastMs. No-op for any unwatched spell or when it carries no recast. Caller
+// holds the lock.
+func (c *cooldownTracker) startSpellRecastLocked(s *Spell, at int64, class eqclass.Class) {
+	if s == nil || s.RecastMs <= 0 || !eqclass.RecastWatched(class, s.Name) {
 		return
 	}
 	sec := int64(s.RecastMs+999) / 1000 // ceil to whole seconds

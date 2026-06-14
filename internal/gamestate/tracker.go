@@ -335,7 +335,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	// must clear that first cooldown before it can be cast, so arm the timer now.
 	if name, ok := strings.CutPrefix(body, "You have finished memorizing "); ok {
 		if sp, ok := t.book.ByName(strings.TrimSuffix(name, ".")); ok {
-			t.cool.startSpellRecastLocked(sp, at)
+			t.cool.startSpellRecastLocked(sp, at, t.class)
 		}
 	}
 	// unmemorizing a spell ("You forget Dictate.") drops its refresh timer — the
@@ -397,7 +397,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 	// charm has no landing emote — start it on cast completion (counts up,
 	// cleared by the "worn off" break message rather than a fixed expiry)
 	if t.pending.Charm {
-		t.cool.startSpellRecastLocked(t.pending, at) // Dictate's reuse (startCharmLocked nils pending)
+		t.cool.startSpellRecastLocked(t.pending, at, t.class) // Dictate's reuse (startCharmLocked nils pending)
 		t.startCharmLocked(at)
 		return true
 	}
@@ -443,7 +443,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 		Mez:         t.pending.Mez,
 		Pacify:      t.pending.Pacify,
 	}, at)
-	t.cool.startSpellRecastLocked(t.pending, at) // Rapture's reuse, zone-scoped
+	t.cool.startSpellRecastLocked(t.pending, at, t.class) // Rapture's reuse, zone-scoped
 	if isRune(t.pending.Name) {
 		t.runeAbsorbs, t.runeAttacker = 0, "" // a fresh rune resets the absorb estimate
 	}
