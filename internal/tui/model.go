@@ -598,19 +598,30 @@ func lowPhrase(due []gamestate.Timer, now int64, seq int) string {
 	return fmt.Sprintf(tpl[seq%len(tpl)], joinList(items))
 }
 
-// spokenDuration renders a remaining time for speech: rounded minutes when it's a
-// couple of minutes or more, "about a minute" near a minute, else seconds.
+// spokenDuration renders a remaining time for speech precisely, flooring so it
+// never claims MORE time than is left (a "time left" cue that overstates is worse
+// than one that's exact): "5 minutes", "1 minute 40 seconds", "45 seconds".
 func spokenDuration(sec int64) string {
 	if sec < 0 {
 		sec = 0
 	}
-	if m := (sec + 30) / 60; m >= 2 {
-		return fmt.Sprintf("%d minutes", m)
+	m, s := sec/60, sec%60
+	switch {
+	case m == 0:
+		return plural(s, "second")
+	case s == 0:
+		return plural(m, "minute")
+	default:
+		return plural(m, "minute") + " " + plural(s, "second")
 	}
-	if sec >= 45 {
-		return "about a minute"
+}
+
+// plural renders a count with its unit, pluralized: "1 minute", "2 minutes".
+func plural(n int64, unit string) string {
+	if n == 1 {
+		return "1 " + unit
 	}
-	return fmt.Sprintf("%d seconds", sec)
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // joinList renders names with natural list grammar: "X" / "X and Y" /

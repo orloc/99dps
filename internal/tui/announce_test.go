@@ -99,11 +99,12 @@ func TestSpokenDuration(t *testing.T) {
 		want string
 	}{
 		{300, "5 minutes"},
-		{250, "4 minutes"},
-		{90, "2 minutes"},
-		{60, "about a minute"},
-		{50, "about a minute"},
-		{30, "30 seconds"},
+		{100, "1 minute 40 seconds"}, // must NOT round up to "2 minutes"
+		{90, "1 minute 30 seconds"},
+		{61, "1 minute 1 second"},
+		{60, "1 minute"},
+		{50, "50 seconds"},
+		{1, "1 second"},
 		{-5, "0 seconds"},
 	}
 	for _, c := range cases {
