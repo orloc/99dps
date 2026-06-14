@@ -95,7 +95,7 @@ func NewTracker(book *Book) *Tracker {
 	return &Tracker{
 		book:   book,
 		timers: make(map[string]Timer),
-		cool:   cooldownTracker{cooldowns: make(map[string]int64)},
+		cool:   cooldownTracker{cooldowns: make(map[string]cdState)},
 	}
 }
 
@@ -335,8 +335,12 @@ func (t *Tracker) Observe(body string, at int64) {
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked
 	// returns the inferred victim (or "") so we can drop its timers here.
+	prevZone := t.zone.name
 	if v := t.zone.observeLocked(body, at, t.petName, t.soleDebuffedMobLocked()); v != "" {
 		t.clearMobTimersLocked(v)
+	}
+	if t.zone.name != prevZone { // changed zone — spell recasts reset on a zone-in
+		t.cool.clearZoneScopedLocked()
 	}
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()
@@ -381,6 +385,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 	// charm has no landing emote — start it on cast completion (counts up,
 	// cleared by the "worn off" break message rather than a fixed expiry)
 	if t.pending.Charm {
+		t.cool.startSpellRecastLocked(t.pending, at) // Dictate's reuse (startCharmLocked nils pending)
 		t.startCharmLocked(at)
 		return true
 	}
@@ -426,6 +431,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 		Mez:         t.pending.Mez,
 		Pacify:      t.pending.Pacify,
 	}, at)
+	t.cool.startSpellRecastLocked(t.pending, at) // Rapture's reuse, zone-scoped
 	if isRune(t.pending.Name) {
 		t.runeAbsorbs, t.runeAttacker = 0, "" // a fresh rune resets the absorb estimate
 	}

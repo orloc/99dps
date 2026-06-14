@@ -96,18 +96,15 @@ type CooldownTimer struct {
 	Total     int64 // full reuse duration, for the panel's charge bar
 }
 
-// reuseSecFor returns an ability's full reuse duration (registry, or the
-// macro-driven Feign Death), so the panel can draw how charged it is.
-func reuseSecFor(name string) int64 {
-	if name == "Feign Death" {
-		return feignReuseSec
-	}
-	for i := range cooldownRegistry {
-		if cooldownRegistry[i].Name == name {
-			return cooldownRegistry[i].ReuseSec
-		}
-	}
-	return 0
+// spellRecastWatch is the set of cast spells whose recast/recovery lockout we
+// surface as a cooldown — high-value spells where the reuse gate matters (an
+// Enchanter's Dictate charm and Rapture mez). The duration is the spell book's
+// own RecastMs (read at cast time, not hardcoded); the timer is zone-scoped, so
+// it only shows for a spell cast in the current zone and clears on a zone change
+// (a fresh zone-in lets you recast freely). Extend by adding a name here.
+var spellRecastWatch = map[string]bool{
+	"Dictate": true,
+	"Rapture": true,
 }
 
 const (
@@ -124,17 +121,48 @@ const (
 // inferred class (ClassUnknown when none) for the owning Tracker to apply. Its
 // methods are caller-locked.
 type cooldownTracker struct {
-	cooldowns      map[string]int64 // ability name -> reuse-expiry unix seconds
-	feignAttemptAt int64            // log time of the last feign attempt (macro)
-	feignFailAt    int64            // log time of the last failed feign (0 = none)
-	bindStartAt    int64            // log time bandaging began
-	bindDoneAt     int64            // log time bandaging last completed
+	cooldowns      map[string]cdState // ability name -> live reuse state
+	feignAttemptAt int64              // log time of the last feign attempt (macro)
+	feignFailAt    int64              // log time of the last failed feign (0 = none)
+	bindStartAt    int64              // log time bandaging began
+	bindDoneAt     int64              // log time bandaging last completed
+}
+
+// cdState is one ability's live reuse: when it's ready again, its full duration
+// (for the panel's charge bar), and whether it's cleared on a zone change (a
+// spell recast, vs a skill reuse that survives zoning).
+type cdState struct {
+	expiry     int64
+	total      int64
+	zoneScoped bool
 }
 
 func (c *cooldownTracker) clear() {
-	c.cooldowns = make(map[string]int64)
+	c.cooldowns = make(map[string]cdState)
 	c.feignAttemptAt, c.feignFailAt = 0, 0
 	c.bindStartAt, c.bindDoneAt = 0, 0
+}
+
+// clearZoneScopedLocked drops the cooldowns tied to the current zone (spell
+// recasts) — called on a zone change, since zoning lets you recast freely.
+func (c *cooldownTracker) clearZoneScopedLocked() {
+	for name, s := range c.cooldowns {
+		if s.zoneScoped {
+			delete(c.cooldowns, name)
+		}
+	}
+}
+
+// startSpellRecastLocked starts a zone-scoped reuse cooldown for a watched
+// recast spell (Dictate/Rapture) the moment it goes off, using the spell's own
+// RecastMs. No-op for any other spell or when the spell carries no recast.
+// Caller holds the lock.
+func (c *cooldownTracker) startSpellRecastLocked(s *Spell, at int64) {
+	if s == nil || !spellRecastWatch[s.Name] || s.RecastMs <= 0 {
+		return
+	}
+	sec := int64(s.RecastMs+999) / 1000 // ceil to whole seconds
+	c.cooldowns[s.Name] = cdState{expiry: at + sec, total: sec, zoneScoped: true}
 }
 
 // FeignState is the outcome of the most recent feign, for the panel banner.
@@ -162,7 +190,7 @@ const feignReuseSec = 11
 // reuse countdown. Returns ClassMonk (the inferred class). Caller holds lock.
 func (c *cooldownTracker) feignAttemptLocked(at int64) eqclass.Class {
 	c.feignAttemptAt = at
-	c.cooldowns["Feign Death"] = at + feignReuseSec
+	c.cooldowns["Feign Death"] = cdState{expiry: at + feignReuseSec, total: feignReuseSec}
 	return eqclass.ClassMonk
 }
 
@@ -200,7 +228,7 @@ func (c *cooldownTracker) matchLocked(body string, at int64, class eqclass.Class
 		if cd.requireClass && class != cd.Class {
 			continue // not class-exclusive (a kick) — only count it for a known matching class
 		}
-		c.cooldowns[cd.Name] = at + cd.ReuseSec
+		c.cooldowns[cd.Name] = cdState{expiry: at + cd.ReuseSec, total: cd.ReuseSec}
 		if cd.requireClass {
 			return eqclass.ClassUnknown // never infer the class from a non-exclusive activation
 		}
@@ -237,12 +265,12 @@ func (c *cooldownTracker) bindRemainingLocked(now int64) (int, bool) {
 // timersLocked returns the reuse timers, soonest-ready first. Caller holds lock.
 func (c *cooldownTracker) timersLocked(now int64) []CooldownTimer {
 	out := make([]CooldownTimer, 0, len(c.cooldowns))
-	for name, exp := range c.cooldowns {
-		rem := exp - now
+	for name, s := range c.cooldowns {
+		rem := s.expiry - now
 		if rem < 0 {
 			rem = 0
 		}
-		out = append(out, CooldownTimer{Name: name, Remaining: rem, Total: reuseSecFor(name)})
+		out = append(out, CooldownTimer{Name: name, Remaining: rem, Total: s.total})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Remaining != out[j].Remaining {
