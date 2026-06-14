@@ -124,6 +124,7 @@ func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 	val.Total += set.Dmg
 	val.LastTime = set.ActionTime
 	val.Hits++
+	val.Max = max(val.Max, set.Dmg)
 	if kind := specialKind(set.Verb); kind != "" {
 		val.SpecialTotal += set.Dmg
 		val.SpecialHits++
@@ -141,6 +142,7 @@ func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 			s := cs.skills[sk]
 			s.Total += set.Dmg
 			s.Hits++
+			s.Max = max(s.Max, set.Dmg)
 			cs.skills[sk] = s
 		}
 	}

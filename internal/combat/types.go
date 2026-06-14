@@ -7,6 +7,7 @@ type DamageStat struct {
 	Dealer    string // display name (spaces preserved), from the damage line
 	Total     int
 	Hits      int   // number of landed melee damage lines from this dealer
+	Max       int   // largest single melee hit by this dealer
 	FirstTime int64 // ActionTime of this dealer's first hit
 	LastTime  int64 // ActionTime of this dealer's most recent hit
 	// SpecialTotal/SpecialHits track the subset of damage dealt by activated
@@ -39,10 +40,11 @@ type CritStat struct {
 }
 
 // SkillStat tallies one activated melee skill (backstab/bash/kick): how much
-// damage it dealt and how many times it landed.
+// damage it dealt, how many times it landed, and its biggest single hit.
 type SkillStat struct {
 	Total int
 	Hits  int
+	Max   int
 }
 
 // SpecialStat tallies one dealer's use of one special-attack kind

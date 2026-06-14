@@ -235,8 +235,18 @@ func skillsBody(th theme, cur *session.CombatSession, class eqclass.Class, level
 	if len(rows) == 0 {
 		lines = append(lines, th.fg(th.dim).Render("  no skill attacks yet"))
 	}
+	showMax := w >= 44 // the per-skill "max" column only fits a roomy panel
 	for _, r := range rows {
-		lines = append(lines, th.fg(th.text).Render(fmt.Sprintf("  %-12s %6s  %d hits", truncate(r.name, 12), humanize(r.s.Total), r.s.Hits)))
+		line := fmt.Sprintf("  %-12s %6s  %d hits", truncate(r.name, 12), humanize(r.s.Total), r.s.Hits)
+		if showMax && r.s.Max > 0 {
+			line += fmt.Sprintf("  max %s", humanize(r.s.Max))
+		}
+		lines = append(lines, th.fg(th.text).Render(truncate(line, w)))
+	}
+	// the biggest single melee hit overall (auto-attack + specials) — a short line,
+	// shown even before any skill has landed.
+	if you := playerStat(cur); you.Max > 0 {
+		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %6s", "Max hit", humanize(you.Max)), w)))
 	}
 	lines = append(lines, "", th.fg(th.accent).Bold(true).Render("ACCURACY"))
 	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
