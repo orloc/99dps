@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -179,15 +181,15 @@ func (m *Model) applyLeftSetting(sel int) {
 	case settingsDamageRow:
 		m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
 		_ = saveLayoutPrefs(m.layoutPrefs)
-		m.flash("Damage meter: " + m.layoutPrefs.Damage.String())
+		m.flash("✓ saved · Damage meter " + m.layoutPrefs.Damage.String())
 	case settingsOffDefRow:
 		m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
 		_ = saveLayoutPrefs(m.layoutPrefs)
-		m.flash("Offense · Defense: " + m.layoutPrefs.OffDef.String())
+		m.flash("✓ saved · Offense · Defense " + m.layoutPrefs.OffDef.String())
 	default:
 		if v, ok := voiceIndex(m.settingsVoices(), sel-settingsFixedRows); ok {
 			m.speaker.SetVoice(v.ID)
-			m.flash("voice: " + v.Name)
+			m.flash("✓ saved · voice " + v.Name)
 			m.persistAudioPrefs()
 		}
 	}
@@ -206,7 +208,7 @@ func (m *Model) toggleCue(idx int) {
 	if m.cues.enabled(r.id, r.def) {
 		state = "on"
 	}
-	m.flash(r.label + ": " + state)
+	m.flash("✓ saved · " + r.label + " " + state)
 }
 
 func voiceIndex(voices []tts.Voice, i int) (tts.Voice, bool) {
@@ -255,7 +257,13 @@ func (m Model) settingsView(th theme, w int) string {
 	right, _ := m.rightSettingsColumn(th, rightW)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, settingsColBlock(left, leftW+settingsGapW), lines(right...))
 	help := paint(th, th.dim, "↑/↓ move · ←/→ switch column · enter toggle/cycle · p preview voice · tab or click to switch tab", w)
-	return lines(body, "", help)
+	// a transient confirmation that the last toggle/cycle was saved — the line is
+	// always present (blank when idle) so the layout doesn't jump when it appears.
+	flash := ""
+	if m.status != "" && time.Now().Unix()-m.statusAt <= statusGraceSec {
+		flash = th.fg(th.accent).Bold(true).Render(truncate(m.status, w))
+	}
+	return lines(body, "", help, flash)
 }
 
 // settingsColBlock pads every line to exactly w (truncating already done at

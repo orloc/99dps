@@ -95,3 +95,23 @@ func TestSettingsRightColumnToggle(t *testing.T) {
 		t.Errorf("the cue toggle should persist to disk")
 	}
 }
+
+// TestSettingsFlashConfirmsSave: toggling a cue surfaces a saved-confirmation
+// flash on the Settings page, so the user can see the (silent) toggle stuck.
+func TestSettingsFlashConfirmsSave(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	sm, tr := monkScene()
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 34})
+	mm := m.(Model)
+	mm.screen = screenSettings
+
+	r, _ := mm.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	mm = r.(Model)
+	r, _ = mm.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	mm = r.(Model)
+
+	if !strings.Contains(mm.View(), "saved") {
+		t.Error("toggling a cue should show a saved-confirmation flash on the settings page")
+	}
+}
