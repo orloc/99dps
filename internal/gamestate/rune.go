@@ -41,13 +41,14 @@ type RuneShield struct {
 	Pool int
 }
 
-// RuneShields returns the player's active absorb buffs (in depletion order) and
-// how many blows the runes have soaked since they were last (re)cast. The caller
-// turns blows into absorbed damage using the mobs' average hit, then drains the
-// shields in order to estimate what's left.
-func (t *Tracker) RuneShields(now int64) (shields []RuneShield, absorbedBlows int) {
+// RuneShields returns the player's active absorb buffs (in depletion order), how
+// many blows the runes have soaked since they were last (re)cast, and the mob that
+// landed the most recent soaked blow (or "" — the one to size the average hit by).
+// The caller turns blows into absorbed damage using that mob's average hit, then
+// drains the shields in order to estimate what's left.
+func (t *Tracker) RuneShields(now int64) (shields []RuneShield, absorbedBlows int, attacker string) {
 	if t == nil {
-		return nil, 0
+		return nil, 0, ""
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -59,5 +60,5 @@ func (t *Tracker) RuneShields(now int64) (shields []RuneShield, absorbedBlows in
 			}
 		}
 	}
-	return shields, t.runeAbsorbs
+	return shields, t.runeAbsorbs, t.runeAttacker
 }

@@ -34,14 +34,22 @@ func (m Model) classBoxView(w, h int) string {
 	iw := max(w-4, 1)
 	now := time.Now().Unix()
 
-	shields, blows := m.tracker.RuneShields(now)
+	shields, blows, attacker := m.tracker.RuneShields(now)
 	if len(shields) == 0 {
 		return th.fg(th.dim).Render(truncate("no rune up", iw))
 	}
 
+	// size the estimate by the attacker's own recent (last 30 min) average hit, so
+	// it's specific to what's beating on the rune; fall back to all mobs.
 	avg, haveAvg := 0, false
 	if m.sm != nil {
-		avg, haveAvg = m.sm.MobStats().Overall() // mob's typical melee hit
+		mi := m.sm.MobStats()
+		if attacker != "" {
+			avg, haveAvg = mi.AvgHit(attacker, now)
+		}
+		if !haveAvg {
+			avg, haveAvg = mi.Overall(now)
+		}
 	}
 	rem := runeRemaining(shields, blows, avg)
 

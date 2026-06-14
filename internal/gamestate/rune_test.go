@@ -26,7 +26,7 @@ func TestRuneShields(t *testing.T) {
 	tr.BeginCast("Rune V", now)
 	tr.Observe("A coat of shimmering runes surround you.", now)
 
-	shields, blows := tr.RuneShields(now + 1)
+	shields, blows, _ := tr.RuneShields(now + 1)
 	if len(shields) != 2 || shields[0].Name != "Bedlam" || shields[1].Name != "Rune V" {
 		t.Fatalf("want [Bedlam, Rune V] in depletion order, got %+v", shields)
 	}
@@ -37,18 +37,18 @@ func TestRuneShields(t *testing.T) {
 		t.Errorf("fresh runes → 0 blows, got %d", blows)
 	}
 
-	// each "magical skin absorbs the blow" is one soaked blow
+	// each "magical skin absorbs the blow" is one soaked blow; the attacker is captured
 	for i := 0; i < 3; i++ {
-		tr.Observe("a spectre tries to hit YOU, but YOUR magical skin absorbs the blow!", now+2)
+		tr.Observe("A spectre tries to hit YOU, but YOUR magical skin absorbs the blow!", now+2)
 	}
-	if _, blows := tr.RuneShields(now + 3); blows != 3 {
-		t.Errorf("want 3 absorbed blows, got %d", blows)
+	if _, blows, attacker := tr.RuneShields(now + 3); blows != 3 || attacker != "A spectre" {
+		t.Errorf("want 3 blows from 'A spectre', got %d from %q", blows, attacker)
 	}
 
-	// recasting a rune resets the estimate
+	// recasting a rune resets the estimate (count + attacker)
 	tr.BeginCast("Rune V", now+4)
 	tr.Observe("A coat of shimmering runes surround you.", now+4)
-	if _, blows := tr.RuneShields(now + 5); blows != 0 {
-		t.Errorf("a recast should reset the blow count, got %d", blows)
+	if _, blows, attacker := tr.RuneShields(now + 5); blows != 0 || attacker != "" {
+		t.Errorf("a recast should reset the estimate, got %d blows / %q", blows, attacker)
 	}
 }
