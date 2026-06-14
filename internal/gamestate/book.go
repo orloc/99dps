@@ -26,6 +26,17 @@ const (
 	minFields    = 84 // we read up to index 83
 )
 
+// genericBuffEmotes are cast-on-you lines for beneficial effects other players
+// commonly put on you (e.g. group regen). They are NOT click-items, many real
+// spells share each line, and we can't time an unknown caster's buff honestly —
+// so they must not be indexed as self-clickies, where a stray mislabeled instant
+// entry would otherwise claim them (the real spells_us "Aura of Battle" #1499 is
+// an instant buff whose emote is "You begin to regenerate.", which made any group
+// regen show up as Aura of Battle).
+var genericBuffEmotes = map[string]bool{
+	"You begin to regenerate.": true,
+}
+
 // Spell is the decoded subset of one spells_us.txt row.
 type Spell struct {
 	Name        string
@@ -172,7 +183,7 @@ func LoadReader(r io.Reader) (*Book, error) {
 		// hostile proc's cast_on_you emote is owned by the incoming-debuff path
 		// (incoming.go) — indexing it here would spawn a duplicate ON-YOU timer.
 		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" && !s.Detrimental &&
-			!strings.Contains(strings.ToLower(s.Name), "test") {
+			!strings.Contains(strings.ToLower(s.Name), "test") && !genericBuffEmotes[s.CastOnYou] {
 			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s
 			}
