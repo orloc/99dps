@@ -124,50 +124,89 @@ const (
 )
 
 // updateSettings handles input while the Settings tab is focused (tab-navigation
-// keys are consumed earlier, in Update).
+// keys are consumed earlier, in Update). The tab has two columns — left/right (or
+// h/l) switch focus, up/down moves within the focused column, enter/space acts.
 func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	voices := m.settingsVoices()
-	last := settingsFixedRows + len(voices) - 1
 	switch km.String() {
+	case "left", "h":
+		m.settingsCol = 0
+	case "right", "l":
+		m.settingsCol = 1
 	case "up", "k":
-		if m.settingsSel > 0 {
-			m.settingsSel--
+		if m.settingsCol == 0 {
+			if m.settingsSel > 0 {
+				m.settingsSel--
+			}
+		} else if m.cueSel > 0 {
+			m.cueSel--
 		}
 	case "down", "j":
-		if m.settingsSel < last {
-			m.settingsSel++
+		if m.settingsCol == 0 {
+			if last := settingsFixedRows + len(m.settingsVoices()) - 1; m.settingsSel < last {
+				m.settingsSel++
+			}
+		} else if last := len(cueToggles(cueRows())) - 1; m.cueSel < last {
+			m.cueSel++
 		}
 	case "enter", " ":
-		switch m.settingsSel {
-		case settingsAudioRow:
-			m.toggleTTS()
-			m.persistAudioPrefs()
-		case settingsDamageRow:
-			m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
-			_ = saveLayoutPrefs(m.layoutPrefs)
-			m.flash("Damage meter: " + m.layoutPrefs.Damage.String())
-		case settingsOffDefRow:
-			m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
-			_ = saveLayoutPrefs(m.layoutPrefs)
-			m.flash("Offense · Defense: " + m.layoutPrefs.OffDef.String())
-		default:
-			if v, ok := voiceIndex(voices, m.settingsSel-settingsFixedRows); ok {
-				m.speaker.SetVoice(v.ID)
-				m.flash("voice: " + v.Name)
-				m.persistAudioPrefs()
-			}
+		if m.settingsCol == 0 {
+			m.applyLeftSetting(m.settingsSel)
+		} else {
+			m.toggleCue(m.cueSel)
 		}
 	case "p":
-		if v, ok := voiceIndex(voices, m.settingsSel-settingsFixedRows); ok {
-			m.speaker.SetVoice(v.ID)
-			m.speaker.Say("Audio cue test.")
+		if m.settingsCol == 0 {
+			if v, ok := voiceIndex(m.settingsVoices(), m.settingsSel-settingsFixedRows); ok {
+				m.speaker.SetVoice(v.ID)
+				m.speaker.Say("Audio cue test.")
+			}
 		}
 	}
 	return m, nil
+}
+
+// applyLeftSetting performs the left-column action for selectable row sel
+// (audio toggle, meter-box cycles, or voice select).
+func (m *Model) applyLeftSetting(sel int) {
+	switch sel {
+	case settingsAudioRow:
+		m.toggleTTS()
+		m.persistAudioPrefs()
+	case settingsDamageRow:
+		m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
+		_ = saveLayoutPrefs(m.layoutPrefs)
+		m.flash("Damage meter: " + m.layoutPrefs.Damage.String())
+	case settingsOffDefRow:
+		m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
+		_ = saveLayoutPrefs(m.layoutPrefs)
+		m.flash("Offense · Defense: " + m.layoutPrefs.OffDef.String())
+	default:
+		if v, ok := voiceIndex(m.settingsVoices(), sel-settingsFixedRows); ok {
+			m.speaker.SetVoice(v.ID)
+			m.flash("voice: " + v.Name)
+			m.persistAudioPrefs()
+		}
+	}
+}
+
+// toggleCue flips the cue toggle at right-column index idx and persists it.
+func (m *Model) toggleCue(idx int) {
+	toggles := cueToggles(cueRows())
+	if idx < 0 || idx >= len(toggles) {
+		return
+	}
+	r := toggles[idx]
+	m.cues.toggle(r.id, r.def)
+	_ = saveCuePrefs(m.cues)
+	state := "off"
+	if m.cues.enabled(r.id, r.def) {
+		state = "on"
+	}
+	m.flash(r.label + ": " + state)
 }
 
 func voiceIndex(voices []tts.Voice, i int) (tts.Voice, bool) {
@@ -186,9 +225,58 @@ func (m *Model) persistAudioPrefs() {
 	_ = tts.SavePrefs(tts.Prefs{Configured: true, Enabled: m.ttsOn, Voice: voice})
 }
 
-// settingsView renders the Settings tab body. Each line is truncated to w before
-// coloring so the colored output still fits.
+// settingsGapW is the blank gutter between the two settings columns; it's folded
+// into the left column's padded width so the right column starts at a fixed X
+// (gridX + leftW + settingsGapW), which the click hit-test relies on.
+const settingsGapW = 3
+
+// settingsColWidths splits the inner width into the left controls column and the
+// right cue-matrix column.
+func settingsColWidths(innerW int) (leftW, rightW int) {
+	leftW = (innerW - settingsGapW) / 2
+	if leftW < 24 {
+		leftW = 24
+	}
+	if leftW > innerW {
+		leftW = innerW
+	}
+	rightW = innerW - settingsGapW - leftW
+	if rightW < 1 {
+		rightW = 1
+	}
+	return
+}
+
+// settingsView renders the Settings tab body: the existing controls on the left,
+// the audio-cue matrix on the right, with a key-hint line beneath.
 func (m Model) settingsView(th theme, w int) string {
+	leftW, rightW := settingsColWidths(w)
+	left, _ := m.leftSettingsColumn(th, leftW)
+	right, _ := m.rightSettingsColumn(th, rightW)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, settingsColBlock(left, leftW+settingsGapW), lines(right...))
+	help := paint(th, th.dim, "↑/↓ move · ←/→ switch column · enter toggle/cycle · p preview voice · tab or click to switch tab", w)
+	return lines(body, "", help)
+}
+
+// settingsColBlock pads every line to exactly w (truncating already done at
+// render) so the block has a fixed width and the next column lands predictably.
+func settingsColBlock(ls []string, w int) string {
+	style := lipgloss.NewStyle().Width(w)
+	out := make([]string, len(ls))
+	for i, l := range ls {
+		out[i] = style.Render(l)
+	}
+	return lines(out...)
+}
+
+// leftSettingsColumn builds the left controls column. It returns the rendered
+// lines plus a parallel slice mapping each line to its selectable row index
+// (settingsSel semantics: audio/damage/offdef/voice…), or -1 for a non-row line.
+// Render and click hit-test share this so they can't drift.
+func (m Model) leftSettingsColumn(th theme, w int) (out []string, sel []int) {
+	focused := m.settingsCol == 0
+	add := func(line string, s int) { out = append(out, line); sel = append(sel, s) }
+
 	audio := "off"
 	if m.speaker == nil || !m.speaker.Available() {
 		audio = "no voice — run -tts-setup"
@@ -196,50 +284,87 @@ func (m Model) settingsView(th theme, w int) string {
 		audio = "on"
 	}
 
-	out := []string{
-		paint(th, th.accent, "Audio cues", w),
-		"",
-		menuRow(th, m.settingsSel == settingsAudioRow, "Audio cues: "+audio, w),
-		"",
-		paint(th, th.accent, "Meter boxes", w),
-		"",
-		menuRow(th, m.settingsSel == settingsDamageRow, "Damage meter: "+m.layoutPrefs.Damage.String(), w),
-		menuRow(th, m.settingsSel == settingsOffDefRow, "Offense · Defense: "+m.layoutPrefs.OffDef.String(), w),
-		"",
-		paint(th, th.accent, "Voice", w),
-	}
-	out = append(out, m.settingsVoiceLines(th, w)...)
-	out = append(out, "", paint(th, th.dim, "↑/↓ move · enter toggle/cycle/select · p preview · tab or click to switch", w))
-	return lines(out...)
-}
+	add(paint(th, th.accent, "Audio cues", w), -1)
+	add("", -1)
+	add(menuRow(th, focused && m.settingsSel == settingsAudioRow, "Audio cues: "+audio, w), settingsAudioRow)
+	add("", -1)
+	add(paint(th, th.accent, "Meter boxes", w), -1)
+	add("", -1)
+	add(menuRow(th, focused && m.settingsSel == settingsDamageRow, "Damage meter: "+m.layoutPrefs.Damage.String(), w), settingsDamageRow)
+	add(menuRow(th, focused && m.settingsSel == settingsOffDefRow, "Offense · Defense: "+m.layoutPrefs.OffDef.String(), w), settingsOffDefRow)
+	add("", -1)
+	add(paint(th, th.accent, "Voice", w), -1)
 
-// settingsVoiceLines renders a windowed voice list, marking the current voice (●)
-// and the cursor (▸).
-func (m Model) settingsVoiceLines(th theme, w int) []string {
 	voices := m.settingsVoices()
 	if len(voices) == 0 {
-		return []string{paint(th, th.dim, "  (download a voice first)", w)}
+		add(paint(th, th.dim, "  (download a voice first)", w), -1)
+		return
 	}
 	cur := ""
 	if m.speaker != nil {
 		cur = m.speaker.Voice()
 	}
 	const visN = 8
-	sel := m.settingsSel - settingsFixedRows // voice index (negative on a fixed row)
-	start := sel - visN/2
+	selIdx := m.settingsSel - settingsFixedRows // voice index (negative on a fixed row)
+	start := selIdx - visN/2
 	if start < 0 {
 		start = 0
 	}
 	if start+visN > len(voices) {
 		start = max(0, len(voices)-visN)
 	}
-	var out []string
 	for i := start; i < len(voices) && i < start+visN; i++ {
 		mark := "  "
 		if voices[i].ID == cur {
 			mark = "● "
 		}
-		out = append(out, menuRow(th, i == sel, mark+voiceLabel(voices[i]), w))
+		add(menuRow(th, focused && i == selIdx, mark+voiceLabel(voices[i]), w), settingsFixedRows+i)
 	}
-	return out
+	return
+}
+
+// rightSettingsColumn builds the cue-matrix column. It returns the rendered lines
+// plus a parallel slice mapping each line to its cue-toggle index (cueSel), or -1
+// for a header/blank line.
+func (m Model) rightSettingsColumn(th theme, w int) (out []string, sel []int) {
+	focused := m.settingsCol == 1
+	add := func(line string, s int) { out = append(out, line); sel = append(sel, s) }
+
+	add(paint(th, th.accent, "Cue settings", w), -1)
+	add("", -1)
+	idx := 0
+	for _, r := range cueRows() {
+		if r.header {
+			add(paint(th, th.dim, r.label, w), -1)
+			continue
+		}
+		box := "[ ] "
+		if m.cues.enabled(r.id, r.def) {
+			box = "[x] "
+		}
+		add(menuRow(th, focused && idx == m.cueSel, box+r.label, w), idx)
+		idx++
+	}
+	return
+}
+
+// settingsClickAt resolves a click to a settings column + selectable index. The
+// body starts at gridTop; the right column starts at gridX+leftW+settingsGapW.
+func (m Model) settingsClickAt(x, y int) (col, selIdx int, ok bool) {
+	line := y - gridTop
+	if line < 0 {
+		return 0, 0, false
+	}
+	th := themes[m.theme]
+	leftW, rightW := settingsColWidths(m.w - 2)
+	if x >= gridX+leftW+settingsGapW {
+		if _, s := m.rightSettingsColumn(th, rightW); line < len(s) && s[line] >= 0 {
+			return 1, s[line], true
+		}
+		return 0, 0, false
+	}
+	if _, s := m.leftSettingsColumn(th, leftW); line < len(s) && s[line] >= 0 {
+		return 0, s[line], true
+	}
+	return 0, 0, false
 }

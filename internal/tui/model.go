@@ -79,7 +79,9 @@ type Model struct {
 	charmAnnounced     bool
 	resistAnnounced    string
 	feignFailAnnounced bool
-	cdReady            map[string]bool // long cooldown name → was-ready last tick
+	cdReady            map[string]bool // cooldown name → was-ready last tick
+	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
+	cues               cuePrefs        // which cues fire (per-skill / per-category toggles)
 	cueSeq             int
 
 	// transient status banner (character switch, action feedback, edit prompt),
@@ -100,7 +102,9 @@ type Model struct {
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
 	setup       setupState
-	settingsSel int         // selected row on the Settings tab
+	settingsSel int         // selected row in the Settings left column
+	settingsCol int         // focused Settings column: 0 = left, 1 = cue matrix
+	cueSel      int         // selected toggle in the Settings cue matrix (right column)
 	layoutPrefs layoutPrefs // per-box meter visibility (Damage / Offense·Defense)
 
 	w, h  int
@@ -111,7 +115,8 @@ type Model struct {
 func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
-		speaker: tts.New(), announced: map[string]bool{}, cdReady: map[string]bool{},
+		speaker: tts.New(), announced: map[string]bool{},
+		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
 	}
 }
 
@@ -316,13 +321,26 @@ func (m *Model) announceCuesAt(now int64) {
 	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
 		return
 	}
+	// lazily ensure the transition-tracking maps exist (a directly-constructed
+	// Model in tests, or a future field, won't have run New's init).
+	if m.cdReady == nil {
+		m.cdReady = map[string]bool{}
+	}
+	if m.cdHalf == nil {
+		m.cdHalf = map[string]bool{}
+	}
+	if m.announced == nil {
+		m.announced = map[string]bool{}
+	}
 
 	// charm break — scary and time-critical.
 	if m.tracker.CharmBroke(now) {
 		if !m.charmAnnounced {
 			m.charmAnnounced = true
-			m.speaker.SayUrgent(charmBreakPhrase(m.cueSeq))
-			m.cueSeq++
+			if m.cues.enabled(cueCharm, true) {
+				m.speaker.SayUrgent(charmBreakPhrase(m.cueSeq))
+				m.cueSeq++
+			}
 		}
 	} else {
 		m.charmAnnounced = false
@@ -332,8 +350,10 @@ func (m *Model) announceCuesAt(now int64) {
 	if m.tracker.FeignStatus(now) == gamestate.FeignFailed {
 		if !m.feignFailAnnounced {
 			m.feignFailAnnounced = true
-			m.speaker.SayUrgent(feignFailPhrase(m.cueSeq))
-			m.cueSeq++
+			if m.cues.enabled(cueFeignFail, true) {
+				m.speaker.SayUrgent(feignFailPhrase(m.cueSeq))
+				m.cueSeq++
+			}
 		}
 	} else {
 		m.feignFailAnnounced = false
@@ -343,25 +363,38 @@ func (m *Model) announceCuesAt(now int64) {
 	if spell, ok := m.tracker.Resisted(now); ok {
 		if spell != m.resistAnnounced {
 			m.resistAnnounced = spell
-			m.speaker.SayUrgent(resistPhrase(spell, m.cueSeq))
-			m.cueSeq++
+			if m.cues.enabled(cueResist, true) {
+				m.speaker.SayUrgent(resistPhrase(spell, m.cueSeq))
+				m.cueSeq++
+			}
 		}
 	} else {
 		m.resistAnnounced = ""
 	}
 
-	// a long cooldown coming back up (Mend, Lay Hands, Harm Touch, disciplines).
-	// Only the long ones — short skill reuses (kick, feign) would be chatter.
+	// cooldowns recovering. Each skill's "ready" and "halfway" cues toggle
+	// independently; long reuses (Mend) default on, short ones (Kick/Feign) default
+	// off so they aren't chatter — but the user can flip any of them per skill.
 	for _, cd := range m.tracker.Cooldowns(now) {
-		if cd.Total < longCooldownSec {
-			continue
-		}
+		def := cd.Total >= longCooldownSec
 		ready := cd.Remaining <= 0
 		if was, seen := m.cdReady[cd.Name]; seen && !was && ready {
-			m.speaker.Say(cd.Name + " ready.")
-			m.cueSeq++
+			if m.cues.enabled(cueCDReady(cd.Name), def) {
+				m.speaker.Say(cd.Name + " ready.")
+				m.cueSeq++
+			}
 		}
 		m.cdReady[cd.Name] = ready // first sight just records; only false→true speaks
+
+		// halfway recovered: fires once as remaining crosses below half the reuse.
+		half := cd.Total > 0 && !ready && cd.Remaining <= cd.Total/2
+		if was, seen := m.cdHalf[cd.Name]; seen && !was && half {
+			if m.cues.enabled(cueCDHalf(cd.Name), def) {
+				m.speaker.Say(halfCooldownPhrase(cd.Name))
+				m.cueSeq++
+			}
+		}
+		m.cdHalf[cd.Name] = half
 	}
 
 	// gentle buff/debuff fades, combined into one varied utterance.
@@ -377,8 +410,10 @@ const longCooldownSec = 60
 
 // dueAnnouncements returns the low-buff phrases to speak this tick and updates
 // the announced set: each timer fires once when it first drops below its warning
-// lead, re-arming when it's refreshed or gone. Speaking is left to the caller so
-// this stays testable. Charm is skipped (it breaks before its cap, so a countdown
+// lead, re-arming when it's refreshed or gone. Each timer's type (mez / pacify /
+// debuff / buff) is gated on its cue toggle, so a disabled category stays silent
+// (but is still marked announced, so it isn't re-checked every tick). Speaking is
+// left to the caller so this stays testable. Charm is skipped (it breaks before its cap, so a countdown
 // "low" would cry wolf). Estimated incoming debuffs (the "~" ON-YOU timers) are
 // skipped too: their duration is a deliberate over-estimate, so "Slowed low" /
 // "fading" would fire at an untrustworthy moment — and a debuff ending is good
@@ -394,8 +429,10 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestat
 		live[k] = true
 		if tm.Expiry-now <= warnLeadSec(tm.Expiry-tm.Start) {
 			if !m.announced[k] {
-				m.announced[k] = true
-				due = append(due, tm)
+				m.announced[k] = true // mark regardless, so a disabled type isn't re-checked
+				if m.cues.enabled(cueIDForTimer(tm), true) {
+					due = append(due, tm)
+				}
 			}
 		} else {
 			delete(m.announced, k) // refreshed / still healthy → re-arm
@@ -467,6 +504,26 @@ func joinList(s []string) string {
 		return s[0] + " and " + s[1]
 	default:
 		return strings.Join(s[:len(s)-1], ", ") + ", and " + s[len(s)-1]
+	}
+}
+
+// halfCooldownPhrase announces a cooldown is halfway recovered (a heads-up to
+// start positioning for the next use).
+func halfCooldownPhrase(skill string) string { return skill + " halfway back." }
+
+// cueIDForTimer maps a fading timer to its cue category ID, so each type
+// (mez / pacify / debuff / buff) can be toggled independently. Charm and the
+// estimated incoming "ON YOU" timers are filtered out before this is reached.
+func cueIDForTimer(tm gamestate.Timer) string {
+	switch {
+	case tm.Mez:
+		return cueMez
+	case tm.Pacify:
+		return cuePacify
+	case tm.Detrimental:
+		return cueDebuffFade
+	default:
+		return cueBuffFade
 	}
 }
 
@@ -602,8 +659,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenSessions {
 			return m.mouseSessions(msg)
 		}
+		if m.screen == screenSettings {
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				if col, sel, ok := m.settingsClickAt(msg.X, msg.Y); ok {
+					m.settingsCol = col
+					if col == 0 {
+						m.settingsSel = sel
+						m.applyLeftSetting(sel)
+					} else {
+						m.cueSel = sel
+						m.toggleCue(sel)
+					}
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if m.screen != screenMeter {
-			return m, tea.Batch(cmds...) // the Settings tab has no mouse targets
+			return m, tea.Batch(cmds...)
 		}
 		// wheel → scroll whichever panel the cursor is over.
 		if isWheel(msg.Button) {
@@ -1303,6 +1375,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 	m.spellInfo = spellInfo
 
 	m.layoutPrefs = loadLayoutPrefs()
+	m.cues = loadCuePrefs()
 	prefs := tts.LoadPrefs()
 	m.screen = initialScreen(prefs)
 	if m.screen == screenSetup {

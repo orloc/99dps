@@ -259,6 +259,14 @@ func TestViewFitsWindow(t *testing.T) {
 				t.Errorf("%dx%d: line %d width %d > %d: %q", w, h, i, lw, w, line)
 			}
 		}
+
+		// the Settings tab's two-column layout must fit the width at every size too.
+		mm.screen = screenSettings
+		for i, line := range strings.Split(mm.View(), "\n") {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("settings %dx%d: line %d width %d > %d: %q", w, h, i, lw, w, line)
+			}
+		}
 	}
 
 	// a degenerate early size must not flip the model into rendering (stay "starting…")
