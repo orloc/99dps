@@ -220,6 +220,25 @@ func TestApplyMagic_UnattributedTotal(t *testing.T) {
 	}
 }
 
+// Bug #3: an incoming non-melee line on the player (e.g. a DoT ticking on YOU)
+// must not, on its own, open a fight. Previously ApplyMagic opened a session
+// before excluding the on-you damage, leaving an empty "Solo" session whenever
+// the first thing seen was an enemy spell landing on the player.
+func TestApplyMagic_OnYouOpensNoSession(t *testing.T) {
+	sm := &SessionManager{}
+	sm.ApplyMagic(&combat.Magic{ActionTime: 100, Target: "YOU", Dmg: 200})
+	sm.ApplyMagic(&combat.Magic{ActionTime: 101, Target: "you", Dmg: 50}) // case-insensitive
+	if n := sm.Len(); n != 0 {
+		t.Fatalf("incoming-on-you magic opened a session: Len=%d, want 0", n)
+	}
+
+	// a real enemy target still opens one
+	sm.ApplyMagic(&combat.Magic{ActionTime: 102, Target: "a rat", Dmg: 30})
+	if n := sm.Len(); n != 1 {
+		t.Fatalf("enemy magic should open a session: Len=%d, want 1", n)
+	}
+}
+
 // Bug #1: previously the first parsed line opened a fresh session and
 // immediately rolled into a second one, because the threshold check compared
 // set.ActionTime against an uninitialized LastTime == 0 — the unix-epoch gap

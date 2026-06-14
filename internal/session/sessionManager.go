@@ -2,6 +2,7 @@ package session
 
 import (
 	"99dps/internal/combat"
+	"strings"
 	"sync"
 	"time"
 )
@@ -171,6 +172,12 @@ func (sm *SessionManager) endSessionLocked(at int64) {
 // combat exchange, so it drives segmentation (and can open a fight for a pure
 // caster the mob never melees back).
 func (sm *SessionManager) ApplyMagic(m *combat.Magic) {
+	// incoming spell damage on the player isn't an enemy combat exchange — it
+	// adds nothing (applyMagicLocked discards it) and must not drive segmentation,
+	// or an idle DoT tick would open empty "Solo" sessions.
+	if strings.EqualFold(m.Target, "YOU") {
+		return
+	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.activeForLocked(m.ActionTime, m.Target).applyMagicLocked(m)
