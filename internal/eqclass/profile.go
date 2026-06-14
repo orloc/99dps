@@ -42,7 +42,7 @@ var profiles = map[Class]Profile{
 
 	// hybrid
 	ClassPaladin:      {Category: CatHybrid},
-	ClassShadowKnight: {Category: CatHybrid},
+	ClassShadowKnight: {Category: CatHybrid, Feign: true},  // Feign Death spell
 	ClassRanger:       {Category: CatHybrid, Pacify: true}, // Harmony
 	ClassBard:         {Category: CatHybrid, Mez: true, Charm: true},
 	ClassBeastlord:    {Category: CatHybrid},

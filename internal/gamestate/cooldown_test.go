@@ -97,8 +97,10 @@ func TestFeignStatus(t *testing.T) {
 
 	// attempt via macro: pending during the grace window, then OK with no fail
 	tr.FeignAttempt(1000)
-	if tr.Class() != eqclass.ClassMonk {
-		t.Errorf("feign attempt should infer Monk, got %q", tr.Class())
+	// feign is not class-exclusive (Monk skill / SK-Necro spell), so it must NOT
+	// infer a class — Monks are identified by Mend/Kick/who instead.
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("feign attempt should infer no class, got %q", tr.Class())
 	}
 	// the attempt also starts the 11s FD reuse cooldown
 	if cds := tr.Cooldowns(1000); len(cds) != 1 || cds[0].Name != "Feign Death" || cds[0].Remaining != feignReuseSec {
@@ -131,6 +133,36 @@ func TestFeignStatus(t *testing.T) {
 	tr.Clear()
 	if tr.FeignStatus(2002) != FeignNone {
 		t.Error("Clear should reset feign state")
+	}
+}
+
+// TestFeignSpell: the SK/Necro Feign Death is a spell — its cast is the attempt
+// (reuse = the spell's recast), success is the absence of a fizzle/interrupt, and
+// a fizzle marks it failed. It infers no class (SK and Necro both cast it).
+func TestFeignSpell(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Feign Death", fCastTime: "1500", fRecastTime: "12000", fGoodEffect: "1",
+	}))
+	tr := NewTracker(b)
+
+	// casting it is the attempt → 12s reuse (the spell's recast), no class inferred
+	tr.BeginCast("Feign Death", 1000)
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("casting Feign Death must infer no class, got %q", tr.Class())
+	}
+	if cds := tr.Cooldowns(1000); len(cds) != 1 || cds[0].Name != "Feign Death" || cds[0].Remaining != 12 {
+		t.Fatalf("spell feign should start a 12s cooldown, got %+v", cds)
+	}
+	// no fizzle/interrupt → success once the grace window passes
+	if s := tr.FeignStatus(1003); s != FeignOK {
+		t.Errorf("a clean spell cast should read FeignOK, got %v", s)
+	}
+
+	// a fizzle on the cast marks it failed
+	tr.BeginCast("Feign Death", 2000)
+	tr.Observe("Your spell fizzles!", 2000)
+	if s := tr.FeignStatus(2001); s != FeignFailed {
+		t.Errorf("a fizzled feign cast should read FeignFailed, got %v", s)
 	}
 }
 

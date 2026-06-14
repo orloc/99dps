@@ -186,24 +186,23 @@ const (
 	feignFailShowSec  = 8 // how long a failure alert stays up
 )
 
-// feignReuseSec is the Feign Death reuse. Measured from real spam logs: the
-// macro fires on each FD activation, consistently 11s apart, and a failed feign
-// consumes the timer too.
+// feignReuseSec is the Monk Feign Death reuse — the skill recasts fast.
+// Measured from real spam logs: the macro fires on each FD activation,
+// consistently 11s apart, and a failed feign consumes the timer too. The
+// SK/Necro feign is a *spell*, so its reuse is the book's recast (see BeginCast).
 const feignReuseSec = 11
 
 // feignAttemptLocked records that the player initiated a feign and starts the FD
-// reuse countdown. Returns ClassMonk (the inferred class). Caller holds lock.
-func (c *cooldownTracker) feignAttemptLocked(at int64) eqclass.Class {
+// reuse countdown for the given reuse length. Feign is NOT class-exclusive (Monk
+// skill, SK/Necro spell), so it deliberately infers no class. Caller holds lock.
+func (c *cooldownTracker) feignAttemptLocked(at, reuseSec int64) {
 	c.feignAttemptAt = at
-	c.cooldowns["Feign Death"] = cdState{expiry: at + feignReuseSec, total: feignReuseSec}
-	return eqclass.ClassMonk
+	c.cooldowns["Feign Death"] = cdState{expiry: at + reuseSec, total: reuseSec}
 }
 
-// feignFailedLocked records the player's failed feign. Returns ClassMonk.
-// Caller holds lock.
-func (c *cooldownTracker) feignFailedLocked(at int64) eqclass.Class {
+// feignFailedLocked records the player's failed feign. Caller holds lock.
+func (c *cooldownTracker) feignFailedLocked(at int64) {
 	c.feignFailAt = at
-	return eqclass.ClassMonk
 }
 
 // feignStatusLocked reports the current feign banner state at `now`. Caller
@@ -288,27 +287,28 @@ func (c *cooldownTracker) timersLocked(now int64) []CooldownTimer {
 
 // --- Tracker facade: lock the shared mutex, delegate, apply any inferred class ---
 
-// FeignAttempt records that the player initiated a feign (detected via their
-// custom macro line) and starts the FD reuse countdown. Seeing it also infers
-// the class as Monk.
+// FeignAttempt records a Monk feign — detected via the player's custom macro
+// line, since the skill has no success message — and starts the ~11s skill
+// reuse. Feign isn't class-exclusive (SK/Necro feign too, via a spell), so it
+// infers no class; Monks are still identified by Mend/Kick/who.
 func (t *Tracker) FeignAttempt(at int64) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
-	t.inferClassLocked(t.cool.feignAttemptLocked(at))
+	t.cool.feignAttemptLocked(at, feignReuseSec)
 	t.mu.Unlock()
 }
 
 // FeignFailed records the player's failed feign (mobs still attacking). The
-// parser gates this to the player's own line so another monk's fail in the zone
-// doesn't trip it.
+// parser gates this to the player's own line so another player's fail in the
+// zone doesn't trip it. Infers no class (see FeignAttempt).
 func (t *Tracker) FeignFailed(at int64) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
-	t.inferClassLocked(t.cool.feignFailedLocked(at))
+	t.cool.feignFailedLocked(at)
 	t.mu.Unlock()
 }
 

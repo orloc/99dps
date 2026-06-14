@@ -73,9 +73,9 @@ func TestProfileCapabilities(t *testing.T) {
 		}
 	}
 
-	// Feign Death is the two feign classes only
+	// Feign Death belongs to the three feign classes only (Monk skill; SK/Necro spell)
 	for _, c := range classList {
-		want := c == ClassMonk || c == ClassNecromancer
+		want := c == ClassMonk || c == ClassNecromancer || c == ClassShadowKnight
 		if got := ProfileOf(c).Feign; got != want {
 			t.Errorf("%s feign = %v, want %v", c, got, want)
 		}

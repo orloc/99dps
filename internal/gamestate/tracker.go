@@ -195,6 +195,16 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 	if strings.HasPrefix(spellName, "Cannibalize") {
 		t.canni.recordCastLocked(t.book, spellName, at)
 	}
+	// SK/Necro Feign Death is a spell, so its cast IS the feign attempt (unlike the
+	// Monk skill, which logs no cast and is caught by the macro). Success is the
+	// absence of a fizzle/interrupt; the reuse is the spell's own recast.
+	if spellName == "Feign Death" {
+		reuse := int64(feignReuseSec)
+		if t.pending != nil && t.pending.RecastMs > 0 {
+			reuse = int64(t.pending.RecastMs+999) / 1000
+		}
+		t.cool.feignAttemptLocked(at, reuse)
+	}
 }
 
 // BreakCCOnTarget clears a target's mez and pacify timers — both break the
@@ -289,6 +299,9 @@ func (t *Tracker) Observe(body string, at int64) {
 	// a fizzled or interrupted cast never happened — drop the pending cast.
 	if t.pending != nil && strings.HasPrefix(body, "Your ") &&
 		(strings.Contains(body, "fizzle") || strings.Contains(body, "interrupt")) {
+		if t.pending.Name == "Feign Death" {
+			t.cool.feignFailedLocked(at) // the SK/Necro feign spell didn't go off
+		}
 		t.pending = nil
 	}
 	// "Your target resisted the X spell." — the cast didn't land on that mob.
