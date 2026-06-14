@@ -293,12 +293,13 @@ func (t *Tracker) Observe(body string, at int64) {
 	// matcher, not a mutually-exclusive dispatch. Each matcher is itself cheap:
 	// it either early-returns on a prefix screen or is a no-op when its state is
 	// empty (e.g. the timer scans below short-circuit when no timers are active).
-	hadPending := t.pending != nil
-	t.matchLandingLocked(body, at)
-	// an instant clicky self-buff (Journeyman Boots etc.) emits no cast line, so
-	// it never sets a pending cast — match its landing emote directly. Only when
-	// nothing was pending, so a normal cast's landing isn't double-counted.
-	if !hadPending {
+	landed := t.matchLandingLocked(body, at)
+	// an instant clicky self-buff (Journeyman Boots etc.) emits no cast line, so it
+	// never sets a pending cast — match its landing emote directly. Skip only when
+	// THIS line was the pending spell's own landing (so a normal cast isn't double-
+	// counted) — NOT merely because some earlier cast is still pending, which used
+	// to hide clickies during an enchanter's near-constant casting.
+	if !landed {
 		t.matchSelfClickyLocked(body, at)
 		// registered insta-clickies whose effect emote isn't in spells_us (or that
 		// emit no spell message at all) — matched by their item-specific line.
@@ -346,19 +347,25 @@ func (t *Tracker) matchSelfClickyLocked(body string, at int64) {
 	}
 }
 
-func (t *Tracker) matchLandingLocked(body string, at int64) {
+// matchLandingLocked tries to resolve the current line as the PENDING spell's
+// landing. It reports whether this line was that landing (or charm completion) —
+// so the caller knows not to also treat it as a self-clicky. A line that isn't
+// the pending spell's landing returns false even while a cast is still pending,
+// so an insta-clicky (Journeyman Boots → "Your feet feel quick.") clicked while
+// an unrelated cast lingers still gets matched as a clicky.
+func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 	if t.pending == nil {
-		return
+		return false
 	}
 	if at*1000 < t.pendingAt*1000+int64(t.pending.CastTimeMs)-600 {
-		return // a landing can't arrive before the cast bar finishes
+		return false // a landing can't arrive before the cast bar finishes
 	}
 
 	// charm has no landing emote — start it on cast completion (counts up,
 	// cleared by the "worn off" break message rather than a fixed expiry)
 	if t.pending.Charm {
 		t.startCharmLocked(at)
-		return
+		return true
 	}
 
 	var target string
@@ -379,10 +386,10 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		if at > t.pendingAt+castSec+landWindowSec {
 			t.pending = nil
 		}
-		return
+		return false
 	}
 	if target == "" {
-		return
+		return false
 	}
 
 	dur := t.pending.DurationSeconds(t.levelOrDefault())
@@ -390,8 +397,8 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 		dur = t.pending.PacifyDurationSeconds(t.levelOrDefault()) // P99 calm/pacify/wake times
 	}
 	if dur <= 0 {
-		t.pending = nil // instant spell — nothing to time
-		return
+		t.pending = nil // instant spell — nothing to time, but it WAS the landing
+		return true
 	}
 	t.addOrRefreshTimerLocked(Timer{
 		Spell:       t.pending.Name,
@@ -406,6 +413,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) {
 	// own emote line, so we keep matching until the cast window (landWindowSec)
 	// expires the pending cast or a new cast supersedes it. (Same-named mobs in
 	// that AoE each get their own instance via addOrRefreshTimerLocked.)
+	return true
 }
 
 // addOrRefreshTimerLocked stores a freshly-landed timer, deciding whether it

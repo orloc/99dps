@@ -39,3 +39,31 @@ func TestSelfClickyRegenExcludedBootsKept(t *testing.T) {
 		t.Errorf("expected only J-Boots tracked, got %+v", act)
 	}
 }
+
+// TestSelfClickyWhileCastPending: an insta-clicky must still be tracked when an
+// unrelated cast is still pending (it just hasn't matched a landing). An
+// enchanter is almost always mid-cast, so the old "skip clickies whenever a cast
+// is pending" rule hid J-Boots entirely.
+func TestSelfClickyWhileCastPending(t *testing.T) {
+	b := loadBook(t,
+		malo(), // a debuff to cast — leaves a lingering pending (its landing never comes)
+		row(map[int]string{
+			fName: "JourneymanBoots", fCastOnYou: "Your feet feel quick.",
+			fCastTime: "0", fDurFormula: "3", fDurCap: "180", fGoodEffect: "1",
+		}),
+	)
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	tr.BeginCast("Malosini", 1000) // a cast that never lands (resisted) → pending lingers
+	tr.Observe("Your feet feel quick.", 1002)
+
+	found := false
+	for _, tm := range tr.Active(1003) {
+		if tm.Spell == "JourneymanBoots" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("an insta-clicky should track even with a lingering pending cast")
+	}
+}
