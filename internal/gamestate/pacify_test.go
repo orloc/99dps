@@ -10,6 +10,33 @@ func wakeSpell() string { // Wake of Tranquility: uncapped (cap 0) → ~7 min at
 	return row(map[int]string{fName: "Wake of Tranquility", fCastOnOther: " looks less aggressive.", fCastTime: "4500", fDurFormula: "8", fDurCap: "0", fGoodEffect: "0"})
 }
 
+// TestDismissTargetKeepsSelfCC: an AoE pacify/mez (Wake of Tranquility) can catch
+// the player, landing on "You". Dismissing your buffs must not clear it — it's a
+// detrimental effect on you, not one of your buffs.
+func TestDismissTargetKeepsSelfCC(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.timers[key("Wake of Tranquility", "You")] = Timer{Spell: "Wake of Tranquility", Target: "You", Pacify: true, Detrimental: true, Expiry: 9999}
+	tr.timers[key("Clarity", "You")] = Timer{Spell: "Clarity", Target: "You", Expiry: 9999}
+
+	tr.DismissTarget("You")
+
+	wake, clar := false, false
+	for _, tm := range tr.Active(0) {
+		switch tm.Spell {
+		case "Wake of Tranquility":
+			wake = true
+		case "Clarity":
+			clar = true
+		}
+	}
+	if !wake {
+		t.Error("an AoE pacify that caught you must survive a buff dismiss")
+	}
+	if clar {
+		t.Error("dismissing your buffs should still clear the buff")
+	}
+}
+
 // TestPacify_Durations matches the P99 wiki: Calm 180s (30 ticks), Wake of
 // Tranquility ~7 min (uncapped). No +1 cast-tick, unlike a buff.
 func TestPacify_Durations(t *testing.T) {

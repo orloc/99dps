@@ -313,7 +313,12 @@ func timerColumn(th theme, tr *gamestate.Tracker, w int, hover string, wantCC, w
 		bySoonest(cc)
 		lines = append(lines, th.fg(th.accent).Bold(true).Render("CROWD CONTROL"))
 		for _, tm := range cc {
-			targets[len(lines)] = tm.Target
+			// a CC that landed on YOU (an AoE pacify/mez caught the player) is shown
+			// but NOT dismissible — clicking it would run DismissTarget("You") and wipe
+			// your buffs. It carries no caster and ends on its own.
+			if tm.Target != "You" {
+				targets[len(lines)] = tm.Target
+			}
 			lines = append(lines, ccLine(th, tm, now, w, tm.Target == hover, tw))
 		}
 	}

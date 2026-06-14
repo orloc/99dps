@@ -255,12 +255,17 @@ func (t *Tracker) DismissTarget(target string) {
 	}
 	t.mu.Lock()
 	for k, tm := range t.timers {
-		// incoming debuffs on you (Estimated) share the "You" target with your
-		// buffs but carry no caster to dismiss — clearing your buff list must not
-		// wipe them, so skip them here. They clear only on their fade line / death.
-		if tm.Target == target && !(tm.Estimated && tm.Target == "You") {
-			delete(t.timers, k)
+		if tm.Target != target {
+			continue
 		}
+		// dismissing your own "You" row clears your BUFFS only — never a detrimental
+		// effect that landed on you (an incoming slow, an AoE pacify/mez that caught
+		// you). Those carry no caster and end on their own; wiping them along with
+		// your buffs is wrong.
+		if target == "You" && tm.Detrimental {
+			continue
+		}
+		delete(t.timers, k)
 	}
 	t.mu.Unlock()
 }
