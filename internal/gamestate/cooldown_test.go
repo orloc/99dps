@@ -45,6 +45,29 @@ func TestMendCooldown(t *testing.T) {
 	}
 }
 
+// TestMendMatcherRejectsSpoof guards the anchored matcher: another player can
+// quote "mend your wounds" in a tell/say, which logs verbatim in our file. That
+// must not start the Mend cooldown or mis-infer us as a Monk — only a first-
+// person line ("You ...") is the player's own ability.
+func TestMendMatcherRejectsSpoof(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+
+	tr.Observe("Spoofer tells you, 'just mend your wounds bro'", 1000)
+	tr.Observe("Spoofer says, 'I will mend your wounds and heal some damage.'", 1000)
+	if len(tr.Cooldowns(1000)) != 0 {
+		t.Fatal("a tell/say quoting Mend must not start the cooldown")
+	}
+	if tr.Class() == eqclass.ClassMonk {
+		t.Error("a spoofing tell must not infer Monk")
+	}
+
+	// the real first-person line still works
+	tr.Observe("You mend your wounds and heal some damage.", 2000)
+	if cds := tr.Cooldowns(2000); len(cds) != 1 || cds[0].Name != "Mend" {
+		t.Fatalf("real Mend should start the cooldown, got %+v", cds)
+	}
+}
+
 func TestFeignStatus(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 

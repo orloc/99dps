@@ -36,7 +36,12 @@ var cooldownRegistry = []Cooldown{
 		matches: func(s string) bool {
 			// success: "You mend your wounds and heal some damage."
 			// partial: "You mended some of your wounds."
-			// fail:    "...attempt to mend failed." / "You worsen your wounds."
+			// fail:    "Your attempt to mend failed." / "You worsen your wounds."
+			// Anchor to first-person: a stray tell/say quoting "mend your wounds"
+			// must not trip Mend (which also infers the Monk class).
+			if !strings.HasPrefix(s, "You ") && !strings.HasPrefix(s, "Your ") {
+				return false
+			}
 			return strings.Contains(s, "mend your wounds") ||
 				strings.Contains(s, "mended some of your wounds") ||
 				strings.Contains(s, "to mend failed") ||
