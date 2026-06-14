@@ -731,12 +731,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.gotoScreen(m.cycleTab(+1)), nil
 		case "shift+tab":
 			return m.gotoScreen(m.cycleTab(-1)), nil
-		case "1":
-			return m.gotoScreen(screenMeter), nil
-		case "2":
-			return m.gotoScreen(screenSessions), nil
-		case "3":
-			return m.gotoScreen(screenSettings), nil
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			// a digit jumps to that tab (1-based), so adding tabs needs no new key wiring.
+			if n := int(msg.String()[0] - '0'); n >= 1 && n <= len(tabs) {
+				return m.gotoScreen(tabs[n-1].scr), nil
+			}
 		}
 		// each tab owns the rest of its keys.
 		if m.screen == screenSettings {
@@ -744,6 +743,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.screen == screenSessions {
 			return m.updateSessions(msg)
+		}
+		if m.screen == screenTools {
+			return m.updateTools(msg)
 		}
 		switch msg.String() {
 		case "t":
@@ -1135,7 +1137,7 @@ func (m Model) View() string {
 	}
 
 	banner := m.banner(th, innerW)
-	tabbar := m.tabBar(th)
+	tabbar := m.tabBar(th, innerW)
 
 	// the Sessions tab: a wide scrollable stats table beside a DPS breakdown of
 	// the highlighted session.
@@ -1158,6 +1160,13 @@ func (m Model) View() string {
 	// the Settings tab renders its own body under the banner + tab bar.
 	if m.screen == screenSettings {
 		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.settingsView(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
+	// the Tools tab: a home for little helper widgets.
+	if m.screen == screenTools {
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th, innerW))
 		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}

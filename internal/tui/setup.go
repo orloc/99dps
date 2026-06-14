@@ -17,6 +17,7 @@ const (
 	screenMeter    screen = iota // the live DPS meter (default)
 	screenSessions               // all sessions: stats table + DPS breakdown (a tab)
 	screenSettings               // audio / voice configuration (a tab)
+	screenTools                  // little helper widgets — random winner, etc. (a tab)
 	screenSetup                  // first-run onboarding (full-screen, not a tab)
 )
 

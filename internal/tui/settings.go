@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,16 +14,25 @@ import (
 // the tabs sit on row 2 (and the grid starts at gridTop = 3).
 const tabRow = 2
 
-// tabs are the navigable top-level screens. The first-run setup is intentionally
-// not a tab — it's one-time onboarding, not a place you switch back to.
+// tabs are the navigable top-level screens, each with a glyph for a bit of pop.
+// right-aligned tabs (Settings) are pinned to the far edge of the bar; the rest
+// flow from the left. The first-run setup is intentionally not a tab — it's
+// one-time onboarding, not a place you switch back to.
 var tabs = []struct {
 	scr   screen
 	label string
+	glyph string
+	right bool // pinned to the right edge of the bar
 }{
-	{screenMeter, "Meter"},
-	{screenSessions, "Sessions"},
-	{screenSettings, "Settings"},
+	{screenMeter, "Meter", "◈", false},
+	{screenSessions, "Sessions", "≣", false},
+	{screenTools, "Tools", "✦", false},
+	{screenSettings, "Settings", "⚙", true},
 }
+
+// tabCell is the rendered text of tab i (glyph + label, padded). Shared by the
+// renderer and the click hit-test so their geometry can't drift.
+func tabCell(i int) string { return " " + tabs[i].glyph + " " + tabs[i].label + " " }
 
 // tabHit is a tab's clickable column range, [x0, x1).
 type tabHit struct {
@@ -30,39 +40,59 @@ type tabHit struct {
 	x0, x1 int
 }
 
-// tabHits returns each tab's clickable range, matching exactly how tabBar lays
-// the labels out: " label ", single-space separated, starting at the content's
-// left edge (x=1, just inside the outer padding).
-func tabHits() []tabHit {
-	hits := make([]tabHit, 0, len(tabs))
-	x := 1
-	for _, t := range tabs {
-		w := len(t.label) + 2 // " label "
-		hits = append(hits, tabHit{t.scr, x, x + w})
+// tabHits returns each tab's clickable column range for the given inner width,
+// matching tabBar's layout exactly: left tabs flow from the content's left edge
+// (x=gridX), right tabs are packed against the right edge (gridX+innerW).
+func tabHits(innerW int) []tabHit {
+	hits := make([]tabHit, len(tabs))
+	x := gridX
+	for i := range tabs {
+		if tabs[i].right {
+			continue
+		}
+		w := lipgloss.Width(tabCell(i))
+		hits[i] = tabHit{tabs[i].scr, x, x + w}
 		x += w + 1 // one-space gap between tabs
+	}
+	rx := gridX + innerW // one past the last content column
+	for i := len(tabs) - 1; i >= 0; i-- {
+		if !tabs[i].right {
+			continue
+		}
+		w := lipgloss.Width(tabCell(i))
+		hits[i] = tabHit{tabs[i].scr, rx - w, rx}
+		rx -= w + 1
 	}
 	return hits
 }
 
-// tabBar renders the clickable tab strip; the active tab is highlighted.
-func (m Model) tabBar(th theme) string {
+// tabBar renders the clickable tab strip for the given inner width: left tabs,
+// then a filler gap, then the right-aligned tabs. The active tab is highlighted.
+func (m Model) tabBar(th theme, innerW int) string {
 	active := lipgloss.NewStyle().Bold(true).
 		Foreground(lipgloss.Color(th.bg)).Background(lipgloss.Color(th.accent))
 	inactive := th.fg(th.dim)
-
-	parts := make([]string, 0, len(tabs)*2)
-	for i, t := range tabs {
-		if i > 0 {
-			parts = append(parts, " ")
+	render := func(i int) string {
+		if tabs[i].scr == m.screen {
+			return active.Render(tabCell(i))
 		}
-		label := " " + t.label + " "
-		if t.scr == m.screen {
-			parts = append(parts, active.Render(label))
+		return inactive.Render(tabCell(i))
+	}
+
+	var left, right []string
+	for i := range tabs {
+		if tabs[i].right {
+			right = append(right, render(i))
 		} else {
-			parts = append(parts, inactive.Render(label))
+			left = append(left, render(i))
 		}
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+	leftStr, rightStr := strings.Join(left, " "), strings.Join(right, " ")
+	gap := innerW - lipgloss.Width(leftStr) - lipgloss.Width(rightStr)
+	if gap < 1 {
+		gap = 1
+	}
+	return leftStr + strings.Repeat(" ", gap) + rightStr
 }
 
 // tabAt reports which screen a click landed on, if it hit the tab bar.
@@ -70,7 +100,7 @@ func (m Model) tabAt(x, y int) (screen, bool) {
 	if y != tabRow {
 		return 0, false
 	}
-	for _, h := range tabHits() {
+	for _, h := range tabHits(m.w - 2) {
 		if x >= h.x0 && x < h.x1 {
 			return h.scr, true
 		}
