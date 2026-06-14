@@ -105,8 +105,12 @@ func TestCharmAndResistPhrases(t *testing.T) {
 	}
 }
 
-// fakeEngine records which cues went to the normal vs urgent voice.
-type fakeEngine struct{ normal, urgent []string }
+// fakeEngine records which cues went to the normal vs urgent voice, and how many
+// times the queue was flushed.
+type fakeEngine struct {
+	normal, urgent []string
+	flushed        int
+}
 
 func (f *fakeEngine) Say(s string)         { f.normal = append(f.normal, s) }
 func (f *fakeEngine) SayUrgent(s string)   { f.urgent = append(f.urgent, s) }
@@ -114,6 +118,7 @@ func (f *fakeEngine) Available() bool      { return true }
 func (f *fakeEngine) Voices() []tts.Voice  { return nil }
 func (f *fakeEngine) Voice() string        { return "" }
 func (f *fakeEngine) SetVoice(string) bool { return false }
+func (f *fakeEngine) Flush()               { f.flushed++; f.normal = nil }
 
 func TestAnnounceCuesResistIsUrgent(t *testing.T) {
 	fe := &fakeEngine{}

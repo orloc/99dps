@@ -20,6 +20,10 @@ type Engine interface {
 	// SetVoice switches to the voice with the given ID, reporting whether it was
 	// accepted (always false for an engine with no selectable voices).
 	SetVoice(id string) bool
+	// Flush drops any queued-but-not-yet-spoken normal cues (urgent alerts and the
+	// currently-playing clip are left alone). Called when a mob dies so stale
+	// "fading" cues about its debuffs don't keep playing after it's gone.
+	Flush()
 }
 
 // Voice is a selectable speech voice, surfaced to the setup/settings screens.

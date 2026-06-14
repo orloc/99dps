@@ -114,6 +114,21 @@ func (k *kokoroEngine) worker() {
 	}
 }
 
+// Flush drains queued normal cues without playing them (urgent cues and the clip
+// already playing are untouched). Best-effort, non-blocking.
+func (k *kokoroEngine) Flush() {
+	if k == nil || k.queue == nil {
+		return // worker never started → nothing queued
+	}
+	for {
+		select {
+		case <-k.queue:
+		default:
+			return
+		}
+	}
+}
+
 func (k *kokoroEngine) Voices() []Voice { return kokoroVoices }
 
 func (k *kokoroEngine) Voice() string {

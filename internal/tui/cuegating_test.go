@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -23,6 +24,46 @@ func TestDueAnnouncementsGatesByType(t *testing.T) {
 	due := m.dueAnnouncements([]gamestate.Timer{mez, deb}, now)
 	if len(due) != 1 || due[0].Spell != "Cripple" {
 		t.Fatalf("mez disabled → only the debuff should be due, got %+v", due)
+	}
+}
+
+// TestDebuffCueFiresOncePerMob: a debuff/DoT on a mob warns at most once, even
+// when re-applied (refreshed) — a necro re-dotting shouldn't re-announce.
+func TestDebuffCueFiresOncePerMob(t *testing.T) {
+	m := &Model{announced: map[string]bool{}}
+	now := int64(1000)
+	dot := func(exp int64) gamestate.Timer {
+		return gamestate.Timer{Spell: "Heat Blood", Target: "a spectre", Start: now - 100, Expiry: exp, Detrimental: true}
+	}
+	// low → warns once
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 5)}, now); len(got) != 1 {
+		t.Fatalf("first low should warn, got %v", got)
+	}
+	// refreshed (healthy again) → no re-arm for a debuff
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 600)}, now); len(got) != 0 {
+		t.Errorf("a refresh shouldn't re-announce, got %v", got)
+	}
+	// low again after the refresh → still silent (already warned this mob)
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 5)}, now); len(got) != 0 {
+		t.Errorf("a re-dotted DoT should warn at most once per mob, got %v", got)
+	}
+}
+
+// TestSlainFlushesQueuedCues: when a mob death clears its debuffs, queued fade
+// cues about it are flushed so they don't keep playing after the kill.
+func TestSlainFlushesQueuedCues(t *testing.T) {
+	fe := &fakeEngine{}
+	tr := mixedCaster(t) // holds a Malosini debuff on "a sand giant"
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe}
+	now := time.Now().Unix()
+
+	m.announceCuesAt(now) // baseline: record the current slain-clear count
+	base := fe.flushed
+
+	tr.Observe("You have slain a sand giant!", now+1) // clears the debuff → bumps the counter
+	m.announceCuesAt(now + 2)
+	if fe.flushed != base+1 {
+		t.Errorf("a mob death should flush queued cues once, got %d (base %d)", fe.flushed, base)
 	}
 }
 

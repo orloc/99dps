@@ -29,6 +29,7 @@ func (e *settingsEngine) SetVoice(id string) bool {
 	e.cur, e.setCalls = id, append(e.setCalls, id)
 	return true
 }
+func (e *settingsEngine) Flush() {}
 
 // TestVoiceIndex: in-range returns the voice, out-of-range (both ends) misses.
 func TestVoiceIndex(t *testing.T) {

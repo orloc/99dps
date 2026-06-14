@@ -81,6 +81,7 @@ type Model struct {
 	feignFailAnnounced bool
 	cdReady            map[string]bool // cooldown name → was-ready last tick
 	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
+	lastSlainClears    int             // tracker.SlainClearCount() last seen → flush queued cues on a kill
 	cues               cuePrefs        // which cues fire (per-skill / per-category toggles)
 	store              store           // consolidated per-character settings (settings.json)
 	cueSeq             int
@@ -334,6 +335,13 @@ func (m *Model) announceCuesAt(now int64) {
 		m.announced = map[string]bool{}
 	}
 
+	// a mob died (a slain line or an inferred xp-only kill) → drop any queued fade
+	// cues about its now-gone debuffs, so they don't spam after the kill.
+	if n := m.tracker.SlainClearCount(); n != m.lastSlainClears {
+		m.lastSlainClears = n
+		m.speaker.Flush()
+	}
+
 	// charm break — scary and time-critical.
 	if m.tracker.CharmBroke(now) {
 		if !m.charmAnnounced {
@@ -435,8 +443,13 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []gamestat
 					due = append(due, tm)
 				}
 			}
-		} else {
-			delete(m.announced, k) // refreshed / still healthy → re-arm
+		} else if !tm.Detrimental {
+			// healthy again → re-arm so it can warn on a later low. A debuff on a mob
+			// (DoT) is the exception: it warns at most once per mob, so re-applying it
+			// (a re-dot) doesn't re-announce every cast. It re-arms only when the timer
+			// leaves the active set entirely (the mob dies / the debuff drops), handled
+			// by the live-set sweep below.
+			delete(m.announced, k)
 		}
 	}
 	for k := range m.announced {
