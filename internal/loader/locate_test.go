@@ -64,6 +64,93 @@ func TestSaveAndLoadLogDir(t *testing.T) {
 	}
 }
 
+// DirHasLogs is false for an empty path and for a non-existent directory (the
+// ReadDir error path), and true only when an eqlog_*.txt sits directly inside.
+func TestDirHasLogs_Edges(t *testing.T) {
+	if DirHasLogs("") {
+		t.Error("empty path should have no logs")
+	}
+	if DirHasLogs(filepath.Join(t.TempDir(), "nope")) {
+		t.Error("missing dir should have no logs")
+	}
+	empty := t.TempDir()
+	if DirHasLogs(empty) {
+		t.Error("an empty dir holds no logs")
+	}
+	writeFile(t, filepath.Join(empty, "eqlog_Kelkix_Server.txt"), "x")
+	if !DirHasLogs(empty) {
+		t.Error("a dir with an eqlog_*.txt should report logs")
+	}
+}
+
+// eqLogDirFrom prefers the dir itself when it directly holds logs, then a Logs
+// subfolder that holds logs — exercising both positive branches.
+func TestEQLogDirFrom_DirectAndSubfolder(t *testing.T) {
+	direct := t.TempDir()
+	writeFile(t, filepath.Join(direct, "eqlog_A_Srv.txt"), "x")
+	if got := eqLogDirFrom(direct); got != direct {
+		t.Errorf("eqLogDirFrom(direct logs) = %q, want %q", got, direct)
+	}
+
+	root := t.TempDir()
+	logs := filepath.Join(root, "Logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(logs, "eqlog_B_Srv.txt"), "x")
+	if got := eqLogDirFrom(root); got != logs {
+		t.Errorf("eqLogDirFrom(Logs subfolder) = %q, want %q", got, logs)
+	}
+}
+
+// scanForEQ de-duplicates: the same install reachable both directly and via the
+// parent's directory walk yields one entry, and a non-EQ candidate is skipped.
+func TestScanForEQ_Dedup(t *testing.T) {
+	root := t.TempDir()
+	eq := filepath.Join(root, "EverQuest")
+	logs := filepath.Join(eq, "Logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(eq, "eqclient.ini"), "x")
+	writeFile(t, filepath.Join(logs, "eqlog_C_Srv.txt"), "x")
+
+	// pass both the EQ dir directly and its parent — must collapse to one result
+	found := scanForEQ([]string{eq, root, "", filepath.Join(root, "missing")})
+	if len(found) != 1 || found[0] != logs {
+		t.Errorf("scanForEQ = %v, want exactly [%q]", found, logs)
+	}
+}
+
+// logDirFromChoice resolves a raw Logs path (no EQ markers above it) to itself
+// via the Logs-has-logs fallback, distinct from the as-is bogus path branch.
+func TestLogDirFromChoice_RawLogsPath(t *testing.T) {
+	parent := t.TempDir()
+	logs := filepath.Join(parent, "Logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(logs, "eqlog_D_Srv.txt"), "x")
+	// the parent isn't an EQ root, but its Logs subfolder holds logs
+	if got := logDirFromChoice(parent); got != logs {
+		t.Errorf("logDirFromChoice(parent of Logs) = %q, want %q", got, logs)
+	}
+}
+
+// configPath/SavedLogDir return empty when no config dir can be resolved
+// (UserConfigDir errors with HOME and XDG_CONFIG_HOME both unset on Unix).
+func TestConfigPath_NoConfigDir(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if p := configPath(); p != "" {
+		t.Skipf("UserConfigDir still resolved (%q) on this host; skip", p)
+	}
+	if SavedLogDir() != "" {
+		t.Error("SavedLogDir should be empty with no config dir")
+	}
+	SaveLogDir("/whatever") // must be a no-op, not panic
+}
+
 func TestLogDirFromChoice(t *testing.T) {
 	if logDirFromChoice("") != "" {
 		t.Error("empty choice should stay empty")

@@ -139,6 +139,57 @@ func TestSnapshotIsIndependent(t *testing.T) {
 	}
 }
 
+// StartTime is the first hit's wall-clock time; LastUnix is the most recent
+// exchange's ActionTime. Both read 0/zero on an unstarted session.
+func TestStartTimeAndLastUnix(t *testing.T) {
+	sm := &SessionManager{}
+	hit(sm, 1_700_000_000, "You", 10, "a rat")
+	hit(sm, 1_700_000_004, "You", 10, "a rat")
+
+	cur := sm.Current()
+	if got := cur.StartTime().Unix(); got != 1_700_000_000 {
+		t.Errorf("StartTime = %d, want 1700000000", got)
+	}
+	if got := cur.LastUnix(); got != 1_700_000_004 {
+		t.Errorf("LastUnix = %d, want 1700000004", got)
+	}
+
+	if !(&CombatSession{}).StartTime().IsZero() {
+		t.Error("unstarted StartTime should be the zero time")
+	}
+	if got := (&CombatSession{}).LastUnix(); got != 0 {
+		t.Errorf("unstarted LastUnix = %d, want 0", got)
+	}
+}
+
+// Clear drops every session and resets the selection so the next exchange starts
+// fresh from a single session.
+func TestClear(t *testing.T) {
+	sm := &SessionManager{}
+	hit(sm, 1_700_000_000, "You", 10, "a rat")
+	hit(sm, 1_700_001_000, "You", 10, "a bat") // far apart → a second session
+	if sm.Len() < 2 {
+		t.Fatalf("setup: want >=2 sessions, got %d", sm.Len())
+	}
+
+	sm.Clear()
+	if sm.Len() != 0 {
+		t.Errorf("Len after Clear = %d, want 0", sm.Len())
+	}
+	if sm.Current() != nil {
+		t.Error("Current after Clear should be nil")
+	}
+	if sm.activeSession != 0 {
+		t.Errorf("activeSession after Clear = %d, want 0", sm.activeSession)
+	}
+
+	// the next hit opens exactly one session at index 0
+	hit(sm, 1_700_002_000, "You", 10, "a rat")
+	if sm.Len() != 1 {
+		t.Errorf("Len after post-Clear hit = %d, want 1", sm.Len())
+	}
+}
+
 func TestMagicOnlyFightNamesTheTarget(t *testing.T) {
 	sm := &SessionManager{}
 	// a pure non-melee kill (wizard nuke / DoT): only ApplyMagic, no melee.

@@ -34,3 +34,19 @@ func TestSwingStats_HitRateEmptyIsNegative(t *testing.T) {
 		t.Errorf("empty HitRate = %d, want -1", hr)
 	}
 }
+
+// SpecialStat.HitRate is hits/(hits+misses) as a percentage; only outright
+// misses count against accuracy, and no attempt yields the -1 sentinel.
+func TestSpecialStat_HitRate(t *testing.T) {
+	if hr := (SpecialStat{Hits: 3, Misses: 1}).HitRate(); hr != 75 { // 3/4
+		t.Errorf("HitRate = %d, want 75", hr)
+	}
+	// all landed → 100%
+	if hr := (SpecialStat{Hits: 2}).HitRate(); hr != 100 {
+		t.Errorf("HitRate(all hits) = %d, want 100", hr)
+	}
+	// no accuracy-bearing attempt → -1 sentinel
+	if hr := (SpecialStat{}).HitRate(); hr != -1 {
+		t.Errorf("HitRate(empty) = %d, want -1", hr)
+	}
+}
