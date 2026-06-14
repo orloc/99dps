@@ -19,8 +19,7 @@ import (
 // kokoroEngine is the neural backend. It drives the bundled sherpa-onnx offline
 // TTS CLI as a subprocess (keeping the app pure-Go / no cgo) with the Kokoro
 // int8 model. Each (voice, text) is synthesized once to a cached WAV, so repeat
-// cues — the common case for a small cue vocabulary — replay instantly; the
-// fixed phrase set can be pre-warmed via Warm.
+// cues — the common case for a small cue vocabulary — replay instantly.
 type kokoroEngine struct {
 	cli   string     // path to sherpa-onnx-offline-tts(.exe)
 	model modelPaths // resolved model file paths
@@ -102,25 +101,15 @@ func (k *kokoroEngine) worker() {
 	for {
 		select {
 		case u := <-k.urgent:
-			k.render(u.text, true, u.scale)
+			k.render(u.text, u.scale)
 			continue
 		default:
 		}
 		select {
 		case u := <-k.urgent:
-			k.render(u.text, true, u.scale)
+			k.render(u.text, u.scale)
 		case u := <-k.queue:
-			k.render(u.text, true, u.scale)
-		}
-	}
-}
-
-// Warm pre-synthesizes phrases into the cache without playing them, so later
-// cues are instant. Safe to call in a goroutine on startup / voice change.
-func (k *kokoroEngine) Warm(phrases []string) {
-	for _, p := range phrases {
-		if p != "" {
-			k.render(p, false, kokoroLengthScale)
+			k.render(u.text, u.scale)
 		}
 	}
 }
@@ -157,10 +146,10 @@ func validVoice(id string) bool {
 	return false
 }
 
-// render ensures text is in the clip cache (synthesizing if needed) and, when
-// play is true, plays it. Best-effort: a synth/play failure silently no-ops,
-// matching the legacy engine (a cue is never worth stalling or crashing for).
-func (k *kokoroEngine) render(text string, play bool, scale string) {
+// render ensures text is in the clip cache (synthesizing if needed) and plays
+// it. Best-effort: a synth/play failure silently no-ops (a cue is never worth
+// stalling or crashing for).
+func (k *kokoroEngine) render(text, scale string) {
 	k.mu.Lock()
 	sid := k.sid
 	k.mu.Unlock()
@@ -177,9 +166,7 @@ func (k *kokoroEngine) render(text string, play bool, scale string) {
 			return
 		}
 	}
-	if play {
-		playWav(clip)
-	}
+	playWav(clip)
 }
 
 // synth runs the sherpa CLI to write a WAV for (text, sid, scale).

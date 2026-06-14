@@ -12,19 +12,18 @@ import "runtime"
 //     (see kokoroVoices). English-only keeps it small and the picker describable.
 //
 // TODO(tts): pin sha256 for each artifact before release. They're left empty for
-// now (download verifies size only) because the checksums must be computed from
-// the real downloads on a networked machine. Integrity rests on HTTPS + GitHub
-// until then.
+// now (no integrity check is performed) because the checksums must be computed
+// from the real downloads on a networked machine. Integrity rests on HTTPS +
+// GitHub until then.
 const sherpaVersion = "v1.13.2"
 
 const sherpaRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" + sherpaVersion + "/"
 const modelRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
 
-// artifact is one downloadable .tar.bz2 (URL + optional integrity check).
+// artifact is one downloadable .tar.bz2 (URL + optional sha256 integrity check).
 type artifact struct {
 	url    string
-	sha256 string // "" = unverified (size-only); pin before release
-	size   int64  // expected uncompressed-archive size in bytes, 0 = unknown
+	sha256 string // "" = no integrity check (HTTPS only); pin before release
 }
 
 // sherpaBinary is the prebuilt CLI package per OS — the shared build on both

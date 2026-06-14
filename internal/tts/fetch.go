@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// fetchArtifact downloads a .tar.bz2 to a temp file, verifies it (sha256 when
-// pinned, else logs a warning), and extracts it into destDir. progress, if non-
+// fetchArtifact downloads a .tar.bz2 to a temp file, verifies its sha256 when
+// one is pinned (HTTPS-only otherwise), and extracts it into destDir. progress, if non-
 // nil, is called with bytes-downloaded as the transfer proceeds. It is a no-op
 // (returns nil) when destDir already looks populated, so first-run downloads are
 // idempotent.
