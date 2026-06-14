@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 )
 
@@ -73,33 +74,107 @@ type cueRow struct {
 	def    bool   // toggle rows only
 }
 
-// cueRows builds the cue matrix, data-driven off the cooldown catalog so new
-// skills appear automatically. A cooldown's cues default ON only when it's long
-// enough to be worth announcing (short reuses like Kick/Feign would be chatter);
-// the user can still flip them on per skill.
-func cueRows() []cueRow {
-	rows := []cueRow{{header: true, label: "Cooldowns"}}
+// cueCaps is which cue categories a class can actually produce — drives which
+// rows the Settings matrix shows. Cooldowns come from the (class-tagged) catalog;
+// the rest are derived here.
+type cueCaps struct {
+	mez, charm, pacify bool // crowd control the class can cast
+	buffs, debuffs     bool // casts beneficial buffs / mob debuffs worth a fade cue
+	feign, resist      bool // has feign death / casts resistable spells
+	all                bool // class unknown (pre-/who) → show everything
+}
+
+// cueCapsFor maps a class to its cue capabilities. Buff/debuff/resist follow the
+// class category (casters + hybrids cast spells; pure melee don't); feign is the
+// two feign classes; crowd control is the per-class table.
+func cueCapsFor(class eqclass.Class) cueCaps {
+	if class == eqclass.ClassUnknown {
+		return cueCaps{mez: true, charm: true, pacify: true, buffs: true, debuffs: true, feign: true, resist: true, all: true}
+	}
+	c := cueCaps{}
+	if cat := eqclass.CategoryOf(class); cat == eqclass.CatCaster || cat == eqclass.CatHybrid {
+		c.buffs, c.debuffs, c.resist = true, true, true
+	}
+	if class == eqclass.ClassMonk || class == eqclass.ClassNecromancer {
+		c.feign = true
+	}
+	switch class {
+	case eqclass.ClassEnchanter:
+		c.mez, c.charm, c.pacify = true, true, true
+	case eqclass.ClassNecromancer:
+		c.mez, c.charm, c.pacify = true, true, true // undead mez/charm + pacify
+	case eqclass.ClassBard:
+		c.mez, c.charm = true, true
+	case eqclass.ClassDruid:
+		c.charm, c.pacify = true, true // charm animals + calm/harmony
+	case eqclass.ClassCleric:
+		c.pacify = true
+	case eqclass.ClassRanger:
+		c.pacify = true // harmony
+	}
+	return c
+}
+
+// cueRows builds the cue matrix for a class: only the categories that class can
+// produce. Cooldown cues come from the catalog filtered to the class (all of them
+// while the class is unknown). A cooldown's cues default ON only when it's long
+// enough to be worth announcing (short reuses like Kick/Feign would be chatter).
+func cueRows(class eqclass.Class) []cueRow {
+	caps := cueCapsFor(class)
+	var rows []cueRow
+	add := func(rs ...cueRow) { rows = append(rows, rs...) }
+	section := func(label string, rs []cueRow) {
+		if len(rs) > 0 {
+			add(cueRow{header: true, label: label})
+			add(rs...)
+		}
+	}
+
+	var cds []cueRow
 	for _, cd := range gamestate.CooldownCatalog() {
+		if !caps.all && cd.Class != class {
+			continue
+		}
 		def := cd.ReuseSec >= longCooldownSec
-		rows = append(rows,
+		cds = append(cds,
 			cueRow{label: cd.Name + " ready", id: cueCDReady(cd.Name), def: def},
 			cueRow{label: cd.Name + " halfway", id: cueCDHalf(cd.Name), def: def},
 		)
 	}
-	rows = append(rows,
-		cueRow{header: true, label: "Crowd control"},
-		cueRow{label: "Charm break", id: cueCharm, def: true},
-		cueRow{label: "Mez fading", id: cueMez, def: true},
-		cueRow{label: "Pacify fading", id: cuePacify, def: true},
-		cueRow{header: true, label: "Fades"},
-		cueRow{label: "Buff fading", id: cueBuffFade, def: true},
-		cueRow{label: "Debuff fading", id: cueDebuffFade, def: true},
-		cueRow{header: true, label: "Alerts"},
-		cueRow{label: "Feign failed", id: cueFeignFail, def: true},
-		cueRow{label: "Resisted", id: cueResist, def: true},
-		cueRow{header: true, label: "Mob Tracker"},
-		cueRow{label: "Spawn soon (~30s)", id: cueSpawnSoon, def: true},
-	)
+	section("Cooldowns", cds)
+
+	var cc []cueRow
+	if caps.charm {
+		cc = append(cc, cueRow{label: "Charm break", id: cueCharm, def: true})
+	}
+	if caps.mez {
+		cc = append(cc, cueRow{label: "Mez fading", id: cueMez, def: true})
+	}
+	if caps.pacify {
+		cc = append(cc, cueRow{label: "Pacify fading", id: cuePacify, def: true})
+	}
+	section("Crowd control", cc)
+
+	var fades []cueRow
+	if caps.buffs {
+		fades = append(fades, cueRow{label: "Buff fading", id: cueBuffFade, def: true})
+	}
+	if caps.debuffs {
+		fades = append(fades, cueRow{label: "Debuff fading", id: cueDebuffFade, def: true})
+	}
+	section("Fades", fades)
+
+	var alerts []cueRow
+	if caps.feign {
+		alerts = append(alerts, cueRow{label: "Feign failed", id: cueFeignFail, def: true})
+	}
+	if caps.resist {
+		alerts = append(alerts, cueRow{label: "Resisted", id: cueResist, def: true})
+	}
+	section("Alerts", alerts)
+
+	// the mob tracker is class-agnostic — everyone kills things.
+	section("Mob Tracker", []cueRow{{label: "Spawn soon (~30s)", id: cueSpawnSoon, def: true}})
 	return rows
 }
 

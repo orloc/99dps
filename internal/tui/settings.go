@@ -181,7 +181,7 @@ func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if last := settingsFixedRows + len(m.settingsVoices()) - 1; m.settingsSel < last {
 				m.settingsSel++
 			}
-		} else if last := len(cueToggles(cueRows())) - 1; m.cueSel < last {
+		} else if last := len(cueToggles(cueRows(m.tracker.Class()))) - 1; m.cueSel < last {
 			m.cueSel++
 		}
 	case "enter", " ":
@@ -227,7 +227,7 @@ func (m *Model) applyLeftSetting(sel int) {
 
 // toggleCue flips the cue toggle at right-column index idx and persists it.
 func (m *Model) toggleCue(idx int) {
-	toggles := cueToggles(cueRows())
+	toggles := cueToggles(cueRows(m.tracker.Class()))
 	if idx < 0 || idx >= len(toggles) {
 		return
 	}
@@ -362,7 +362,7 @@ func (m Model) rightSettingsColumn(th theme, w int) (out []string, sel []int) {
 	add(paint(th, th.accent, "Cue settings", w), -1)
 	add("", -1)
 	idx := 0
-	for _, r := range cueRows() {
+	for _, r := range cueRows(m.tracker.Class()) {
 		if r.header {
 			add(paint(th, th.dim, r.label, w), -1)
 			continue

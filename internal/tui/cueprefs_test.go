@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+
+	"99dps/internal/eqclass"
+)
 
 func TestCuePrefsDefaultAndOverride(t *testing.T) {
 	var c cuePrefs // zero value: everything at its default
@@ -36,7 +40,7 @@ func TestCuePrefsDefaultAndOverride(t *testing.T) {
 // present. Adding a skill to the registry should surface here automatically.
 func TestCueRowsCoverCatalog(t *testing.T) {
 	ids := map[string]bool{}
-	for _, r := range cueToggles(cueRows()) {
+	for _, r := range cueToggles(cueRows(eqclass.ClassUnknown)) {
 		ids[r.id] = true
 	}
 	for _, want := range []string{
@@ -47,5 +51,56 @@ func TestCueRowsCoverCatalog(t *testing.T) {
 		if !ids[want] {
 			t.Errorf("cue matrix missing toggle %q", want)
 		}
+	}
+}
+
+// TestCueRowsByClass: the matrix shows only what a class can produce.
+func TestCueRowsByClass(t *testing.T) {
+	has := func(class eqclass.Class, id string) bool {
+		for _, r := range cueToggles(cueRows(class)) {
+			if r.id == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Monk: cooldowns + feign alert; no CC, no buff fades, no resist.
+	if !has(eqclass.ClassMonk, cueCDReady("Mend")) || !has(eqclass.ClassMonk, cueFeignFail) {
+		t.Error("Monk should have cooldown + feign cues")
+	}
+	if has(eqclass.ClassMonk, cueMez) || has(eqclass.ClassMonk, cueBuffFade) || has(eqclass.ClassMonk, cueResist) {
+		t.Error("Monk should not have CC / buff / resist cues")
+	}
+	// Enchanter: all three CC types.
+	for _, id := range []string{cueMez, cueCharm, cuePacify} {
+		if !has(eqclass.ClassEnchanter, id) {
+			t.Errorf("Enchanter should have %q", id)
+		}
+	}
+	// Necromancer: mez + charm + pacify (undead) and a feign alert.
+	if !has(eqclass.ClassNecromancer, cueMez) || !has(eqclass.ClassNecromancer, cueFeignFail) {
+		t.Error("Necromancer should have undead mez + feign")
+	}
+	// Cleric: pacify only.
+	if !has(eqclass.ClassCleric, cuePacify) || has(eqclass.ClassCleric, cueMez) || has(eqclass.ClassCleric, cueCharm) {
+		t.Error("Cleric should have pacify only among CC")
+	}
+	// Druid: charm + pacify, no mez.
+	if !has(eqclass.ClassDruid, cueCharm) || !has(eqclass.ClassDruid, cuePacify) || has(eqclass.ClassDruid, cueMez) {
+		t.Error("Druid should have charm + pacify, not mez")
+	}
+	// Bard: mez + charm, no pacify.
+	if !has(eqclass.ClassBard, cueMez) || !has(eqclass.ClassBard, cueCharm) || has(eqclass.ClassBard, cuePacify) {
+		t.Error("Bard should have mez + charm, not pacify")
+	}
+	// Warrior: no spells → only the universal spawn cue.
+	wt := cueToggles(cueRows(eqclass.ClassWarrior))
+	if len(wt) != 1 || wt[0].id != cueSpawnSoon {
+		t.Errorf("Warrior should have only the spawn cue, got %+v", wt)
+	}
+	// the spawn cue is universal.
+	if !has(eqclass.ClassWizard, cueSpawnSoon) {
+		t.Error("every class should get the spawn cue")
 	}
 }

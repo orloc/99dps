@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
 )
 
@@ -165,7 +166,7 @@ func TestSettingsRightColumnToggle(t *testing.T) {
 	}
 	send(tea.KeyMsg{Type: tea.KeyEnter}) // toggle the first cue (Mend ready, default on → off)
 
-	first := cueToggles(cueRows())[0]
+	first := cueToggles(cueRows(eqclass.ClassUnknown))[0]
 	if m.cues.enabled(first.id, first.def) {
 		t.Errorf("first cue (%s) should now be off", first.id)
 	}
