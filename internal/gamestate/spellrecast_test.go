@@ -67,6 +67,33 @@ func TestSpellRecastCooldown(t *testing.T) {
 	}
 }
 
+// TestSpellRecastOnMemorize: memorizing a watched long-recast spell arms its
+// cooldown (it must clear the first gem refresh before it can be cast), without
+// any cast at all. The real log line is "You have finished memorizing Dictate."
+func TestSpellRecastOnMemorize(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Dictate", fFades: "You are no longer charmed.",
+		fCastTime: "5000", fRecastTime: "300000", // P99 Dictate: 5-min recast
+		fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+	tr.Observe("You have entered Lake of Ill Omen.", now)
+
+	tr.Observe("You have finished memorizing Dictate.", now)
+	cds := tr.Cooldowns(now)
+	if len(cds) != 1 || cds[0].Name != "Dictate" || cds[0].Remaining != 300 || cds[0].Total != 300 {
+		t.Fatalf("memorizing Dictate should arm a 300s cooldown, got %+v", cds)
+	}
+
+	// an unwatched spell's memorize line arms nothing
+	tr.Observe("You have finished memorizing Gate.", now)
+	if got := len(tr.Cooldowns(now)); got != 1 {
+		t.Errorf("memorizing an unwatched spell must not add a cooldown, have %d", got)
+	}
+}
+
 // TestSpellRecastSurvivesZeroRecast: a watched spell whose book entry has no
 // recast (RecastMs 0) produces no cooldown rather than a bogus zero-length one.
 func TestSpellRecastNoRecast(t *testing.T) {

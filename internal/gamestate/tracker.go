@@ -331,6 +331,13 @@ func (t *Tracker) Observe(body string, at int64) {
 			t.runeAttacker = body[:i]
 		}
 	}
+	// memorizing a long-recast spell (Dictate/Rapture) starts its gem refresh: it
+	// must clear that first cooldown before it can be cast, so arm the timer now.
+	if name, ok := strings.CutPrefix(body, "You have finished memorizing "); ok {
+		if sp, ok := t.book.ByName(strings.TrimSuffix(name, ".")); ok {
+			t.cool.startSpellRecastLocked(sp, at)
+		}
+	}
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked

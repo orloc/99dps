@@ -154,9 +154,10 @@ func (c *cooldownTracker) clearZoneScopedLocked() {
 }
 
 // startSpellRecastLocked starts a zone-scoped reuse cooldown for a watched
-// recast spell (Dictate/Rapture) the moment it goes off, using the spell's own
-// RecastMs. No-op for any other spell or when the spell carries no recast.
-// Caller holds the lock.
+// recast spell (Dictate/Rapture) when it goes off OR when it's freshly
+// memorized (a long-recast spell must clear its first refresh before it can be
+// cast), using the spell's own RecastMs. No-op for any other spell or when the
+// spell carries no recast. Caller holds the lock.
 func (c *cooldownTracker) startSpellRecastLocked(s *Spell, at int64) {
 	if s == nil || !spellRecastWatch[s.Name] || s.RecastMs <= 0 {
 		return
