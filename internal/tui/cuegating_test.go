@@ -91,8 +91,9 @@ func TestSettingsRightColumnToggle(t *testing.T) {
 	if m.cues.enabled(first.id, first.def) {
 		t.Errorf("first cue (%s) should now be off", first.id)
 	}
-	if loadCuePrefs().enabled(first.id, first.def) {
-		t.Errorf("the cue toggle should persist to disk")
+	saved := cuePrefs{Overrides: loadStore().forChar(m.character).Cues}
+	if saved.enabled(first.id, first.def) {
+		t.Errorf("the cue toggle should persist to the settings store")
 	}
 }
 

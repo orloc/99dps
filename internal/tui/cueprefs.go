@@ -120,8 +120,9 @@ func cuePrefsPath() (string, error) {
 	return filepath.Join(dir, "99dps", "cues.json"), nil
 }
 
-// loadCuePrefs reads the saved cue choices; a missing/invalid file yields the
-// zero value (every cue at its built-in default).
+// loadCuePrefs reads the legacy cue-choice file; a missing/invalid file yields
+// the zero value (every cue at its default). Retained as a migration source —
+// current writes go through the consolidated per-character store (see store.go).
 func loadCuePrefs() cuePrefs {
 	var c cuePrefs
 	path, err := cuePrefsPath()
@@ -134,19 +135,4 @@ func loadCuePrefs() cuePrefs {
 	}
 	_ = json.Unmarshal(b, &c)
 	return c
-}
-
-func saveCuePrefs(c cuePrefs) error {
-	path, err := cuePrefsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
 }

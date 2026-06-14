@@ -31,28 +31,6 @@ func TestCuePrefsDefaultAndOverride(t *testing.T) {
 	}
 }
 
-func TestCuePrefsRoundTrip(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	c := cuePrefs{}
-	c.toggle("cd.ready.Mend", true) // → off
-	c.toggle("cd.half.Kick", false) // → on
-	if err := saveCuePrefs(c); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-
-	got := loadCuePrefs()
-	if got.enabled("cd.ready.Mend", true) {
-		t.Error("Mend ready should have persisted as off")
-	}
-	if !got.enabled("cd.half.Kick", false) {
-		t.Error("Kick halfway should have persisted as on")
-	}
-	if got.enabled("cc.charm", true) != true {
-		t.Error("an untouched cue should still read its default after load")
-	}
-}
-
 // TestCueRowsCoverCatalog ensures the matrix is data-driven off the catalog: each
 // catalog skill yields a ready + halfway toggle row, and the fixed categories are
 // present. Adding a skill to the registry should surface here automatically.

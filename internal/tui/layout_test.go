@@ -13,20 +13,6 @@ func TestPanelModeCycle(t *testing.T) {
 	}
 }
 
-func TestLayoutPrefsRoundTrip(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if p := loadLayoutPrefs(); p.Damage != panelFull || p.OffDef != panelFull {
-		t.Fatalf("fresh install should default to Full/Full, got %+v", p)
-	}
-	want := layoutPrefs{Damage: panelCompact, OffDef: panelOff}
-	if err := saveLayoutPrefs(want); err != nil {
-		t.Fatal(err)
-	}
-	if got := loadLayoutPrefs(); got != want {
-		t.Errorf("round-trip = %+v, want %+v", got, want)
-	}
-}
-
 func TestLayoutHonorsBoxModes(t *testing.T) {
 	base := Model{w: 120, h: 40}
 
@@ -93,7 +79,7 @@ func TestSettingsCyclesMeterMode(t *testing.T) {
 			t.Errorf("Damage mode = %v, want %v", m.layoutPrefs.Damage, want)
 		}
 	}
-	if loadLayoutPrefs().Damage != panelFull {
-		t.Error("the meter mode should persist")
+	if loadStore().forChar(m.character).Damage != panelFull {
+		t.Error("the meter mode should persist to the settings store")
 	}
 }

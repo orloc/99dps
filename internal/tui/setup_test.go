@@ -16,10 +16,10 @@ func key(m Model, t tea.KeyType) Model {
 }
 
 func TestInitialScreen(t *testing.T) {
-	if initialScreen(tts.Prefs{Configured: true}) != screenMeter {
+	if initialScreen(true) != screenMeter {
 		t.Error("a configured install should open straight to the meter")
 	}
-	if initialScreen(tts.Prefs{}) != screenSetup {
+	if initialScreen(false) != screenSetup {
 		t.Error("a fresh install should open the setup screen")
 	}
 }
@@ -42,8 +42,8 @@ func TestSetupSkipPersistsAndEntersMeter(t *testing.T) {
 	if m.screen != screenMeter {
 		t.Error("skipping should enter the meter")
 	}
-	if p := tts.LoadPrefs(); !p.Configured || p.Enabled {
-		t.Errorf("skip should persist configured+disabled, got %+v", p)
+	if s := loadStore(); !s.Configured || s.Default.AudioOn {
+		t.Errorf("skip should persist configured+disabled, got %+v", s)
 	}
 }
 

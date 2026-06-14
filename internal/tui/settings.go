@@ -177,20 +177,20 @@ func (m *Model) applyLeftSetting(sel int) {
 	switch sel {
 	case settingsAudioRow:
 		m.toggleTTS()
-		m.persistAudioPrefs()
+		m.saveSettings()
 	case settingsDamageRow:
 		m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
-		_ = saveLayoutPrefs(m.layoutPrefs)
+		m.saveSettings()
 		m.flash("✓ saved · Damage meter " + m.layoutPrefs.Damage.String())
 	case settingsOffDefRow:
 		m.layoutPrefs.OffDef = m.layoutPrefs.OffDef.next()
-		_ = saveLayoutPrefs(m.layoutPrefs)
+		m.saveSettings()
 		m.flash("✓ saved · Offense · Defense " + m.layoutPrefs.OffDef.String())
 	default:
 		if v, ok := voiceIndex(m.settingsVoices(), sel-settingsFixedRows); ok {
 			m.speaker.SetVoice(v.ID)
+			m.saveSettings()
 			m.flash("✓ saved · voice " + v.Name)
-			m.persistAudioPrefs()
 		}
 	}
 }
@@ -203,7 +203,7 @@ func (m *Model) toggleCue(idx int) {
 	}
 	r := toggles[idx]
 	m.cues.toggle(r.id, r.def)
-	_ = saveCuePrefs(m.cues)
+	m.saveSettings()
 	state := "off"
 	if m.cues.enabled(r.id, r.def) {
 		state = "on"
@@ -216,15 +216,6 @@ func voiceIndex(voices []tts.Voice, i int) (tts.Voice, bool) {
 		return tts.Voice{}, false
 	}
 	return voices[i], true
-}
-
-// persistAudioPrefs saves the current audio choice so it survives a restart.
-func (m *Model) persistAudioPrefs() {
-	voice := ""
-	if m.speaker != nil {
-		voice = m.speaker.Voice()
-	}
-	_ = tts.SavePrefs(tts.Prefs{Configured: true, Enabled: m.ttsOn, Voice: voice})
 }
 
 // settingsGapW is the blank gutter between the two settings columns; it's folded

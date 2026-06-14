@@ -49,10 +49,20 @@ type setupState struct {
 
 func newSetupState() setupState { return setupState{phase: phaseMenu} }
 
+// completeSetup records the one-time onboarding choice as the Default profile (the
+// baseline every character inherits until it overrides), marks the install
+// configured, and persists it.
+func (m *Model) completeSetup(enabled bool, voice string) {
+	m.store.Configured = true
+	m.store.Default.AudioOn = enabled
+	m.store.Default.Voice = voice
+	_ = saveStore(m.store)
+}
+
 // initialScreen decides the launch view: the setup screen until the user has
-// made an audio choice, otherwise straight to the meter.
-func initialScreen(p tts.Prefs) screen {
-	if p.Configured {
+// made an audio choice (configured), otherwise straight to the meter.
+func initialScreen(configured bool) screen {
+	if configured {
 		return screenMeter
 	}
 	return screenSetup
@@ -134,7 +144,7 @@ func (m Model) setupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setup.sel = 1
 		case "enter", " ":
 			if m.setup.sel == 1 { // skip
-				_ = tts.SavePrefs(tts.Prefs{Configured: true, Enabled: false})
+				m.completeSetup(false, "")
 				return m.enterMeter(), nil
 			}
 			if m.speaker.Available() { // already downloaded → straight to voice pick
@@ -166,7 +176,7 @@ func (m Model) setupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if ok {
 				m.speaker.SetVoice(v.ID)
 			}
-			_ = tts.SavePrefs(tts.Prefs{Configured: true, Enabled: true, Voice: v.ID})
+			m.completeSetup(true, v.ID)
 			m.ttsOn = m.speaker.Available()
 			return m.enterMeter(), nil
 		}
@@ -177,7 +187,7 @@ func (m Model) setupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setup.phase, m.setup.err = phaseDownloading, nil
 			return m, startDownload(m.setup.ch)
 		case "s": // give up on audio
-			_ = tts.SavePrefs(tts.Prefs{Configured: true, Enabled: false})
+			m.completeSetup(false, "")
 			return m.enterMeter(), nil
 		}
 	}

@@ -44,8 +44,9 @@ func layoutPrefsPath() (string, error) {
 	return filepath.Join(dir, "99dps", "layout.json"), nil
 }
 
-// loadLayoutPrefs reads the saved meter layout; a missing/invalid file yields the
-// default (both panels Full).
+// loadLayoutPrefs reads the legacy meter-layout file; a missing/invalid file
+// yields the default (both panels Full). Retained as a migration source — current
+// writes go through the consolidated per-character store (see store.go).
 func loadLayoutPrefs() layoutPrefs {
 	var p layoutPrefs
 	path, err := layoutPrefsPath()
@@ -58,19 +59,4 @@ func loadLayoutPrefs() layoutPrefs {
 	}
 	_ = json.Unmarshal(b, &p)
 	return p
-}
-
-func saveLayoutPrefs(p layoutPrefs) error {
-	path, err := layoutPrefsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
 }

@@ -82,6 +82,7 @@ type Model struct {
 	cdReady            map[string]bool // cooldown name → was-ready last tick
 	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
 	cues               cuePrefs        // which cues fire (per-skill / per-category toggles)
+	store              store           // consolidated per-character settings (settings.json)
 	cueSeq             int
 
 	// transient status banner (character switch, action feedback, edit prompt),
@@ -716,6 +717,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
 		m.editing, m.editMob = false, ""
+		m.applyCharSettings(m.store.forChar(msg.character)) // load the new toon's saved settings
+		if m.ready {
+			m.resizeViewports() // a layout change (Off/Compact/Full) needs re-sizing
+		}
 		m.flash("▶ now tracking " + msg.character)
 		m.refresh()
 	case tickMsg:
@@ -883,6 +888,36 @@ func (m *Model) editKey(msg tea.KeyMsg) {
 
 // toggleTTS flips audio cues at runtime, flashing feedback (no-op without an
 // engine).
+// applyCharSettings loads a character's saved profile into the live model (layout,
+// cue toggles, audio + voice). Used on a character hot-swap so each toon shows its
+// own settings. Audio only switches on when the engine is actually available.
+func (m *Model) applyCharSettings(cs charSettings) {
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef}
+	m.cues = cuePrefs{Overrides: cs.Cues}
+	if cs.Voice != "" && m.speaker != nil {
+		m.speaker.SetVoice(cs.Voice)
+	}
+	m.ttsOn = cs.AudioOn && m.speaker != nil && m.speaker.Available()
+}
+
+// saveSettings persists the current character's live settings into the
+// consolidated store. Called after every settings change so each toon's choices
+// stick across restarts and character switches.
+func (m *Model) saveSettings() {
+	voice := ""
+	if m.speaker != nil && m.speaker.Available() {
+		voice = m.speaker.Voice()
+	}
+	m.store.setChar(m.character, charSettings{
+		AudioOn: m.ttsOn,
+		Voice:   voice,
+		Damage:  m.layoutPrefs.Damage,
+		OffDef:  m.layoutPrefs.OffDef,
+		Cues:    m.cues.Overrides,
+	})
+	_ = saveStore(m.store)
+}
+
 func (m *Model) toggleTTS() {
 	if m.speaker == nil || !m.speaker.Available() {
 		m.flash("no voice yet — run: 99dps -tts-setup")
@@ -1374,17 +1409,18 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 	m := New(sm, tracker, character)
 	m.spellInfo = spellInfo
 
-	m.layoutPrefs = loadLayoutPrefs()
-	m.cues = loadCuePrefs()
-	prefs := tts.LoadPrefs()
-	m.screen = initialScreen(prefs)
+	m.store = loadStore()
+	cs := m.store.forChar(character) // this character's saved profile (or the Default)
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef}
+	m.cues = cuePrefs{Overrides: cs.Cues}
+	m.screen = initialScreen(m.store.Configured)
 	if m.screen == screenSetup {
 		m.setup = newSetupState()
-	} else if prefs.Voice != "" {
-		m.speaker.SetVoice(prefs.Voice)
+	} else if cs.Voice != "" {
+		m.speaker.SetVoice(cs.Voice)
 	}
-	// prefs drive cues once configured; the -tts flag is a manual force-on.
-	m.ttsOn = (prefs.Enabled || ttsOn) && m.speaker.Available()
+	// saved choice drives cues once configured; the -tts flag is a manual force-on.
+	m.ttsOn = (cs.AudioOn || ttsOn) && m.speaker.Available()
 
 	return &Program{p: tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())}
 }
