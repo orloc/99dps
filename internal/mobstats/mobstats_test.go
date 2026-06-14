@@ -2,49 +2,66 @@ package mobstats
 
 import "testing"
 
-func TestIndexAvgMaxOverall(t *testing.T) {
+func TestAvgAndOverall(t *testing.T) {
 	ix := New()
+	now := int64(1_000_000)
 	for _, d := range []int{40, 60, 50} {
-		ix.Record("a sand giant", d)
+		ix.Record("a sand giant", d, now)
 	}
-	ix.Record("a gnoll", 10)
+	ix.Record("a gnoll", 10, now)
 
-	if avg, ok := ix.AvgHit("a sand giant"); !ok || avg != 50 {
+	if avg, ok := ix.AvgHit("a sand giant", now); !ok || avg != 50 {
 		t.Errorf("sand giant avg = %d ok=%v, want 50", avg, ok)
 	}
-	if mx, ok := ix.MaxHit("a sand giant"); !ok || mx != 60 {
-		t.Errorf("sand giant max = %d ok=%v, want 60", mx, ok)
-	}
-	// case-insensitive lookup
-	if avg, _ := ix.AvgHit("A Sand Giant"); avg != 50 {
+	if avg, _ := ix.AvgHit("A Sand Giant", now); avg != 50 {
 		t.Errorf("lookup should be case-insensitive, got %d", avg)
 	}
-	// overall across all mobs: (40+60+50+10)/4 = 40
-	if o, ok := ix.Overall(); !ok || o != 40 {
+	if o, ok := ix.Overall(now); !ok || o != 40 { // (40+60+50+10)/4
 		t.Errorf("overall = %d ok=%v, want 40", o, ok)
 	}
-	if ix.Len() != 2 {
-		t.Errorf("len = %d, want 2", ix.Len())
+	if seen := ix.Seen(now); len(seen) != 2 {
+		t.Errorf("seen = %v, want 2 mobs", seen)
 	}
 }
 
-func TestIndexGuardsAndClear(t *testing.T) {
+// TestWindow: hits older than the window drop out of the average.
+func TestWindow(t *testing.T) {
+	ix := New()
+	base := int64(1_000_000)
+	ix.Record("a rat", 100, base)    // big
+	ix.Record("a rat", 10, base+100) // small, both within the window
+
+	// while both are inside the window they average together
+	if avg, ok := ix.AvgHit("a rat", base+200); !ok || avg != 55 {
+		t.Errorf("both recent hits should count: avg=%d ok=%v, want 55", avg, ok)
+	}
+
+	// a fresh hit long after; querying past the window leaves only it (the two old
+	// big/small hits have aged out)
+	ix.Record("a rat", 10, base+WindowSec+100)
+	now := base + WindowSec + 150
+	if avg, ok := ix.AvgHit("a rat", now); !ok || avg != 10 {
+		t.Errorf("only the in-window hit should count: avg=%d ok=%v, want 10", avg, ok)
+	}
+}
+
+func TestGuardsAndClear(t *testing.T) {
 	var nilIx *Index
-	if _, ok := nilIx.AvgHit("x"); ok { // nil-safe
+	if _, ok := nilIx.AvgHit("x", 0); ok {
 		t.Error("nil index should report no data")
 	}
-	nilIx.Record("x", 5) // must not panic
+	nilIx.Record("x", 5, 0) // must not panic
 
 	ix := New()
-	ix.Record("a rat", 0) // non-positive damage ignored
-	ix.Record("", 5)      // empty name ignored
-	if ix.Len() != 0 {
-		t.Errorf("bad inputs should record nothing, len=%d", ix.Len())
+	ix.Record("a rat", 0, 1) // non-positive ignored
+	ix.Record("", 5, 1)      // empty name ignored
+	if len(ix.Seen(1)) != 0 {
+		t.Errorf("bad inputs should record nothing, seen=%v", ix.Seen(1))
 	}
 
-	ix.Record("a rat", 5)
+	ix.Record("a rat", 5, 1)
 	ix.Clear()
-	if _, ok := ix.AvgHit("a rat"); ok {
+	if _, ok := ix.AvgHit("a rat", 1); ok {
 		t.Error("Clear should drop all tallies")
 	}
 }

@@ -58,7 +58,7 @@ func (sm *SessionManager) Apply(set *combat.DamageSet) {
 		if sm.mobs == nil {
 			sm.mobs = mobstats.New()
 		}
-		sm.mobs.Record(set.Dealer, set.Dmg)
+		sm.mobs.Record(set.Dealer, set.Dmg, set.ActionTime)
 	}
 }
 

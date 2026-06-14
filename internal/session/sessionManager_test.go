@@ -298,15 +298,15 @@ func TestMobStatsFromApply(t *testing.T) {
 	sm.Apply(&combat.DamageSet{ActionTime: 102, Dealer: "You", Dmg: 200, Target: "a sand giant"})
 
 	mi := sm.MobStats()
-	if avg, ok := mi.AvgHit("a sand giant"); !ok || avg != 50 {
+	if avg, ok := mi.AvgHit("a sand giant", 102); !ok || avg != 50 {
 		t.Errorf("mob avg = %d ok=%v, want 50 (hits on pet+groupmate)", avg, ok)
 	}
-	if _, ok := mi.AvgHit("You"); ok {
+	if _, ok := mi.AvgHit("You", 102); ok {
 		t.Error("the player's own hits must not be in the mob index")
 	}
 
 	sm.Clear()
-	if _, ok := sm.MobStats().AvgHit("a sand giant"); ok {
+	if _, ok := sm.MobStats().AvgHit("a sand giant", 102); ok {
 		t.Error("Clear should reset the mob index")
 	}
 }
