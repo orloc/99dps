@@ -364,12 +364,8 @@ func (t *Tracker) Observe(body string, at int64) {
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked
 	// returns the inferred victim (or "") so we can drop its timers here.
-	prevZone := t.zone.name
 	if v := t.zone.observeLocked(body, at, t.petName, t.soleDebuffedMobLocked()); v != "" {
 		t.clearMobTimersLocked(v)
-	}
-	if t.zone.name != prevZone { // changed zone — spell recasts reset on a zone-in
-		t.cool.clearZoneScopedLocked()
 	}
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()

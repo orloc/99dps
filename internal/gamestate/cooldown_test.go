@@ -260,8 +260,8 @@ func TestCooldown_KickNotForNonMonk(t *testing.T) {
 }
 
 // TestSpellRecastCooldown: casting a watched recast spell (Dictate charm /
-// Rapture mez) starts a zone-scoped reuse cooldown read from the spell's own
-// RecastMs, and a zone change clears it (you can recast freely after zoning).
+// Rapture mez) starts a reuse cooldown read from the spell's own RecastMs, and
+// the timer persists across a zone change (recasts are real-time in EQ).
 func TestSpellRecastCooldown(t *testing.T) {
 	b := loadBook(t,
 		// Dictate: a charm (no landing emote), 12s recast
@@ -287,7 +287,6 @@ func TestSpellRecastCooldown(t *testing.T) {
 	tr.SetLevel(60)
 	now := int64(1000)
 
-	// enter a zone so the recast is "cast in this zone"
 	tr.Observe("You have entered Lake of Ill Omen.", now)
 
 	// cast Dictate → charm completes on the next line, starting its 12s recast
@@ -317,10 +316,19 @@ func TestSpellRecastCooldown(t *testing.T) {
 		t.Errorf("Tashani must not add a cooldown, have %d", got)
 	}
 
-	// zoning clears the zone-scoped recasts
+	// zoning must NOT reset the recasts — they're real-time in EQ. Both still
+	// counting at now+4: Rapture landed at now+2 (9s → 7 left), Dictate completed
+	// at now+1 (12s → 9 left).
 	tr.Observe("You have entered Skyfire Mountains.", now+4)
-	if cds := tr.Cooldowns(now + 4); len(cds) != 0 {
-		t.Errorf("a zone change should clear spell recasts, got %+v", cds)
+	cds = tr.Cooldowns(now + 4)
+	if len(cds) != 2 {
+		t.Fatalf("a zone change must not drop spell recasts, got %+v", cds)
+	}
+	if cds[0].Name != "Rapture" || cds[0].Remaining != 7 {
+		t.Errorf("Rapture should keep counting across zoning, got %+v", cds[0])
+	}
+	if cds[1].Name != "Dictate" || cds[1].Remaining != 9 {
+		t.Errorf("Dictate should keep counting across zoning, got %+v", cds[1])
 	}
 }
 

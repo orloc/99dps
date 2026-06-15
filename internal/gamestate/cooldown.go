@@ -124,13 +124,12 @@ type cooldownTracker struct {
 	bindDoneAt     int64              // log time bandaging last completed
 }
 
-// cdState is one ability's live reuse: when it's ready again, its full duration
-// (for the panel's charge bar), and whether it's cleared on a zone change (a
-// spell recast, vs a skill reuse that survives zoning).
+// cdState is one ability's live reuse: when it's ready again and its full
+// duration (for the panel's charge bar). Reuse timers are real-time, so they
+// persist across zoning — nothing here is cleared on a zone change.
 type cdState struct {
-	expiry     int64
-	total      int64
-	zoneScoped bool
+	expiry int64
+	total  int64
 }
 
 func (c *cooldownTracker) clear() {
@@ -146,28 +145,18 @@ func (c *cooldownTracker) dropLocked(name string) {
 	delete(c.cooldowns, name)
 }
 
-// clearZoneScopedLocked drops the cooldowns tied to the current zone (spell
-// recasts) — called on a zone change, since zoning lets you recast freely.
-func (c *cooldownTracker) clearZoneScopedLocked() {
-	for name, s := range c.cooldowns {
-		if s.zoneScoped {
-			delete(c.cooldowns, name)
-		}
-	}
-}
-
-// startSpellRecastLocked starts a zone-scoped reuse cooldown for a class's
-// recast-watched spell (the Enchanter's Dictate/Rapture, per the eqclass
-// Profile) when it goes off OR when it's freshly memorized (a long-recast spell
-// must clear its first refresh before it can be cast), using the spell's own
-// RecastMs. No-op for any unwatched spell or when it carries no recast. Caller
-// holds the lock.
+// startSpellRecastLocked starts a reuse cooldown for a class's recast-watched
+// spell (the Enchanter's Dictate/Rapture, per the eqclass Profile) when it goes
+// off OR when it's freshly memorized (a long-recast spell must clear its first
+// refresh before it can be cast), using the spell's own RecastMs. The timer is
+// real-time and persists across zoning, like the skill reuses. No-op for any
+// unwatched spell or when it carries no recast. Caller holds the lock.
 func (c *cooldownTracker) startSpellRecastLocked(s *Spell, at int64, class eqclass.Class) {
 	if s == nil || s.RecastMs <= 0 || !eqclass.RecastWatched(class, s.Name) {
 		return
 	}
 	sec := int64(s.RecastMs+999) / 1000 // ceil to whole seconds
-	c.cooldowns[s.Name] = cdState{expiry: at + sec, total: sec, zoneScoped: true}
+	c.cooldowns[s.Name] = cdState{expiry: at + sec, total: sec}
 }
 
 // FeignState is the outcome of the most recent feign, for the panel banner.
