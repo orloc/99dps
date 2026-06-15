@@ -10,66 +10,111 @@ func result(lo, hi, v int) string {
 	return fmt.Sprintf("**It could have been any number from %d to %d, but this time it turned up a %d.", lo, hi, v)
 }
 
-// TestRolls: the two-line /random output pairs into rolls, sorted high-first
-// (the winner on top), with ties broken by who rolled first.
-func TestRolls(t *testing.T) {
+// roll feeds the two /random lines for one roller at log time `at`.
+func roll(tr *Tracker, name string, v int, at int64) {
+	tr.Observe(die(name), at)
+	tr.Observe(result(0, 1000, v), at)
+}
+
+// TestRolls_LiveContest: rolls within a contest accumulate into the live board,
+// high value first (the leader on top), ties broken by who rolled first.
+func TestRolls_LiveContest(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	if len(tr.Rolls()) != 0 {
 		t.Fatal("no rolls initially")
 	}
+	roll(tr, "Trashromancer", 409, 100)
+	roll(tr, "Emandar", 952, 101)
+	roll(tr, "Daffadill", 112, 102)
+	roll(tr, "Latecomer", 952, 103) // ties the 952 but rolled later
 
-	feed := func(name string, v, at int64) {
-		tr.Observe(die(name), at)
-		tr.Observe(result(0, 1000, int(v)), at)
+	live := tr.Rolls()
+	if len(live) != 4 {
+		t.Fatalf("want 4 live rolls, got %d", len(live))
 	}
-	feed("Trashromancer", 409, 100)
-	feed("Emandar", 952, 101)
-	feed("Daffadill", 112, 102)
-	feed("Latecomer", 952, 103) // ties Emandar's 952 but rolled later
-
-	rolls := tr.Rolls()
-	if len(rolls) != 4 {
-		t.Fatalf("want 4 rolls, got %d", len(rolls))
+	if live[0].Roller != "Emandar" || live[0].Value != 952 {
+		t.Errorf("leader = %+v, want Emandar 952", live[0])
 	}
-	// winner first; the earlier of the tied 952s wins the tiebreak
-	if rolls[0].Roller != "Emandar" || rolls[0].Value != 952 {
-		t.Errorf("winner = %+v, want Emandar 952", rolls[0])
+	if live[1].Roller != "Latecomer" {
+		t.Errorf("tie should order by roll time, got %q", live[1].Roller)
 	}
-	if rolls[1].Roller != "Latecomer" {
-		t.Errorf("tie should order by roll time, got %q second", rolls[1].Roller)
-	}
-	if rolls[3].Roller != "Daffadill" || rolls[3].Value != 112 {
-		t.Errorf("last = %+v, want Daffadill 112", rolls[3])
-	}
-	if rolls[0].Low != 0 || rolls[0].High != 1000 {
-		t.Errorf("range not captured: %+v", rolls[0])
+	if len(tr.RollWinners()) != 0 {
+		t.Error("no contest has closed yet — winners log should be empty")
 	}
 }
 
-// TestRolls_Edges: a result with no preceding die line is ignored; ClearRolls and
-// Clear both reset the board.
-func TestRolls_Edges(t *testing.T) {
+// TestRolls_ContestClosesOnGap: a roll after a lull closes the prior contest —
+// its high roller lands in the winners log (with the zone) and the board resets.
+func TestRolls_ContestClosesOnGap(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Sebilis.", 1000)
+
+	roll(tr, "Airor", 700, 1000)
+	roll(tr, "Belvinn", 903, 1001) // wins this contest
+	// next roll arrives well after the gap → previous contest finalizes
+	roll(tr, "Newguy", 50, 1001+contestGapSec+5)
+
+	wins := tr.RollWinners()
+	if len(wins) != 1 {
+		t.Fatalf("a gap should close one contest, got %d winners", len(wins))
+	}
+	if wins[0].Roller != "Belvinn" || wins[0].Value != 903 {
+		t.Errorf("winner = %+v, want Belvinn 903", wins[0])
+	}
+	if wins[0].Zone != "Sebilis" {
+		t.Errorf("winner zone = %q, want Sebilis", wins[0].Zone)
+	}
+	// the new roll is the only one in the fresh live board
+	if live := tr.Rolls(); len(live) != 1 || live[0].Roller != "Newguy" {
+		t.Errorf("new contest should hold only Newguy, got %+v", live)
+	}
+}
+
+// TestRolls_FinalizeStaleAndManual: a quiet contest closes on the tick-driven
+// stale check; FinalizeRolls closes one immediately; ClearRollWinners empties the
+// log; Clear (character switch) drops everything.
+func TestRolls_FinalizeStaleAndManual(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 
-	tr.Observe(result(0, 100, 50), 1) // orphan result — no die line
+	// stale finalize: rolls go quiet, the tick check closes the contest
+	roll(tr, "A", 10, 100)
+	roll(tr, "B", 20, 101)
+	tr.FinalizeStaleRolls(101 + contestGapSec) // not yet past the gap
+	if len(tr.RollWinners()) != 0 {
+		t.Error("within the gap nothing should finalize")
+	}
+	tr.FinalizeStaleRolls(101 + contestGapSec + 1) // now past it
+	if w := tr.RollWinners(); len(w) != 1 || w[0].Roller != "B" {
+		t.Fatalf("stale finalize should record B, got %+v", w)
+	}
+
+	// manual finalize closes the current contest immediately
+	roll(tr, "C", 5, 500)
+	tr.FinalizeRolls()
+	if w := tr.RollWinners(); len(w) != 2 || w[0].Roller != "C" {
+		t.Errorf("manual finalize should record C first, got %+v", w)
+	}
+	if len(tr.Rolls()) != 0 {
+		t.Error("finalize should reset the live board")
+	}
+
+	// clear the log; then a character switch drops all roll state
+	tr.ClearRollWinners()
+	if len(tr.RollWinners()) != 0 {
+		t.Error("ClearRollWinners should empty the log")
+	}
+	roll(tr, "D", 1, 600)
+	tr.Clear()
+	if len(tr.Rolls()) != 0 || len(tr.RollWinners()) != 0 {
+		t.Error("Clear should drop all roll state")
+	}
+}
+
+// TestRolls_OrphanResult: a result line with no preceding die line is ignored.
+func TestRolls_OrphanResult(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe(result(0, 100, 50), 1)
 	if len(tr.Rolls()) != 0 {
 		t.Error("a result with no die line must not record a roll")
-	}
-
-	tr.Observe(die("Solo"), 2)
-	tr.Observe(result(0, 100, 77), 2)
-	if len(tr.Rolls()) != 1 {
-		t.Fatal("a paired roll should record")
-	}
-	tr.ClearRolls()
-	if len(tr.Rolls()) != 0 {
-		t.Error("ClearRolls should empty the board")
-	}
-
-	tr.Observe(die("Again"), 3)
-	tr.Observe(result(0, 100, 5), 3)
-	tr.Clear() // a character switch
-	if len(tr.Rolls()) != 0 {
-		t.Error("Clear should also drop rolls")
 	}
 }

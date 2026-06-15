@@ -373,7 +373,7 @@ func (t *Tracker) Observe(body string, at int64) {
 		t.canni.recordBuzzerLocked()
 	}
 	t.cool.observeBindLocked(body, at)
-	t.rolls.observeLocked(body, at)
+	t.rolls.observeLocked(body, at, t.zone.name)
 }
 
 // matchSelfClickyLocked starts a self-buff timer when a line is the landing
