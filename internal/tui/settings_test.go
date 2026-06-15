@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/eqclass"
+	"99dps/internal/session"
 	"99dps/internal/tts"
 )
 
@@ -321,5 +323,168 @@ func TestSettingsVoicesNilSpeaker(t *testing.T) {
 	}
 	if !strings.Contains(joined, "download a voice") {
 		t.Errorf("no-voices left column should show the download hint, got:\n%s", joined)
+	}
+}
+
+// ---- moved from tabs_test.go (tab bar logic in settings.go) ----
+
+func TestTabAtMatchesBar(t *testing.T) {
+	m := Model{screen: screenMeter, w: 122} // innerW = 120
+	for _, h := range tabHits(m.w - 2) {
+		mid := (h.x0 + h.x1) / 2
+		if scr, ok := m.tabAt(mid, tabRow); !ok || scr != h.scr {
+			t.Errorf("tabAt(%d, %d) = (%v,%v), want %v", mid, tabRow, scr, ok, h.scr)
+		}
+	}
+	// off the tab row → no hit
+	if _, ok := m.tabAt(tabHits(m.w - 2)[0].x0, tabRow+1); ok {
+		t.Error("tabAt off the tab row should miss")
+	}
+	// in the gap between the left tabs and right-aligned Settings → no hit
+	if _, ok := m.tabAt(9999, tabRow); ok {
+		t.Error("tabAt past the right edge should miss")
+	}
+}
+
+func TestCycleTab(t *testing.T) {
+	m := Model{screen: screenMeter}
+	if m.cycleTab(+1) != screenSessions {
+		t.Error("next from Meter should be Sessions")
+	}
+	m.screen = screenSettings // the last tab in the slice
+	if m.cycleTab(+1) != screenMeter {
+		t.Error("next from the last tab should wrap to Meter")
+	}
+	if m.cycleTab(-1) != screenTools {
+		t.Error("prev from Settings should be Tools")
+	}
+	m.screen = screenMeter
+	if m.cycleTab(-1) != screenSettings {
+		t.Error("prev from Meter should wrap to the last tab (Settings)")
+	}
+}
+
+func TestTabKeyNavigation(t *testing.T) {
+	var m tea.Model = New(&session.SessionManager{}, nil, "X")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if m.(Model).screen != screenSessions {
+		t.Error("key 2 should open Sessions")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	if m.(Model).screen != screenTools {
+		t.Error("key 3 should open Tools")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
+	if m.(Model).screen != screenSettings {
+		t.Error("key 4 should open Settings")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab}) // wraps the last tab (Settings) -> Meter
+	if m.(Model).screen != screenMeter {
+		t.Error("tab from the last tab should wrap to Meter")
+	}
+}
+
+func TestTabClickSwitchesScreen(t *testing.T) {
+	var m tea.Model = New(&session.SessionManager{}, nil, "X")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	sessionsTab := tabHits(100 - 2)[1] // Meter | Sessions | Tools … Settings
+	mid := (sessionsTab.x0 + sessionsTab.x1) / 2
+	m, _ = m.Update(tea.MouseMsg{X: mid, Y: tabRow, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.(Model).screen != screenSessions {
+		t.Errorf("clicking the Sessions tab should switch screens, got %v", m.(Model).screen)
+	}
+}
+
+func TestSettingsViewFitsWindow(t *testing.T) {
+	for _, w := range []int{60, 80, 120} {
+		m := Model{screen: screenSettings, ready: true, w: w, h: 30, speaker: tts.New()}
+		for _, ln := range strings.Split(m.View(), "\n") {
+			if lipgloss.Width(ln) > w {
+				t.Errorf("w=%d: settings line exceeds width (%d): %q", w, lipgloss.Width(ln), ln)
+			}
+		}
+	}
+}
+
+// ---- moved from cuegating_test.go (settings-driven cue toggles) ----
+
+// TestSettingsRightColumnToggle drives the keyboard path: focus the cue column,
+// toggle the first cue, and confirm it persisted as an override.
+func TestSettingsRightColumnToggle(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := Model{screen: screenSettings}
+
+	send := func(k tea.KeyMsg) {
+		tm, _ := m.updateSettings(k)
+		m = tm.(Model)
+	}
+	send(tea.KeyMsg{Type: tea.KeyRight}) // focus the cue column
+	if m.settingsCol != 1 {
+		t.Fatalf("→ should focus the cue column, got col %d", m.settingsCol)
+	}
+	send(tea.KeyMsg{Type: tea.KeyEnter}) // toggle the first cue (Mend ready, default on → off)
+
+	first := cueToggles(cueRows(eqclass.ClassUnknown))[0]
+	if m.cues.enabled(first.id, first.def) {
+		t.Errorf("first cue (%s) should now be off", first.id)
+	}
+	saved := cuePrefs{Overrides: loadStore().forChar(m.character).Cues}
+	if saved.enabled(first.id, first.def) {
+		t.Errorf("the cue toggle should persist to the settings store")
+	}
+}
+
+// TestSettingsFlashConfirmsSave: toggling a cue surfaces a saved-confirmation
+// flash on the Settings page, so the user can see the (silent) toggle stuck.
+func TestSettingsFlashConfirmsSave(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	sm, tr := monkScene()
+	var m tea.Model = New(sm, tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 34})
+	mm := m.(Model)
+	mm.screen = screenSettings
+
+	r, _ := mm.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	mm = r.(Model)
+	r, _ = mm.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	mm = r.(Model)
+
+	if !strings.Contains(mm.View(), "saved") {
+		t.Error("toggling a cue should show a saved-confirmation flash on the settings page")
+	}
+}
+
+// ---- moved from layout_test.go (Settings rows in settings.go) ----
+
+func TestSettingsTogglesClassBox(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := Model{screen: screenSettings, settingsSel: settingsClassBoxRow}
+	if m.layoutPrefs.ClassBox {
+		t.Fatal("class box should default off")
+	}
+	tm, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(Model)
+	if !m.layoutPrefs.ClassBox {
+		t.Error("enter should turn the class box on")
+	}
+	if !loadStore().forChar(m.character).ClassBox {
+		t.Error("the class box choice should persist to the store")
+	}
+}
+
+func TestSettingsCyclesMeterMode(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := Model{screen: screenSettings, settingsSel: settingsDamageRow}
+	for _, want := range []panelMode{panelCompact, panelOff, panelFull} {
+		tm, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
+		m = tm.(Model)
+		if m.layoutPrefs.Damage != want {
+			t.Errorf("Damage mode = %v, want %v", m.layoutPrefs.Damage, want)
+		}
+	}
+	if loadStore().forChar(m.character).Damage != panelFull {
+		t.Error("the meter mode should persist to the settings store")
 	}
 }

@@ -18,57 +18,6 @@ import (
 	"99dps/internal/session"
 )
 
-// sampleManager builds a session manager with a few dealers, spread over a span.
-func sampleManager() *session.SessionManager {
-	sm := &session.SessionManager{}
-	rows := []struct {
-		dealer string
-		dmg    int
-		at     int64
-	}{
-		{"You", 520_000, 1000}, {"Gabnador", 349_000, 1008}, {"Borric", 190_000, 1016},
-		{"Mourngul", 168_000, 1024}, {"Faelyn", 133_000, 1032}, {"a pet", 77_000, 1042},
-	}
-	for _, r := range rows {
-		sm.Apply(&combat.DamageSet{ActionTime: r.at, Dealer: r.dealer, Dmg: r.dmg, Target: "a sand giant"})
-	}
-	// specials so the Specials breakdown has content (per dealer, per kind, with a
-	// hit rate) — also exercised by the overflow guard.
-	sm.Apply(&combat.DamageSet{ActionTime: 1040, Dealer: "Borric", Dmg: 5_000, Target: "a sand giant", Verb: "backstab"})
-	sm.Apply(&combat.DamageSet{ActionTime: 1041, Dealer: "You", Dmg: 1_400, Target: "a sand giant", Verb: "kick"})
-	sm.Apply(&combat.DamageSet{ActionTime: 1042, Dealer: "You", Dmg: 1_200, Target: "a sand giant", Verb: "kick"})
-	sm.ApplySwing(&combat.Swing{ActionTime: 1043, Attacker: "You", Defender: "a sand giant", Verb: "kick", Outcome: combat.OutcomeMiss})
-	return sm
-}
-
-// renderAt drives the model through a window-size + tick so View() has content.
-func renderAt(sm *session.SessionManager, themeIdx, w, h int) string {
-	return renderAtTr(sm, nil, themeIdx, w, h)
-}
-
-func renderAtTr(sm *session.SessionManager, tr *gamestate.Tracker, themeIdx, w, h int) string {
-	var m tea.Model = New(sm, tr, "Kelkix")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
-	mm := m.(Model)
-	mm.theme = themeIdx
-	mm.refresh()
-	return mm.View()
-}
-
-// monkScene is a melee (Monk) scenario: skill attacks + a Mend cooldown, so the
-// class-aware panel shows SKILLS + COOLDOWNS instead of spell timers.
-func monkScene() (*session.SessionManager, *gamestate.Tracker) {
-	sm := sampleManager()
-	sm.Apply(&combat.DamageSet{ActionTime: 1043, Dealer: "You", Dmg: 90, Target: "a sand giant", Verb: "kick"})
-	sm.Apply(&combat.DamageSet{ActionTime: 1044, Dealer: "You", Dmg: 70, Target: "a sand giant", Verb: "strike"})
-	book, _ := gamestate.LoadReader(strings.NewReader(""))
-	tr := gamestate.NewTracker(book)
-	tr.SetLevel(60)
-	tr.SetClass(eqclass.ClassMonk)
-	tr.Observe("You mend your wounds and heal some damage.", 1044) // starts the Mend cooldown
-	return sm, tr
-}
-
 // buffRow builds a minimal 217-field spells_us.txt line for a beneficial buff
 // with the given cast-on-other landing emote (the prefix of which is the
 // target). Field indices mirror internal/gamestate/book.go.
@@ -325,13 +274,6 @@ func TestSwitchCharacter(t *testing.T) {
 }
 
 // twoSessionManager forces two distinct fights (a big gap between them).
-func twoSessionManager() *session.SessionManager {
-	sm := &session.SessionManager{}
-	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 1000, Target: "a rat"})
-	sm.Apply(&combat.DamageSet{ActionTime: 9000, Dealer: "You", Dmg: 2000, Target: "a bat"})
-	return sm
-}
-
 // mobSceneTracker has one of the player's kills and one of someone else's, in a
 // zone with a known respawn — so the Mob Tracker shows the separator + killer.
 func mobSceneTracker() *gamestate.Tracker {
@@ -728,20 +670,6 @@ func TestEnemyColumnNarrowFallback(t *testing.T) {
 	}
 }
 
-// TestHSVHex pins the rainbow primaries.
-func TestHSVHex(t *testing.T) {
-	for _, c := range []struct {
-		h, s, v float64
-		want    string
-	}{
-		{0, 1, 1, "#ff0000"}, {120, 1, 1, "#00ff00"}, {240, 1, 1, "#0000ff"},
-	} {
-		if got := hsvHex(c.h, c.s, c.v); got != c.want {
-			t.Errorf("hsvHex(%g,%g,%g) = %s, want %s", c.h, c.s, c.v, got, c.want)
-		}
-	}
-}
-
 func TestPanelsRenderLiveData(t *testing.T) {
 	out := renderAt(sampleManager(), 0, 100, 32)
 	for _, want := range []string{
@@ -1054,5 +982,677 @@ func TestBuffsYouPinnedTop(t *testing.T) {
 	// the rest stay soonest-first (Legolas 30s before Aragorn 60s)
 	if order[1] != "Legolas" || order[2] != "Aragorn" {
 		t.Errorf("non-You groups should stay soonest-first; got %v", order)
+	}
+}
+
+// ---- moved from announce_test.go (cue/announcement helpers in model.go) ----
+
+// TestDueAnnouncementsTwoLevels: a buff cues once on entering the gold "low" zone
+// and again on the red "fading" zone (the same TimerUrgency the flash uses), and a
+// refresh re-arms both levels.
+func TestDueAnnouncementsTwoLevels(t *testing.T) {
+	m := &Model{announced: map[string]gamestate.Urgency{}}
+	now := int64(1_000_000)
+	// a 100-min buff: low (gold) caps at 300s left, fading (red) at 60s left.
+	buff := func(remaining int64) gamestate.Timer {
+		return gamestate.Timer{Spell: "Clarity", Target: "You", Start: now - (6000 - remaining), Expiry: now + remaining}
+	}
+
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(400)}, now); len(got) != 0 {
+		t.Fatalf("fresh buff (400s left) should be silent, got %v", got)
+	}
+	got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now)
+	if len(got) != 1 || got[0].fading {
+		t.Fatalf("entering the low zone should give one non-fading cue, got %+v", got)
+	}
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now); len(got) != 0 {
+		t.Errorf("still low should not re-announce, got %v", got)
+	}
+	got = m.dueAnnouncements([]gamestate.Timer{buff(50)}, now)
+	if len(got) != 1 || !got[0].fading {
+		t.Fatalf("entering the red zone should give one fading cue, got %+v", got)
+	}
+	// refreshed back to fresh → re-arm; decaying to low warns "low" again
+	m.dueAnnouncements([]gamestate.Timer{buff(400)}, now)
+	if got := m.dueAnnouncements([]gamestate.Timer{buff(250)}, now); len(got) != 1 || got[0].fading {
+		t.Errorf("a refreshed buff should warn low again, got %+v", got)
+	}
+}
+
+func TestComposeCue(t *testing.T) {
+	you := func(s string) gamestate.Timer { return gamestate.Timer{Spell: s, Target: "You"} }
+	cases := []struct {
+		due  []gamestate.Timer
+		want string
+	}{
+		{[]gamestate.Timer{you("Clarity")}, "Clarity is fading."},
+		{[]gamestate.Timer{you("Clarity"), you("Umbra")}, "Clarity and Umbra are fading."},
+		{[]gamestate.Timer{you("Clarity"), you("Brilliance"), you("Umbra")}, "Clarity, Brilliance, and Umbra are fading."},
+		{[]gamestate.Timer{{Spell: "Snare", Target: "a gnoll"}}, "Snare on a gnoll is fading."},
+	}
+	for _, c := range cases {
+		if got := composeCue(c.due, true, 0, 0); got != c.want {
+			t.Errorf("composeCue = %q, want %q", got, c.want)
+		}
+	}
+}
+
+// TestComposeCueLow: the gold-zone cue names the buff, reads "low" (not "fading"),
+// and speaks the time remaining.
+func TestComposeCueLow(t *testing.T) {
+	now := int64(1000)
+	due := []gamestate.Timer{{Spell: "Clarity", Target: "You", Expiry: now + 300}} // 5 min left
+	got := composeCue(due, false, now, 0)
+	if !strings.Contains(got, "Clarity") || !strings.Contains(got, "low") {
+		t.Errorf("low cue should name the buff and say it's low: %q", got)
+	}
+	if !strings.Contains(got, "5 minutes") {
+		t.Errorf("low cue should speak the time left (5 minutes): %q", got)
+	}
+	if strings.Contains(got, "fading") {
+		t.Errorf("low cue should not say 'fading': %q", got)
+	}
+}
+
+// TestComposeCueCombines: several subjects in a zone combine into one sentence,
+// and more than three collapse to a count.
+func TestComposeCueCombines(t *testing.T) {
+	now := int64(1000)
+	tm := func(name string) gamestate.Timer {
+		return gamestate.Timer{Spell: name, Target: "You", Expiry: now + 300}
+	}
+	two := composeCue([]gamestate.Timer{tm("Clarity"), tm("Aegolism")}, false, now, 0)
+	if !strings.Contains(two, "Clarity") || !strings.Contains(two, "Aegolism") {
+		t.Errorf("two low buffs should combine into one cue: %q", two)
+	}
+	many := composeCue([]gamestate.Timer{tm("A"), tm("B"), tm("C"), tm("D")}, true, now, 0)
+	if !strings.Contains(many, "4") || !strings.Contains(many, "fading") {
+		t.Errorf("more than three fading should collapse to a count: %q", many)
+	}
+}
+
+func TestSpokenDuration(t *testing.T) {
+	cases := []struct {
+		sec  int64
+		want string
+	}{
+		{300, "5 minutes"},
+		{100, "1 minute 40 seconds"}, // must NOT round up to "2 minutes"
+		{90, "1 minute 30 seconds"},
+		{61, "1 minute 1 second"},
+		{60, "1 minute"},
+		{50, "50 seconds"},
+		{1, "1 second"},
+		{-5, "0 seconds"},
+	}
+	for _, c := range cases {
+		if got := spokenDuration(c.sec); got != c.want {
+			t.Errorf("spokenDuration(%d) = %q, want %q", c.sec, got, c.want)
+		}
+	}
+}
+
+func TestFadeVariety(t *testing.T) {
+	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
+	seen := map[string]bool{}
+	for seq := 0; seq < 3; seq++ {
+		seen[composeCue(due, true, 0, seq)] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("expected 3 distinct phrasings across seqs, got %v", seen)
+	}
+	// plural agreement holds in every style
+	two := []gamestate.Timer{{Spell: "Clarity", Target: "You"}, {Spell: "Umbra", Target: "You"}}
+	for seq := 0; seq < 3; seq++ {
+		if got := composeCue(two, true, 0, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
+			t.Errorf("seq %d plural phrasing wrong: %q", seq, got)
+		}
+	}
+}
+
+func TestCharmAndResistPhrases(t *testing.T) {
+	charm := map[string]bool{}
+	for seq := 0; seq < 3; seq++ {
+		charm[charmBreakPhrase(seq)] = true
+	}
+	if len(charm) != 3 {
+		t.Errorf("charm-break phrasing should vary, got %v", charm)
+	}
+	for seq := 0; seq < 3; seq++ {
+		if got := resistPhrase("Bedlam", seq); !strings.Contains(got, "Bedlam") {
+			t.Errorf("resist phrase %d should name the spell: %q", seq, got)
+		}
+	}
+}
+
+func TestAnnounceCuesResistIsUrgent(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	now := time.Now().Unix()
+	tr.Observe("Your target resisted the Bedlam spell.", now) // sets the resist signal
+
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}}
+	m.announceCues()
+	if len(fe.urgent) != 1 || !strings.Contains(fe.urgent[0], "Bedlam") {
+		t.Fatalf("resist should use the urgent voice with the spell name, got urgent=%v normal=%v", fe.urgent, fe.normal)
+	}
+	if len(fe.normal) != 0 {
+		t.Errorf("resist must not use the normal voice, got %v", fe.normal)
+	}
+	m.announceCues() // same resist still within grace → must not repeat
+	if len(fe.urgent) != 1 {
+		t.Errorf("resist should fire once, got %v", fe.urgent)
+	}
+}
+
+func TestFeignFailVariety(t *testing.T) {
+	seen := map[string]bool{}
+	for seq := 0; seq < 3; seq++ {
+		seen[feignFailPhrase(seq)] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("feign-fail phrasing should vary, got %v", seen)
+	}
+}
+
+func TestFeignFailIsUrgent(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.FeignFailed(1000)
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(1000)
+	if len(fe.urgent) != 1 || !strings.Contains(strings.ToLower(fe.urgent[0]), "feign") {
+		t.Fatalf("failed feign should be urgent, got urgent=%v normal=%v", fe.urgent, fe.normal)
+	}
+	m.announceCuesAt(1000) // still failed → no repeat
+	if len(fe.urgent) != 1 {
+		t.Errorf("feign fail should fire once, got %v", fe.urgent)
+	}
+}
+
+func TestLongCooldownReadyCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.Observe("You mend your wounds and heal some damage.", 1000) // Mend → 360s cooldown
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(1000) // just used → records not-ready, no cue
+	if len(fe.normal) != 0 {
+		t.Fatalf("no cue while on cooldown, got %v", fe.normal)
+	}
+	m.announceCuesAt(1000 + 361) // ready → gentle cue
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "Mend") {
+		t.Fatalf("Mend ready should be a gentle cue, got normal=%v urgent=%v", fe.normal, fe.urgent)
+	}
+	m.announceCuesAt(1000 + 362) // still ready → no repeat
+	if len(fe.normal) != 1 {
+		t.Errorf("cooldown-ready should fire once, got %v", fe.normal)
+	}
+}
+
+func TestShortCooldownNoCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.FeignAttempt(2000) // Feign Death → 11s reuse (short)
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe, announced: map[string]gamestate.Urgency{}, cdReady: map[string]bool{}}
+
+	m.announceCuesAt(2000)
+	m.announceCuesAt(2000 + 12) // ready, but too short to announce
+	if len(fe.normal) != 0 {
+		t.Errorf("a short cooldown must not announce, got %v", fe.normal)
+	}
+}
+
+func TestDueAnnouncementsSkipsEstimated(t *testing.T) {
+	m := &Model{announced: map[string]gamestate.Urgency{}}
+	now := int64(1_000)
+	// an incoming debuff on you, near (estimated) expiry — must NOT announce
+	est := gamestate.Timer{Spell: "Slowed", Target: "You", Start: now - 360, Expiry: now + 5, Estimated: true}
+	if got := m.dueAnnouncements([]gamestate.Timer{est}, now); len(got) != 0 {
+		t.Errorf("estimated incoming debuff should not produce a fade cue, got %v", got)
+	}
+	// a real buff at the same remaining still announces (sanity)
+	buff := gamestate.Timer{Spell: "Clarity", Target: "You", Start: now - 360, Expiry: now + 5}
+	if got := m.dueAnnouncements([]gamestate.Timer{buff}, now); len(got) != 1 {
+		t.Errorf("a real buff should still announce, got %v", got)
+	}
+}
+
+// ---- moved from cuegating_test.go (cue gating in model.go) ----
+
+// TestDueAnnouncementsGatesByType: a disabled cue type stays silent while other
+// types still fire from the same tick.
+func TestDueAnnouncementsGatesByType(t *testing.T) {
+	m := &Model{
+		announced: map[string]gamestate.Urgency{},
+		cues:      cuePrefs{Overrides: map[string]bool{cueMez: false}}, // mez cues off
+	}
+	now := int64(1000)
+	mez := gamestate.Timer{Spell: "Lull", Target: "a gnoll", Start: now - 100, Expiry: now + 5, Mez: true}
+	deb := gamestate.Timer{Spell: "Cripple", Target: "a gnoll", Start: now - 100, Expiry: now + 5, Detrimental: true}
+
+	due := m.dueAnnouncements([]gamestate.Timer{mez, deb}, now)
+	if len(due) != 1 || due[0].Spell != "Cripple" {
+		t.Fatalf("mez disabled → only the debuff should be due, got %+v", due)
+	}
+}
+
+// TestDebuffCueFiresOncePerMob: a debuff/DoT on a mob warns at most once, even
+// when re-applied (refreshed) — a necro re-dotting shouldn't re-announce.
+func TestDebuffCueFiresOncePerMob(t *testing.T) {
+	m := &Model{announced: map[string]gamestate.Urgency{}}
+	now := int64(1000)
+	dot := func(exp int64) gamestate.Timer {
+		return gamestate.Timer{Spell: "Heat Blood", Target: "a spectre", Start: now - 100, Expiry: exp, Detrimental: true}
+	}
+	// low → warns once
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 5)}, now); len(got) != 1 {
+		t.Fatalf("first low should warn, got %v", got)
+	}
+	// refreshed (healthy again) → no re-arm for a debuff
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 600)}, now); len(got) != 0 {
+		t.Errorf("a refresh shouldn't re-announce, got %v", got)
+	}
+	// low again after the refresh → still silent (already warned this mob)
+	if got := m.dueAnnouncements([]gamestate.Timer{dot(now + 5)}, now); len(got) != 0 {
+		t.Errorf("a re-dotted DoT should warn at most once per mob, got %v", got)
+	}
+}
+
+// TestSlainFlushesQueuedCues: when a mob death clears its debuffs, queued fade
+// cues about it are flushed so they don't keep playing after the kill.
+func TestSlainFlushesQueuedCues(t *testing.T) {
+	fe := &fakeEngine{}
+	tr := mixedCaster(t) // holds a Malosini debuff on "a sand giant"
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe}
+	now := time.Now().Unix()
+
+	m.announceCuesAt(now) // baseline: record the current slain-clear count
+	base := fe.flushed
+
+	tr.Observe("You have slain a sand giant!", now+1) // clears the debuff → bumps the counter
+	m.announceCuesAt(now + 2)
+	if fe.flushed != base+1 {
+		t.Errorf("a mob death should flush queued cues once, got %d (base %d)", fe.flushed, base)
+	}
+}
+
+// TestSpawnSoonCue: a tracked repop cues once when it crosses ~30s out, and the
+// toggle silences it.
+func TestSpawnSoonCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	now := time.Now().Unix()
+	tr.Observe("You have entered east commonlands.", now)
+	tr.UseOverrides(gamestate.LoadOverrides(t.TempDir() + "/ov.json"))
+	tr.SetOverride("a griffon", 60)              // 60s repop
+	tr.Observe("You have slain a griffon!", now) // repop at now+60
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe}
+
+	m.announceCuesAt(now + 20) // 40s out → not yet in the 30s window
+	if len(fe.normal) != 0 {
+		t.Fatalf("no spawn cue at 40s out, got %v", fe.normal)
+	}
+	m.announceCuesAt(now + 35) // 25s out → fires
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "griffon") {
+		t.Fatalf("spawn cue expected ~30s out, got %v", fe.normal)
+	}
+	m.announceCuesAt(now + 36) // still in window → no repeat
+	if len(fe.normal) != 1 {
+		t.Errorf("spawn cue should fire once per spawn, got %v", fe.normal)
+	}
+
+	// the toggle silences it: a fresh kill with the cue disabled stays quiet.
+	fe2 := &fakeEngine{}
+	m2 := &Model{ttsOn: true, tracker: tr, speaker: fe2, cues: cuePrefs{Overrides: map[string]bool{cueSpawnSoon: false}}}
+	tr.SetOverride("a griffon", 60)
+	tr.Observe("You have slain a griffon!", now+200) // a second spawn, repop at now+260
+	m2.announceCuesAt(now + 235)                     // 25s out, but disabled
+	if len(fe2.normal) != 0 {
+		t.Errorf("disabled spawn cue should stay silent, got %v", fe2.normal)
+	}
+}
+
+// TestHalfCooldownCue: the 50% cue fires once at the halfway mark, then the ready
+// cue fires once at expiry.
+func TestHalfCooldownCue(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.Observe("You mend your wounds and heal some damage.", 1000) // Mend, 360s reuse
+	m := &Model{ttsOn: true, tracker: tr, speaker: fe}
+
+	m.announceCuesAt(1000)       // baseline: on cooldown, full
+	m.announceCuesAt(1000 + 181) // crossed halfway (179s left ≤ 180)
+	if len(fe.normal) != 1 || !strings.Contains(strings.ToLower(fe.normal[0]), "halfway") {
+		t.Fatalf("halfway cue expected, got %v", fe.normal)
+	}
+	m.announceCuesAt(1000 + 182) // still past halfway → no repeat
+	if len(fe.normal) != 1 {
+		t.Errorf("halfway cue should fire once, got %v", fe.normal)
+	}
+	m.announceCuesAt(1000 + 361) // ready
+	if len(fe.normal) != 2 || !strings.Contains(fe.normal[1], "ready") {
+		t.Fatalf("ready cue expected after halfway, got %v", fe.normal)
+	}
+}
+
+// TestCooldownReadyCueDisabled: turning a skill's ready cue off silences it.
+func TestCooldownReadyCueDisabled(t *testing.T) {
+	fe := &fakeEngine{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.Observe("You mend your wounds and heal some damage.", 1000)
+	m := &Model{
+		ttsOn: true, tracker: tr, speaker: fe,
+		cues: cuePrefs{Overrides: map[string]bool{
+			cueCDReady("Mend"): false,
+			cueCDHalf("Mend"):  false,
+		}},
+	}
+	m.announceCuesAt(1000)
+	m.announceCuesAt(1000 + 181) // halfway, disabled
+	m.announceCuesAt(1000 + 361) // ready, disabled
+	if len(fe.normal) != 0 {
+		t.Errorf("disabled Mend cues should be silent, got %v", fe.normal)
+	}
+}
+
+// ---- moved from model_more_test.go ----
+
+// TestParseRespawn parses h:mm:ss / m:ss / plain seconds, rejecting junk.
+func TestParseRespawn(t *testing.T) {
+	cases := []struct {
+		in  string
+		sec int
+		ok  bool
+	}{
+		{"300", 300, true},
+		{"5:00", 300, true},
+		{"1:02:03", 3723, true},
+		{" 90 ", 90, true},
+		{"", 0, false},
+		{"0", 0, false}, // zero isn't a valid respawn
+		{"0:00", 0, false},
+		{"abc", 0, false},
+		{"5:xx", 0, false},
+		{"-5", 0, false},
+	}
+	for _, c := range cases {
+		sec, ok := parseRespawn(c.in)
+		if ok != c.ok || (ok && sec != c.sec) {
+			t.Errorf("parseRespawn(%q) = (%d,%v), want (%d,%v)", c.in, sec, ok, c.sec, c.ok)
+		}
+	}
+}
+
+// TestEffectiveSel covers follow-mode, a pinned selection, an over-range pin, and
+// an empty manager.
+func TestEffectiveSel(t *testing.T) {
+	empty := Model{}
+	if got := empty.effectiveSel(); got != -1 {
+		t.Errorf("empty sessions → -1, got %d", got)
+	}
+	sm := twoSessionManager()
+	m := Model{sessions: sm.All()}
+	m.follow = true
+	if got := m.effectiveSel(); got != 1 {
+		t.Errorf("follow should pick the last session, got %d", got)
+	}
+	m.follow, m.selected = false, 0
+	if got := m.effectiveSel(); got != 0 {
+		t.Errorf("a pinned selection should be honored, got %d", got)
+	}
+	m.selected = 99 // past the end → clamps to last
+	if got := m.effectiveSel(); got != 1 {
+		t.Errorf("an over-range pin should clamp to last, got %d", got)
+	}
+	m.follow, m.selected = false, -5 // negative → first
+	if got := m.effectiveSel(); got != 0 {
+		t.Errorf("a negative pin should clamp to first, got %d", got)
+	}
+}
+
+// TestCueIDForTimer maps each timer flavor to its cue category.
+func TestCueIDForTimer(t *testing.T) {
+	cases := []struct {
+		tm   gamestate.Timer
+		want string
+	}{
+		{gamestate.Timer{Mez: true}, cueMez},
+		{gamestate.Timer{Pacify: true}, cuePacify},
+		{gamestate.Timer{Detrimental: true}, cueDebuffFade},
+		{gamestate.Timer{}, cueBuffFade},
+		// mez takes precedence over the detrimental flag.
+		{gamestate.Timer{Mez: true, Detrimental: true}, cueMez},
+	}
+	for _, c := range cases {
+		if got := cueIDForTimer(c.tm); got != c.want {
+			t.Errorf("cueIDForTimer(%+v) = %q, want %q", c.tm, got, c.want)
+		}
+	}
+}
+
+// TestJoinList renders natural list grammar.
+func TestJoinList(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"A"}, "A"},
+		{[]string{"A", "B"}, "A and B"},
+		{[]string{"A", "B", "C"}, "A, B, and C"},
+	}
+	for _, c := range cases {
+		if got := joinList(c.in); got != c.want {
+			t.Errorf("joinList(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestComposeCueEmpty: with no due timers there's no phrase.
+func TestComposeCueEmpty(t *testing.T) {
+	if got := composeCue(nil, false, 0, 0); got != "" {
+		t.Errorf("composeCue(nil) = %q, want empty", got)
+	}
+}
+
+// TestApplyCharSettingsVoiceAndAudio: a saved voice is applied to the engine and
+// ttsOn reflects AudioOn && availability.
+func TestApplyCharSettingsVoiceAndAudio(t *testing.T) {
+	eng := &fakeEngine{}
+	m := &Model{speaker: eng}
+	m.applyCharSettings(charSettings{AudioOn: true, Voice: "v9", Damage: panelCompact, OffDef: panelOff})
+	if !m.ttsOn {
+		t.Error("AudioOn with an available engine should turn ttsOn on")
+	}
+	if m.layoutPrefs.Damage != panelCompact || m.layoutPrefs.OffDef != panelOff {
+		t.Errorf("layout prefs should load from the saved settings, got %+v", m.layoutPrefs)
+	}
+
+	// AudioOn but no engine → ttsOn stays off (no crash on the nil speaker).
+	noEng := &Model{}
+	noEng.applyCharSettings(charSettings{AudioOn: true})
+	if noEng.ttsOn {
+		t.Error("AudioOn with no engine must not enable ttsOn")
+	}
+}
+
+// editTracker is mobSceneTracker with an attached (temp-file) override store so a
+// saved override can be read back.
+func editTracker(t *testing.T) (*gamestate.Tracker, *gamestate.Overrides) {
+	t.Helper()
+	tr := mobSceneTracker()
+	ov := gamestate.LoadOverrides(t.TempDir() + "/overrides.json")
+	tr.UseOverrides(ov)
+	return tr, ov
+}
+
+// TestEditKeyBuildsAndSaves drives the repop editor: digits/colon build the
+// buffer, backspace deletes, enter saves a valid override.
+func TestEditKeyBuildsAndSaves(t *testing.T) {
+	tr, ov := editTracker(t)
+	m := &Model{sm: &session.SessionManager{}, tracker: tr, editing: true, editMob: "a young kodiak"}
+
+	for _, k := range []string{"7", ":", "3", "0"} {
+		m.editKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	}
+	if m.editBuf != "7:30" {
+		t.Fatalf("editBuf = %q, want 7:30", m.editBuf)
+	}
+	// a non-digit/colon key is ignored.
+	m.editKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if m.editBuf != "7:30" {
+		t.Errorf("a non-digit key should be ignored, got %q", m.editBuf)
+	}
+	// backspace deletes the last char.
+	m.editKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.editBuf != "7:3" {
+		t.Errorf("backspace should delete the last char, got %q", m.editBuf)
+	}
+	// enter saves and closes.
+	m.editKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.editing {
+		t.Error("enter should close the editor")
+	}
+	if got, ok := ov.Get("east commonlands", "a young kodiak"); !ok || got != 7*60+3 {
+		t.Errorf("enter should save the parsed override (got %d/%v)", got, ok)
+	}
+}
+
+// TestEditKeyEscCancels: esc closes the editor without saving.
+func TestEditKeyEscCancels(t *testing.T) {
+	tr, ov := editTracker(t)
+	m := &Model{sm: &session.SessionManager{}, tracker: tr, editing: true, editMob: "a young kodiak", editBuf: "9:99"}
+	m.editKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.editing || m.editBuf != "" {
+		t.Errorf("esc should cancel + clear (editing=%v buf=%q)", m.editing, m.editBuf)
+	}
+	if _, ok := ov.Get("east commonlands", "a young kodiak"); ok {
+		t.Error("esc must not save an override")
+	}
+}
+
+// TestEditKeyEnterInvalidNoSave: enter with an unparseable buffer closes the
+// editor but saves nothing.
+func TestEditKeyEnterInvalidNoSave(t *testing.T) {
+	tr, ov := editTracker(t)
+	m := &Model{sm: &session.SessionManager{}, tracker: tr, editing: true, editMob: "a young kodiak", editBuf: ""}
+	m.editKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.editing {
+		t.Error("enter should close the editor even when nothing parses")
+	}
+	if _, ok := ov.Get("east commonlands", "a young kodiak"); ok {
+		t.Error("an empty buffer must not save an override")
+	}
+}
+
+// TestEditKeyMaxLength: the buffer caps at 8 chars.
+func TestEditKeyMaxLength(t *testing.T) {
+	m := &Model{sm: &session.SessionManager{}, editing: true, editMob: "x"}
+	for i := 0; i < 12; i++ {
+		m.editKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
+	}
+	if len(m.editBuf) > 8 {
+		t.Errorf("editBuf should cap at 8 chars, got %d (%q)", len(m.editBuf), m.editBuf)
+	}
+}
+
+// ---- TestToggleTTSNoVoice moved from setup_more_test.go (toggleTTS in model.go) ----
+
+// TestToggleTTSNoVoice: with no available engine, toggling audio flashes guidance
+// and leaves audio off (the only branch the fake engine can't exercise).
+func TestToggleTTSNoVoice(t *testing.T) {
+	m := Model{} // nil speaker
+	m.toggleTTS()
+	if m.ttsOn {
+		t.Error("audio should stay off with no engine")
+	}
+	if !strings.Contains(m.status, "no voice") {
+		t.Errorf("expected a no-voice hint, got %q", m.status)
+	}
+}
+
+// ---- moved from layout_test.go (layout()/damageContent in model.go) ----
+
+func TestLayoutHonorsBoxModes(t *testing.T) {
+	base := Model{w: 120, h: 40}
+
+	full := base
+	full.layoutPrefs = layoutPrefs{Damage: panelFull, OffDef: panelFull}
+	if ld := full.layout(); ld.dmgW <= 0 || ld.extrasW <= 0 || ld.dmgH <= 0 {
+		t.Errorf("both full: want a meter + side column + top height, got %+v", ld)
+	}
+
+	noDmg := base
+	noDmg.layoutPrefs = layoutPrefs{Damage: panelOff, OffDef: panelFull}
+	if ld := noDmg.layout(); ld.dmgW != 0 || ld.extrasW != ld.rightW {
+		t.Errorf("damage off: want dmgW=0 and Offense·Defense full width, got %+v", ld)
+	}
+
+	noOD := base
+	noOD.layoutPrefs = layoutPrefs{Damage: panelFull, OffDef: panelOff}
+	if ld := noOD.layout(); ld.extrasW != 0 || ld.dmgW != ld.rightW {
+		t.Errorf("offdef off: want extrasW=0 and meter full width, got %+v", ld)
+	}
+
+	both := base
+	both.layoutPrefs = layoutPrefs{Damage: panelOff, OffDef: panelOff}
+	if ld := both.layout(); ld.dmgH != 0 || ld.botH != ld.areaH {
+		t.Errorf("both off: top row should collapse (dmgH=0, botH=areaH), got %+v", ld)
+	}
+
+	// Compact shrinks the top row so the bottom panels grow.
+	compact := base
+	compact.layoutPrefs = layoutPrefs{Damage: panelCompact, OffDef: panelCompact}
+	fl, cm := full.layout(), compact.layout()
+	if cm.dmgH >= fl.dmgH {
+		t.Errorf("compact top should be shorter than full (%d vs %d)", cm.dmgH, fl.dmgH)
+	}
+	if cm.botH <= fl.botH {
+		t.Errorf("compact should give the bottom row more height (%d vs %d)", cm.botH, fl.botH)
+	}
+}
+
+func TestDamageCompactDropsColumns(t *testing.T) {
+	var m tea.Model = New(sampleManager(), nil, "X")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+	mm.refresh()
+	cur := mm.sessions[mm.effectiveSel()]
+
+	mm.layoutPrefs.Damage = panelFull
+	if !strings.Contains(mm.damageContent(cur, true, 80), "Crit") {
+		t.Error("full meter at width 80 should show the Crit column")
+	}
+	mm.layoutPrefs.Damage = panelCompact
+	if strings.Contains(mm.damageContent(cur, true, 80), "Crit") {
+		t.Error("compact meter should drop the Crit column even at width 80")
+	}
+}
+
+func TestLayoutClassBox(t *testing.T) {
+	m := Model{w: 120, h: 40}
+	if ld := m.layout(); ld.classBox || ld.mobH != ld.botH {
+		t.Errorf("class box off: mob should fill the column (classBox=%v mobH=%d botH=%d)", ld.classBox, ld.mobH, ld.botH)
+	}
+
+	m.layoutPrefs.ClassBox = true
+	ld := m.layout()
+	if !ld.classBox || ld.boxH <= 0 {
+		t.Fatalf("class box on: want a box, got %+v", ld)
+	}
+	if ld.mobH+ld.boxH+1 != ld.botH {
+		t.Errorf("box should split the column with a gap (mobH=%d boxH=%d botH=%d)", ld.mobH, ld.boxH, ld.botH)
+	}
+	if ld.mobH <= ld.boxH {
+		t.Errorf("Mob Tracker should be the taller part (mobH=%d boxH=%d)", ld.mobH, ld.boxH)
 	}
 }

@@ -109,3 +109,79 @@ func TestCanniGrade(t *testing.T) {
 		}
 	}
 }
+
+// ---- moved from rune_test.go ----
+
+// TestRuneRemaining: damage drains the shields in order — the first absorbs until
+// empty, then the overflow eats the next.
+func TestRuneRemaining(t *testing.T) {
+	sh := []gamestate.RuneShield{{Name: "Bedlam", Pool: 350}, {Name: "Rune V", Pool: 700}}
+
+	if got := runeRemaining(sh, 8, 60); got[0] != 0 || got[1] != 570 { // 480 absorbed
+		t.Errorf("8×60: got %v, want [0 570]", got)
+	}
+	if got := runeRemaining(sh, 3, 60); got[0] != 170 || got[1] != 700 { // 180, all on Bedlam
+		t.Errorf("3×60: got %v, want [170 700]", got)
+	}
+	if got := runeRemaining(sh, 0, 60); got[0] != 350 || got[1] != 700 {
+		t.Errorf("fresh: got %v, want [350 700]", got)
+	}
+}
+
+// ---- moved from skillsmax_test.go ----
+
+// TestSkillsBodyShowsMaxHit: the SKILLS panel shows the overall melee max plus a
+// per-skill max column (when the panel is wide enough).
+func TestSkillsBodyShowsMaxHit(t *testing.T) {
+	sm := &session.SessionManager{}
+	for _, h := range []struct {
+		dmg  int
+		verb string
+	}{{50, "crush"}, {120, "kick"}, {200, "crush"}} {
+		sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: h.dmg, Target: "a rat", Verb: h.verb})
+	}
+
+	out := skillsBody(themes[0], sm.Current(), eqclass.ClassMonk, 60, 60)
+	if !strings.Contains(out, "Max hit") || !strings.Contains(out, "200") {
+		t.Errorf("skills body should show the overall max hit (200):\n%s", out)
+	}
+	if !strings.Contains(out, "max 120") {
+		t.Errorf("skills body should show the per-skill max (Kick 120):\n%s", out)
+	}
+
+	// a narrow panel drops the per-skill max column but keeps the overall line.
+	narrow := skillsBody(themes[0], sm.Current(), eqclass.ClassMonk, 60, 30)
+	if strings.Contains(narrow, "max 120") {
+		t.Errorf("narrow panel should drop the per-skill max column:\n%s", narrow)
+	}
+	if !strings.Contains(narrow, "Max hit") {
+		t.Errorf("narrow panel should still show the overall max hit line:\n%s", narrow)
+	}
+}
+
+// ---- TestPlayerStatAndAvoidance moved from panels_more_test.go (playerStat/playerAvoidance in class.go) ----
+
+// TestPlayerStatAndAvoidance pull the player's aggregate + defense out of a
+// session (case-insensitive "you" match).
+func TestPlayerStatAndAvoidance(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 500, Target: "a rat"})
+	sm.ApplySwing(&combat.Swing{ActionTime: 1001, Attacker: "a rat", Defender: "You", Outcome: combat.OutcomeDodge})
+	cur := sm.Current()
+	if st := playerStat(cur); st.Total != 500 {
+		t.Errorf("playerStat total = %d, want 500", st.Total)
+	}
+	av, faced := playerAvoidance(cur)
+	if faced == 0 || av == 0 {
+		t.Errorf("player should have an avoidance record (avoided=%d faced=%d)", av, faced)
+	}
+	// a session with no You data returns zero values, not a panic.
+	other := &session.SessionManager{}
+	other.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "Bob", Dmg: 1, Target: "a rat"})
+	if st := playerStat(other.Current()); st.Total != 0 {
+		t.Errorf("playerStat with no You row should be zero, got %d", st.Total)
+	}
+	if a, f := playerAvoidance(other.Current()); a != 0 || f != 0 {
+		t.Errorf("playerAvoidance with no You row should be zero, got (%d,%d)", a, f)
+	}
+}

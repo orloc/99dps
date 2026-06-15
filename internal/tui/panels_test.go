@@ -10,7 +10,6 @@ import (
 	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
-	"99dps/internal/session"
 )
 
 // mezRow builds a 217-field mez spell line: a detrimental spell whose
@@ -239,27 +238,69 @@ func TestCardEmptyTitle(t *testing.T) {
 	}
 }
 
-// TestPlayerStatAndAvoidance pull the player's aggregate + defense out of a
-// session (case-insensitive "you" match).
-func TestPlayerStatAndAvoidance(t *testing.T) {
-	sm := &session.SessionManager{}
-	sm.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "You", Dmg: 500, Target: "a rat"})
-	sm.ApplySwing(&combat.Swing{ActionTime: 1001, Attacker: "a rat", Defender: "You", Outcome: combat.OutcomeDodge})
-	cur := sm.Current()
-	if st := playerStat(cur); st.Total != 500 {
-		t.Errorf("playerStat total = %d, want 500", st.Total)
+// ---- moved from dismiss_test.go (timerColumn dismiss-target maps) ----
+
+// TestOnYouDebuffNotDismissible: an incoming "ON YOU" debuff carries no caster, so
+// its line must not map to a dismiss target — otherwise clicking it would run
+// DismissTarget("You") and wipe your buffs.
+func TestOnYouDebuffNotDismissible(t *testing.T) {
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	now := time.Now().Unix()
+	tr.Observe("You feel drowsy.", now) // incoming Slow on You → ON YOU section
+
+	body, targets := timerColumn(themes[0], tr, 40, "", false, false, true)
+	if !strings.Contains(body, "ON YOU") || !strings.Contains(body, "Slowed") {
+		t.Fatalf("expected the ON YOU debuff to render:\n%s", body)
 	}
-	av, faced := playerAvoidance(cur)
-	if faced == 0 || av == 0 {
-		t.Errorf("player should have an avoidance record (avoided=%d faced=%d)", av, faced)
+	for ln, tgt := range targets {
+		if tgt == "You" {
+			t.Errorf("an ON-YOU debuff line must not be dismissible (line %d → %q)", ln, tgt)
+		}
 	}
-	// a session with no You data returns zero values, not a panic.
-	other := &session.SessionManager{}
-	other.Apply(&combat.DamageSet{ActionTime: 1000, Dealer: "Bob", Dmg: 1, Target: "a rat"})
-	if st := playerStat(other.Current()); st.Total != 0 {
-		t.Errorf("playerStat with no You row should be zero, got %d", st.Total)
+}
+
+// ccRow builds a minimal spells_us row for a pacify (lands with "looks less
+// aggressive"), with a cast-on-you emote so an AoE cast can land on the player.
+func ccRow(name, castOnYou string) string {
+	f := make([]string, 84)
+	for i := range f {
+		f[i] = "0"
 	}
-	if a, f := playerAvoidance(other.Current()); a != 0 || f != 0 {
-		t.Errorf("playerAvoidance with no You row should be zero, got (%d,%d)", a, f)
+	f[1] = name                      // fName
+	f[6] = castOnYou                 // fCastOnYou
+	f[7] = " looks less aggressive." // fCastOnOther → Pacify flag
+	f[8] = name + " fades."          // fFades
+	f[13] = "0"                      // fCastTime (instant for the test)
+	f[16] = "8"                      // fDurFormula (pacify)
+	f[17] = "0"                      // fDurCap (uncapped → ~7 min)
+	f[83] = "0"                      // fGoodEffect 0 = detrimental
+	return strings.Join(f, "^")
+}
+
+// TestSelfCCNotDismissible: an AoE pacify that lands on YOU shows in CROWD CONTROL
+// but its line carries no dismiss target — clicking it must not run
+// DismissTarget("You") and wipe your buffs.
+func TestSelfCCNotDismissible(t *testing.T) {
+	book, err := gamestate.LoadReader(strings.NewReader(ccRow("Wake of Tranquility", "You feel tranquil.")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	now := time.Now().Unix()
+	tr.BeginCast("Wake of Tranquility", now)
+	tr.Observe("You feel tranquil.", now) // AoE pacify lands on the player → CC on "You"
+
+	body, targets := timerColumn(themes[0], tr, 40, "", true, false, false)
+	// CC lines render by target ("z You …"); the self-pacify shows under CROWD CONTROL.
+	if !strings.Contains(body, "CROWD CONTROL") || !strings.Contains(body, "You") {
+		t.Fatalf("expected the self-pacify to render in CROWD CONTROL:\n%s", body)
+	}
+	for ln, tgt := range targets {
+		if tgt == "You" {
+			t.Errorf("a CC-on-you line must not be dismissible (line %d → %q)", ln, tgt)
+		}
 	}
 }
