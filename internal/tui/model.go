@@ -1095,18 +1095,21 @@ func (m Model) banner(th theme, w int) string {
 		if z := m.tracker.Zone(); z != "" {
 			bits = append(bits, bar.Bold(true).Render("◆ "+z))
 		}
-		if k, ph, d := m.tracker.ZoneKillStats(time.Now().Unix()); k > 0 || d > 0 {
-			r := ""
+		now := time.Now().Unix()
+		var rparts []string
+		if secs, ok := m.tracker.TimeInZone(now); ok {
+			rparts = append(rparts, compactDur(secs)+" in zone")
+		}
+		if k, ph, d := m.tracker.ZoneKillStats(now); k > 0 || d > 0 {
 			if k > 0 {
-				r = fmt.Sprintf("%d kills · %d/hr", k, ph)
+				rparts = append(rparts, fmt.Sprintf("%d kills · %d/hr", k, ph))
 			}
 			if d > 0 {
-				if r != "" {
-					r += " · "
-				}
-				r += fmt.Sprintf("%d deaths", d)
+				rparts = append(rparts, fmt.Sprintf("%d deaths", d))
 			}
-			right = bar.Bold(true).Render(r)
+		}
+		if len(rparts) > 0 {
+			right = bar.Bold(true).Render(strings.Join(rparts, " · "))
 		}
 	}
 	left := " " + strings.Join(bits, sep)

@@ -54,6 +54,17 @@ func rightCell(s string, w int, color string) string {
 // mmss formats a seconds count as m:ss (or h:mm:ss past an hour).
 func mmss(sec int64) string { return fmtDuration(time.Duration(sec) * time.Second) }
 
+// compactDur formats a long elapsed span for the banner: "1h23m", "45m", "<1m".
+func compactDur(sec int64) string {
+	if sec < 60 {
+		return "<1m"
+	}
+	if h, m := sec/3600, (sec%3600)/60; h > 0 {
+		return fmt.Sprintf("%dh%02dm", h, m)
+	}
+	return fmt.Sprintf("%dm", sec/60)
+}
+
 // displayName renders the player's normalized "YOU" token as "You" for the UI.
 func displayName(name string) string {
 	if name == "YOU" {
