@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,8 +10,120 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/gamestate"
+	"99dps/internal/prices"
 	"99dps/internal/session"
 )
+
+// fakePricer returns canned tunnel prices without touching the network.
+type fakePricer struct{ m map[string]prices.Price }
+
+func (f fakePricer) Lookup(server int, names []string) (map[string]prices.Price, error) {
+	return f.m, nil
+}
+
+const invSample = "Location\tName\tID\tCount\tSlots\n" +
+	"Ear\tBlack Sapphire Electrum Earring\t17213\t1\t0\n" +
+	"General1-Slot1\tBat Wing\t13007\t20\t0\n" +
+	"General1-Slot2\tInsidious Halo\t1246\t1\t0\n" // no tunnel data
+
+// TestInventoryBoard: priced items sort high-value-first as clickable wiki
+// links; unpriced ones fall into a "no tunnel data" group; the header totals.
+func TestInventoryBoard(t *testing.T) {
+	th := themes[0]
+	rows := []invRow{
+		{name: "Bat Wing", location: "General1-Slot1", count: 20, price: 2, priceN: 500},               // 20×2 = 40
+		{name: "Black Sapphire Electrum Earring", location: "Ear", count: 1, price: 615, priceN: 1367}, // 615
+		{name: "Insidious Halo", location: "General1-Slot2", count: 1, price: 0, priceN: 0},            // no data
+	}
+	out := inventoryBoard(th, rows, "", 60)
+
+	for _, want := range []string{"3 items", "no tunnel data (1)", "Black Sapphire", "Insidious Halo"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("board missing %q in:\n%s", want, out)
+		}
+	}
+	// the earring (615) outranks the bat wing stack (40), so it appears first
+	if strings.Index(out, "Black Sapphire") > strings.Index(out, "Bat Wing") {
+		t.Error("priced items should sort by total value, earring before bat wing")
+	}
+	// names are OSC 8 hyperlinks to the P99 wiki
+	if !strings.Contains(out, "\x1b]8;;https://wiki.project1999.com/Black_Sapphire_Electrum_Earring") {
+		t.Error("item names should be clickable wiki hyperlinks")
+	}
+	// the OSC 8 escapes must not count toward display width (else the column wraps)
+	for _, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > 60 {
+			t.Errorf("inventory line exceeds width %d: %q", lipgloss.Width(ln), ln)
+		}
+	}
+	// the empty board prompts for indexing
+	if got := inventoryBoard(th, nil, "", 60); !strings.Contains(got, "press i to index") {
+		t.Errorf("empty board hint = %q", got)
+	}
+}
+
+// TestLoadInventory: pressing i indexes the dump and prices it via the injected
+// pricer; the resulting message lands the rows on the model.
+func TestLoadInventory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Iznoa-Inventory.txt"), []byte(invSample), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(&session.SessionManager{}, nil, "Iznoa")
+	m.eqDir = dir
+	m.pricer = fakePricer{m: map[string]prices.Price{
+		"black sapphire electrum earring": {Name: "Black Sapphire Electrum Earring", Avg: 615, Count: 1367},
+	}}
+	m.screen = screenTools
+
+	out, cmd := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	if mm := out.(Model); mm.invStatus != "indexing…" {
+		t.Errorf("i should set an indexing status, got %q", mm.invStatus)
+	}
+	if cmd == nil {
+		t.Fatal("i should return a load command")
+	}
+	msg, ok := cmd().(invLoadedMsg)
+	if !ok {
+		t.Fatalf("command should produce invLoadedMsg, got %T", cmd())
+	}
+	if len(msg.rows) != 3 {
+		t.Fatalf("want 3 rows, got %d (%+v)", len(msg.rows), msg.rows)
+	}
+	// the priced earring carries the fake price; the halo stays unpriced
+	var earring, halo invRow
+	for _, r := range msg.rows {
+		switch r.name {
+		case "Black Sapphire Electrum Earring":
+			earring = r
+		case "Insidious Halo":
+			halo = r
+		}
+	}
+	if earring.price != 615 || earring.priceN != 1367 {
+		t.Errorf("earring priced = %+v, want 615/1367", earring)
+	}
+	if halo.priceN != 0 {
+		t.Errorf("halo should have no tunnel data, got %+v", halo)
+	}
+
+	// feeding the message back through Update stores the rows
+	updated, _ := m.Update(msg)
+	if got := len(updated.(Model).invRows); got != 3 {
+		t.Errorf("Update should store %d rows, got %d", len(msg.rows), got)
+	}
+}
+
+// TestLoadInventoryNoDump: a missing dump yields a helpful status, no rows.
+func TestLoadInventoryNoDump(t *testing.T) {
+	m := New(&session.SessionManager{}, nil, "Ghost")
+	m.eqDir = t.TempDir() // exists, but no dump for "Ghost"
+	_, cmd := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	msg := cmd().(invLoadedMsg)
+	if len(msg.rows) != 0 || !strings.Contains(msg.status, "/outputfile inventory") {
+		t.Errorf("missing dump should yield a help status, got %+v", msg)
+	}
+}
 
 // TestToolsTabRendersAndFits: the Tools tab is reachable, renders the roll
 // widget, and never overflows the window width.

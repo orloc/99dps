@@ -59,7 +59,9 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 	tracker, spellInfo := loadTracker(spellsPath, logDir)
 	tracker.SetCharacter(src.Character) // for the pet's "My leader is <you>" check
 
-	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, tts)
+	// the /outputfile inventory dump lands in the EQ folder — the parent of the
+	// logs dir, where spells_us.txt also lives.
+	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, filepath.Dir(logDir), tts)
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
 	ctrl.startParse(src)
 

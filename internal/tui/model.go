@@ -17,6 +17,7 @@ import (
 	"99dps/internal/combat"
 	"99dps/internal/eqclass"
 	"99dps/internal/gamestate"
+	"99dps/internal/prices"
 	"99dps/internal/session"
 	"99dps/internal/tts"
 )
@@ -103,6 +104,13 @@ type Model struct {
 	spellInfo  string // data-source summary for the footer
 	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
 
+	// Tools-tab inventory widget: the EQ folder (where /outputfile writes), a
+	// price-lookup client (injectable for tests), and the last indexed result.
+	eqDir     string
+	pricer    priceLookup
+	invRows   []invRow
+	invStatus string
+
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
 	setup       setupState
@@ -121,6 +129,7 @@ func New(sm *session.SessionManager, tracker *gamestate.Tracker, character strin
 		sm: sm, tracker: tracker, character: character, follow: true,
 		speaker: tts.New(), announced: map[string]gamestate.Urgency{},
 		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
+		pricer: prices.New(),
 	}
 }
 
@@ -862,10 +871,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildInteractive(cur)
 		}
 		return m, tea.Batch(cmds...)
+	case invLoadedMsg:
+		m.invRows, m.invStatus = msg.rows, msg.status
 	case switchMsg:
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
 		m.editing, m.editMob = false, ""
+		m.invRows, m.invStatus = nil, ""                    // a new toon has its own inventory
 		m.applyCharSettings(m.store.forChar(msg.character)) // load the new toon's saved settings
 		if m.ready {
 			m.resizeViewports() // a layout change (Off/Compact/Full) needs re-sizing
@@ -1581,9 +1593,10 @@ type Program struct{ p *tea.Program }
 
 // NewProgram builds the program over the shared manager + tracker. spellInfo is
 // the data-source summary for the footer; tts enables audio cues at startup.
-func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo string, ttsOn bool) *Program {
+func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo, eqDir string, ttsOn bool) *Program {
 	m := New(sm, tracker, character)
 	m.spellInfo = spellInfo
+	m.eqDir = eqDir
 
 	m.store = loadStore()
 	cs := m.store.forChar(character) // this character's saved profile (or the Default)
