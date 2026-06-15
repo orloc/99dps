@@ -238,6 +238,27 @@ func TestCardEmptyTitle(t *testing.T) {
 	}
 }
 
+func TestTitleWithCorner(t *testing.T) {
+	cases := []struct {
+		name         string
+		left, corner string
+		outerW       int
+		want         string
+	}{
+		{"fits with gap", "Mob Tracker", "5 mobs", 30, "Mob Tracker         5 mobs"}, // inner=26, gap=9
+		{"empty corner returns left", "Mob Tracker", "", 30, "Mob Tracker"},
+		{"too narrow drops corner", "Mob Tracker", "5 mobs", 16, "Mob Tracker"}, // inner=12 < 11+6+1
+		{"exact one-space fit", "ab", "cd", 9, "ab cd"},                         // inner=5, gap=1
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := titleWithCorner(c.left, c.corner, c.outerW); got != c.want {
+				t.Errorf("titleWithCorner(%q,%q,%d) = %q, want %q", c.left, c.corner, c.outerW, got, c.want)
+			}
+		})
+	}
+}
+
 // ---- moved from dismiss_test.go (timerColumn dismiss-target maps) ----
 
 // TestOnYouDebuffNotDismissible: an incoming "ON YOU" debuff carries no caster, so

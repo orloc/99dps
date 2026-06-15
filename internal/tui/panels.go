@@ -37,6 +37,22 @@ func card(th theme, w, h int, title, body string) string {
 		Render(content)
 }
 
+// titleWithCorner lays out a card title with a right-justified corner segment
+// (e.g. a count). outerW is the card's outer width; when too narrow to fit both,
+// the corner is dropped so the main title always shows. The corner is plain text
+// (card styles the whole title line uniformly).
+func titleWithCorner(left, corner string, outerW int) string {
+	if corner == "" {
+		return left
+	}
+	inner := outerW - 4 // border (2) + padding (2)
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(corner)
+	if gap < 1 {
+		return left // no room — keep the title, drop the corner
+	}
+	return left + strings.Repeat(" ", gap) + corner
+}
+
 // splitCCtimers partitions timers into crowd control (mez/charm/pacify) and rest.
 func splitCCtimers(timers []gamestate.Timer) (cc, rest []gamestate.Timer) {
 	for _, tm := range timers {

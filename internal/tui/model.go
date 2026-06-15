@@ -1205,7 +1205,13 @@ func (m Model) View() string {
 		midTitle = "Buffs" // self-buff / clicky timers (melee)
 	}
 	// the mob column: Mob Tracker on top, optionally a small class box beneath it.
-	mobCol := card(th, ld.mobW, ld.mobH, "Mob Tracker"+scrollHint(m.vpMob), m.vpMob.View())
+	// The count of tracked mobs sits in the title's right corner (one mobTargets
+	// entry per repop row).
+	mobTitle := "Mob Tracker" + scrollHint(m.vpMob)
+	if n := len(m.mobTargets); n > 0 {
+		mobTitle = titleWithCorner(mobTitle, fmt.Sprintf("%d mobs", n), ld.mobW)
+	}
+	mobCol := card(th, ld.mobW, ld.mobH, mobTitle, m.vpMob.View())
 	if ld.classBox {
 		box := card(th, ld.mobW, ld.boxH, m.classBoxTitle(), m.classBoxView(ld.mobW, ld.boxH))
 		mobCol = lipgloss.JoinVertical(lipgloss.Left, mobCol, "", box)
