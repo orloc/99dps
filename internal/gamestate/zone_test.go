@@ -14,6 +14,28 @@ func hasMob(rs []Respawn, mob string) bool {
 	return false
 }
 
+// TestTimeInZone: the clock starts on a zone-in (unknown before), counts up, and
+// resets when a different zone is entered.
+func TestTimeInZone(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+
+	if _, ok := tr.TimeInZone(1000); ok {
+		t.Error("time-in-zone should be unknown before any zone-in")
+	}
+	tr.Observe("You have entered Greater Faydark.", 1000)
+	if d, ok := tr.TimeInZone(1075); !ok || d != 75 {
+		t.Errorf("after 75s = (%d,%v), want (75,true)", d, ok)
+	}
+	if d, _ := tr.TimeInZone(900); d != 0 { // never negative
+		t.Errorf("a now before zone-in should clamp to 0, got %d", d)
+	}
+	// a new zone resets the clock
+	tr.Observe("You have entered Lesser Faydark.", 2000)
+	if d, ok := tr.TimeInZone(2030); !ok || d != 30 {
+		t.Errorf("after re-zone = (%d,%v), want (30,true)", d, ok)
+	}
+}
+
 // TestPetKillCreditedToOwner: a mob your pet kills is YOUR kill — credited to you
 // (bold/Mine, "You"), not parked under "killed by others" with the pet's name.
 func TestPetKillCreditedToOwner(t *testing.T) {

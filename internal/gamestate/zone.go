@@ -40,6 +40,7 @@ const groupXPWindowSec = 8
 // Tracker holds the mutex), matching the rest of the package.
 type zoneTracker struct {
 	name       string         // current zone (from a "You have entered" line)
+	enteredAt  int64          // log time of the current zone-in (0 = not seen yet)
 	respawnSec int            // current zone's default respawn, 0 if unknown
 	respawns   []respawnEntry // pending mob repops (one entry per death)
 	overrides  *Overrides     // persisted per-(zone,mob) respawn overrides
@@ -71,7 +72,7 @@ const killRateWindowSec = 3600
 const killXPWindowSec = 6
 
 func (z *zoneTracker) clear() {
-	z.name, z.respawnSec, z.respawns = "", 0, nil
+	z.name, z.enteredAt, z.respawnSec, z.respawns = "", 0, 0, nil
 	z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
 	z.lastOwnKillAt = 0
 }
@@ -89,6 +90,7 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName, inferredVict
 		zn = strings.TrimSuffix(zn, ".")
 		if zn != z.name {
 			z.name = zn
+			z.enteredAt = at
 			z.respawnSec, _ = ZoneRespawn(zn)
 			z.respawns = nil // left the zone — old repops are moot
 			z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
@@ -346,6 +348,24 @@ func (t *Tracker) ZoneKillStats(now int64) (kills, perHour, deaths int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.zone.killStatsLocked(now)
+}
+
+// TimeInZone returns how many seconds since the current zone was entered, and
+// whether that's known (false until a zone-in line is seen — no log line gives
+// the zone at startup). Never negative.
+func (t *Tracker) TimeInZone(now int64) (int64, bool) {
+	if t == nil {
+		return 0, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.zone.enteredAt == 0 {
+		return 0, false
+	}
+	if d := now - t.zone.enteredAt; d > 0 {
+		return d, true
+	}
+	return 0, true
 }
 
 // Zone returns the player's current zone as logged, or "" until a zone-in is
