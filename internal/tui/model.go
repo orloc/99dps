@@ -1100,6 +1100,9 @@ func (m Model) banner(th theme, w int) string {
 		}
 		now := time.Now().Unix()
 		var rparts []string
+		if secs, ok := m.tracker.TimeInGroup(now); ok {
+			rparts = append(rparts, compactDur(secs)+" grouped")
+		}
 		if secs, ok := m.tracker.TimeInZone(now); ok {
 			rparts = append(rparts, compactDur(secs)+" in zone")
 		}
