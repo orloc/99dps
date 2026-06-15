@@ -1,62 +1,10 @@
 package gamestate
 
 import (
-	"strings"
 	"testing"
+
+	"99dps/internal/eqclass"
 )
-
-// row builds a 217-field spells_us.txt line with the given fields set.
-func row(fields map[int]string) string {
-	f := make([]string, 217)
-	for i := range f {
-		f[i] = "0"
-	}
-	for i, v := range fields {
-		f[i] = v
-	}
-	return strings.Join(f, "^")
-}
-
-func envenomedBolt() string {
-	return row(map[int]string{
-		fName:        "Envenomed Bolt",
-		fCastOnOther: "'s body convulses with the poison.",
-		fFades:       " has been cured of the poison.",
-		fCastTime:    "6100",
-		fDurFormula:  "1",
-		fDurCap:      "7",
-		fGoodEffect:  "0", // detrimental
-	})
-}
-
-func loadBook(t *testing.T, rows ...string) *Book {
-	t.Helper()
-	b, err := LoadReader(strings.NewReader(strings.Join(rows, "\n")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-func TestDecodeAndDuration(t *testing.T) {
-	b := loadBook(t, envenomedBolt())
-	s, ok := b.ByName("Envenomed Bolt")
-	if !ok {
-		t.Fatal("spell not loaded")
-	}
-	if s.CastTimeMs != 6100 || s.DurFormula != 1 || s.DurCap != 7 || !s.Detrimental {
-		t.Fatalf("decoded wrong: %+v", s)
-	}
-	// formula 1: (min(ceil(level/2), cap=7) + 1 cast-tick) * 6s. At level 43:
-	// ceil(21.5)=22 -> capped 7 -> +1 -> 8 ticks -> 48s.
-	if got := s.DurationSeconds(43); got != 48 {
-		t.Errorf("duration@43 = %d, want 48", got)
-	}
-	// at a low level the formula (not the cap) governs: level 8 -> ceil(4)=4 -> +1 -> 5 ticks -> 30s.
-	if got := s.DurationSeconds(8); got != 30 {
-		t.Errorf("duration@8 = %d, want 30", got)
-	}
-}
 
 func TestTracker_LandThenExpireOnSlain(t *testing.T) {
 	tr := NewTracker(loadBook(t, envenomedBolt()))
@@ -84,21 +32,6 @@ func TestTracker_LandThenExpireOnSlain(t *testing.T) {
 	}
 }
 
-func TestNormEmote(t *testing.T) {
-	cases := map[string]string{
-		" has been poisoned..":               " has been poisoned.",
-		"Your muscles erupt with strength..": "Your muscles erupt with strength.",
-		" has been ensnared.":                " has been ensnared.", // already single
-		" feels much faster":                 " feels much faster",  // no period
-		"":                                   "",
-	}
-	for in, want := range cases {
-		if got := NormEmote(in); got != want {
-			t.Errorf("NormEmote(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // A spell whose data has a doubled trailing period must still match the
 // single-period log line (and vice versa).
 func TestTracker_DoubledPeriodEmoteMatches(t *testing.T) {
@@ -121,37 +54,6 @@ func TestTracker_DoubledPeriodEmoteMatches(t *testing.T) {
 	act := tr.Active(1010)
 	if len(act) != 1 || act[0].Target != "a kobold" {
 		t.Fatalf("doubled-period emote failed to match: %+v", act)
-	}
-}
-
-// Duration formula spot-checks against known EQ values (Bedlam-style formula 8,
-// Snare-style formula 2, Spirit-of-Wolf-style formula 3).
-func TestDurationFormulas(t *testing.T) {
-	// each = (min(formula, cap) + 1 cast-tick) * 6s
-	f8 := &Spell{DurFormula: 8, DurCap: 75} // Bedlam
-	if got := f8.DurationSeconds(60); got != 426 {
-		t.Errorf("formula 8 @60 = %d, want 426 ((min(70,75)+1)*6)", got)
-	}
-	if got := f8.DurationSeconds(30); got != 246 {
-		t.Errorf("formula 8 @30 = %d, want 246 ((min(40,75)+1)*6)", got)
-	}
-	f2 := &Spell{DurFormula: 2, DurCap: 39} // Snare
-	if got := f2.DurationSeconds(50); got != 186 {
-		t.Errorf("formula 2 @50 = %d, want 186 ((min(ceil(30),39)+1)*6)", got)
-	}
-	f3 := &Spell{DurFormula: 3, DurCap: 360} // Spirit of Wolf
-	if got := f3.DurationSeconds(50); got != 2166 {
-		t.Errorf("formula 3 @50 = %d, want 2166 ((min(1500,360)+1)*6)", got)
-	}
-	f0 := &Spell{DurFormula: 0} // nuke — no timer (no cast-tick added)
-	if got := f0.DurationSeconds(60); got != 0 {
-		t.Errorf("formula 0 = %d, want 0", got)
-	}
-	// Curse of the Spirits (formula 1, cap 14): observed in game as 1:30 = 90s =
-	// 15 ticks at any level >= 28 — the cast-tick is what makes it 15, not 14.
-	curse := &Spell{DurFormula: 1, DurCap: 14}
-	if got := curse.DurationSeconds(60); got != 90 {
-		t.Errorf("Curse of the Spirits @60 = %d, want 90 (1:30)", got)
 	}
 }
 
@@ -240,6 +142,30 @@ func TestTracker_Charm(t *testing.T) {
 	tr.Observe("Your charm spell has worn off.", 1050)
 	if act := tr.Active(1051); len(act) != 0 {
 		t.Errorf("worn-off should clear charm, got %+v", act)
+	}
+}
+
+// CharmBroke surfaces a charm break for a grace window, then stops.
+func TestCharmBroke(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	// inject an active charm timer (charm has no landing emote to script here)
+	tr.timers = map[string]Timer{
+		key("Allure", "Charm"): {Spell: "Allure", Target: "Charm", Charm: true, Start: 1000, Expiry: 9000},
+	}
+
+	if tr.CharmBroke(1100) {
+		t.Fatal("no break yet")
+	}
+	tr.Observe("Your charm spell has worn off.", 1100)
+
+	if !tr.CharmBroke(1100) {
+		t.Error("charm break should be surfaced right after it happens")
+	}
+	if len(tr.Active(1100)) != 0 {
+		t.Error("the charm timer should be cleared on break")
+	}
+	if tr.CharmBroke(1100 + charmBreakGraceSec + 1) {
+		t.Error("charm break should stop surfacing after the grace window")
 	}
 }
 
@@ -355,24 +281,6 @@ func TestSelfClickyTimer(t *testing.T) {
 	}
 }
 
-// When many spells share a clicky emote, indexing skips dev "Test" stubs and
-// keeps the longest-duration (real) buff — so "Your feet leave the ground."
-// resolves to a normal Levitation, not the 6-tick "Levitate Test".
-func TestSelfClickyDisambiguation(t *testing.T) {
-	book := loadBook(t,
-		row(map[int]string{fName: "Levitate Test", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "1", fDurCap: "6", fGoodEffect: "1"}),
-		row(map[int]string{fName: "Levitation", fCastOnYou: "Your feet leave the ground.", fCastTime: "0", fDurFormula: "3", fDurCap: "120", fGoodEffect: "1"}),
-	)
-	s, ok := book.SelfClicky("Your feet leave the ground.")
-	got := ""
-	if s != nil {
-		got = s.Name
-	}
-	if !ok || got != "Levitation" {
-		t.Errorf("clicky should resolve to Levitation, got ok=%v name=%q", ok, got)
-	}
-}
-
 // Canni dance: replays a real spam sequence (casts at 36/39/41/43 with a buzzer
 // at 42) and checks the efficiency/buzzer/active readout.
 func TestCanniDance(t *testing.T) {
@@ -440,5 +348,232 @@ func TestMezTrackingAndBreak(t *testing.T) {
 	tr.BreakCCOnTarget("a greater kobold") // damage line: article + lowercase
 	if len(tr.Active(1001)) != 0 {
 		t.Error("damage should break the mez despite the name-form mismatch")
+	}
+}
+
+// --- same-named-mob multi-instance behavior ---
+
+// TestTimer_SecondSameNamedMobIsNewInstance: debuffing a same-named mob while the
+// first copy is still fresh (not red) yields two timers, not one overwrite.
+func TestTimer_SecondSameNamedMobIsNewInstance(t *testing.T) {
+	tr := NewTracker(loadBook(t, malo()))
+	tr.SetLevel(60)
+	castMalo(tr, 1000)
+	castMalo(tr, 1001) // first copy still fresh → a different mob
+	if act := tr.Active(1002); len(act) != 2 {
+		t.Fatalf("two same-named mobs should hold two timers, got %d", len(act))
+	}
+}
+
+// TestTimer_RefreshWhenStale: re-casting while the existing copy is stale (red,
+// ≤ StaleFrac left) refreshes it in place — one timer, later expiry.
+func TestTimer_RefreshWhenStale(t *testing.T) {
+	tr := NewTracker(loadBook(t, malo()))
+	tr.SetLevel(60)
+	castMalo(tr, 1000)
+	first := tr.Active(1000)[0]
+	dur := first.Expiry - first.Start
+
+	late := first.Start + dur - 1 // 1s left → well inside the red zone
+	castMalo(tr, late)
+	act := tr.Active(late)
+	if len(act) != 1 {
+		t.Fatalf("a re-cast on a stale (red) copy should refresh, not add; got %d", len(act))
+	}
+	if act[0].Expiry <= first.Expiry {
+		t.Errorf("refresh should extend the expiry: was %d, now %d", first.Expiry, act[0].Expiry)
+	}
+}
+
+// TestTimer_FadeClearsOneInstance is the fall-off-then-re-apply case: with two
+// same-named mobs each debuffed, one fading clears only its own timer (not both),
+// and a fresh cast re-adds the instance.
+func TestTimer_FadeClearsOneInstance(t *testing.T) {
+	tr := NewTracker(loadBook(t, malo()))
+	tr.SetLevel(60)
+	castMalo(tr, 1000)
+	castMalo(tr, 1001)
+	if act := tr.Active(1002); len(act) != 2 {
+		t.Fatalf("setup: expected 2 timers, got %d", len(act))
+	}
+
+	tr.Observe("a sand giant feels less resistant.", 1003) // one mob's debuff fades
+	if act := tr.Active(1004); len(act) != 1 {
+		t.Fatalf("a fade should clear ONE instance, leaving the other; got %d", len(act))
+	}
+
+	castMalo(tr, 1005) // re-apply to that mob
+	if act := tr.Active(1006); len(act) != 2 {
+		t.Fatalf("re-casting after a fade should re-add the instance; got %d", len(act))
+	}
+}
+
+// TestTimer_SlainClearsAllOnMob: a mob's death ends ALL debuffs on it. The death
+// line names only the mob (not which same-named instance), and a single-target
+// caster stacks several instances on one mob — all die with it. (A *fade* line,
+// by contrast, clears just one instance: see TestTimer_FadeClearsOneInstance.)
+func TestTimer_SlainClearsAllOnMob(t *testing.T) {
+	tr := NewTracker(loadBook(t, malo()))
+	tr.SetLevel(60)
+	castMalo(tr, 1000)
+	castMalo(tr, 1001) // two instances on "a sand giant"
+	tr.Observe("You have slain a sand giant!", 1003)
+	if act := tr.Active(1004); len(act) != 0 {
+		t.Fatalf("slaying the mob should clear all its debuffs, got %d", len(act))
+	}
+}
+
+// TestTimer_BuffRecastAlwaysRefreshes: a buff lands on a unique target (you),
+// so re-casting it — even while it's still fresh (green) — refreshes the one
+// timer rather than spawning a duplicate. Only detrimental spells on same-named
+// mobs split into instances.
+func TestTimer_BuffRecastAlwaysRefreshes(t *testing.T) {
+	book := loadBook(t, row(map[int]string{
+		fName: "Aegolism", fCastOnYou: "You feel the strength of the gods.",
+		fCastTime: "0", fDurFormula: "5", fDurCap: "600", fGoodEffect: "1", // beneficial
+	}))
+	tr := NewTracker(book)
+	tr.SetLevel(60)
+	tr.BeginCast("Aegolism", 1000)
+	tr.Observe("You feel the strength of the gods.", 1000)
+	tr.BeginCast("Aegolism", 1005) // re-cast while still fresh
+	tr.Observe("You feel the strength of the gods.", 1005)
+
+	if act := tr.Active(1006); len(act) != 1 {
+		t.Fatalf("re-casting a buff on yourself should refresh one timer, not duplicate; got %d", len(act))
+	}
+}
+
+// --- class detection / category ---
+
+func TestTrackerClass(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+
+	// defaults to caster (spell timers) until a /who is seen
+	if tr.Category() != eqclass.CatCaster {
+		t.Errorf("default category = %d, want CatCaster", tr.Category())
+	}
+
+	tr.SetClass(eqclass.ClassWarrior)
+	if tr.Class() != eqclass.ClassWarrior || tr.Category() != eqclass.CatMelee {
+		t.Errorf("after SetClass(Warrior): class=%q cat=%d", tr.Class(), tr.Category())
+	}
+
+	// an unknown class is ignored, not overwriting a known one
+	tr.SetClass(eqclass.ClassUnknown)
+	if tr.Class() != eqclass.ClassWarrior {
+		t.Errorf("SetClass(Unknown) overwrote class: %q", tr.Class())
+	}
+
+	// a character switch clears the class back to unknown
+	tr.Clear()
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("after Clear: class=%q, want unknown", tr.Class())
+	}
+
+	// nil tracker is safe and defaults to caster
+	var nilTr *Tracker
+	if nilTr.Category() != eqclass.CatCaster {
+		t.Error("nil tracker Category should be CatCaster")
+	}
+}
+
+// TestTracker_SpellCountAndLevel: the trivial getters reflect the loaded book
+// size and the level set via a /who, and degrade to zero on a nil tracker / book.
+func TestTracker_SpellCountAndLevel(t *testing.T) {
+	tr := NewTracker(loadBook(t, envenomedBolt()))
+	if got := tr.SpellCount(); got != 1 {
+		t.Errorf("SpellCount = %d, want 1", got)
+	}
+	if got := tr.Level(); got != 0 {
+		t.Errorf("Level before /who = %d, want 0", got)
+	}
+	tr.SetLevel(57)
+	if got := tr.Level(); got != 57 {
+		t.Errorf("Level = %d, want 57", got)
+	}
+
+	var nilTr *Tracker
+	if nilTr.SpellCount() != 0 || nilTr.Level() != 0 {
+		t.Error("nil tracker getters should be zero, not panic")
+	}
+	if NewTracker(nil).SpellCount() != 0 {
+		t.Error("SpellCount with a nil book should be 0")
+	}
+}
+
+// --- pacify (CC) ---
+
+// pacify spells all land with "<mob> looks less aggressive." and use formula 8.
+func calmSpell() string { // P99 Calm: cap 30 → 180s
+	return row(map[int]string{fName: "Calm", fCastOnOther: " looks less aggressive.", fCastTime: "2500", fDurFormula: "8", fDurCap: "30", fGoodEffect: "0"})
+}
+func wakeSpell() string { // Wake of Tranquility: uncapped (cap 0) → ~7 min at 60
+	return row(map[int]string{fName: "Wake of Tranquility", fCastOnOther: " looks less aggressive.", fCastTime: "4500", fDurFormula: "8", fDurCap: "0", fGoodEffect: "0"})
+}
+
+// TestDismissTargetKeepsSelfCC: an AoE pacify/mez (Wake of Tranquility) can catch
+// the player, landing on "You". Dismissing your buffs must not clear it — it's a
+// detrimental effect on you, not one of your buffs.
+func TestDismissTargetKeepsSelfCC(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.timers[key("Wake of Tranquility", "You")] = Timer{Spell: "Wake of Tranquility", Target: "You", Pacify: true, Detrimental: true, Expiry: 9999}
+	tr.timers[key("Clarity", "You")] = Timer{Spell: "Clarity", Target: "You", Expiry: 9999}
+
+	tr.DismissTarget("You")
+
+	wake, clar := false, false
+	for _, tm := range tr.Active(0) {
+		switch tm.Spell {
+		case "Wake of Tranquility":
+			wake = true
+		case "Clarity":
+			clar = true
+		}
+	}
+	if !wake {
+		t.Error("an AoE pacify that caught you must survive a buff dismiss")
+	}
+	if clar {
+		t.Error("dismissing your buffs should still clear the buff")
+	}
+}
+
+// TestPacify_Durations matches the P99 wiki: Calm 180s (30 ticks), Wake of
+// Tranquility ~7 min (uncapped). No +1 cast-tick, unlike a buff.
+func TestPacify_Durations(t *testing.T) {
+	b := loadBook(t, calmSpell(), wakeSpell())
+	calm, _ := b.ByName("Calm")
+	if !calm.Pacify {
+		t.Error("Calm should be flagged Pacify")
+	}
+	if got := calm.PacifyDurationSeconds(60); got != 180 {
+		t.Errorf("Calm @60 = %d, want 180", got)
+	}
+	wake, _ := b.ByName("Wake of Tranquility")
+	if got := wake.PacifyDurationSeconds(60); got != 420 {
+		t.Errorf("Wake of Tranquility @60 = %d, want 420 (7 min)", got)
+	}
+}
+
+// TestPacify_TracksAndBreaks: a pacify cast lands as a CC timer with the P99
+// duration, and breaks when the mob takes damage (it re-aggros).
+func TestPacify_TracksAndBreaks(t *testing.T) {
+	tr := NewTracker(loadBook(t, calmSpell()))
+	tr.SetLevel(60)
+	tr.BeginCast("Calm", 1000)
+	tr.Observe("a sand giant looks less aggressive.", 1003)
+
+	act := tr.Active(1005)
+	if len(act) != 1 || !act[0].Pacify || act[0].Target != "a sand giant" {
+		t.Fatalf("pacify should land as a CC timer: %+v", act)
+	}
+	if act[0].Expiry != 1003+180 {
+		t.Errorf("expiry = %d, want %d (P99 180s, not the +1-tick 186)", act[0].Expiry, 1003+180)
+	}
+
+	tr.BreakCCOnTarget("a sand giant") // damage wakes it
+	if act := tr.Active(1006); len(act) != 0 {
+		t.Errorf("damage should break pacify, got %d", len(act))
 	}
 }

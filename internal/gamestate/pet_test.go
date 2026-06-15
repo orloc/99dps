@@ -5,13 +5,6 @@ import (
 	"testing"
 )
 
-func newPetTracker(t *testing.T, character string) *Tracker {
-	t.Helper()
-	tr := NewTracker(loadBook(t)) // empty book is fine; pet detection doesn't need spells
-	tr.SetCharacter(character)
-	return tr
-}
-
 // TestPet_LeaderReply: "<Pet> says 'My leader is <you>.'" names your pet.
 func TestPet_LeaderReply(t *testing.T) {
 	tr := newPetTracker(t, "Yatiri")

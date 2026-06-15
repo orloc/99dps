@@ -1,28 +1,10 @@
 package gamestate
 
 import (
-	"strconv"
-	"strings"
 	"testing"
 
 	"99dps/internal/eqclass"
 )
-
-// canniBook builds a book with a single Cannibalize spell that has a recast time.
-func canniBook(t *testing.T, name string, recastMs int) *Book {
-	t.Helper()
-	f := make([]string, 217)
-	for i := range f {
-		f[i] = "0"
-	}
-	f[1] = name
-	f[15] = strconv.Itoa(recastMs)
-	book, err := LoadReader(strings.NewReader(strings.Join(f, "^")))
-	if err != nil {
-		t.Fatalf("LoadReader: %v", err)
-	}
-	return book
-}
 
 // TestCanni_PersistsAfterLapse: once a dance lapses, CanniStats stays present as
 // a muted summary (session best/score) rather than vanishing, so the Damage-panel

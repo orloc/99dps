@@ -200,3 +200,197 @@ func TestBinding(t *testing.T) {
 		t.Error("a stuck bind should clear past the duration+grace")
 	}
 }
+
+// TestBehavioralTablesReferenceKnownClasses guards the link between the
+// declarative class facts (eqclass.Profile) and this layer's behavioral tables:
+// every class a cooldown or clicky is filed under must be a real class. A typo or
+// a stale class constant would otherwise silently never match.
+func TestBehavioralTablesReferenceKnownClasses(t *testing.T) {
+	for _, cd := range cooldownRegistry {
+		if !eqclass.IsKnown(cd.Class) {
+			t.Errorf("cooldownRegistry %q references unknown class %q", cd.Name, cd.Class)
+		}
+	}
+	for class, list := range clickyRegistry {
+		if class == eqclass.ClassUnknown {
+			continue // the deliberate "usable by anyone" universal bucket
+		}
+		if !eqclass.IsKnown(class) {
+			t.Errorf("clickyRegistry references unknown class %q (%d entries)", class, len(list))
+		}
+	}
+}
+
+// TestCooldown_MonkSpecialSharedTimer: monk specials share ONE reuse timer, so a
+// kick and a hand strike drive a single "Kick" cooldown — never two — and a
+// strike (re)starts the same timer.
+func TestCooldown_MonkSpecialSharedTimer(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+	tr.SetClass(eqclass.ClassMonk)
+
+	tr.Observe("You kick a sand giant for 24 points of damage.", 1000)
+	cds := tr.Cooldowns(1001)
+	if len(cds) != 1 || cds[0].Name != "Kick" || cds[0].Total != monkSpecialReuseSec {
+		t.Fatalf("a kick should start one shared special cooldown; got %+v", cds)
+	}
+
+	// a hand strike later restarts the SAME timer, not a second one
+	tr.Observe("You strike a sand giant for 18 points of damage.", 1003)
+	cds = tr.Cooldowns(1004)
+	if len(cds) != 1 {
+		t.Fatalf("a strike must reuse the shared timer, not add a second cooldown; got %+v", cds)
+	}
+	if cds[0].Remaining != monkSpecialReuseSec-1 { // restarted at 1003, read at 1004
+		t.Errorf("strike should restart the shared timer; remaining = %d, want %d", cds[0].Remaining, monkSpecialReuseSec-1)
+	}
+}
+
+// TestCooldown_KickNotForNonMonk: kick isn't monk-exclusive, so a warrior's kick
+// must neither start the cooldown nor flip the detected class to monk.
+func TestCooldown_KickNotForNonMonk(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+	tr.SetClass(eqclass.ClassWarrior)
+	tr.Observe("You kick a sand giant for 24 points of damage.", 1000)
+	if cds := tr.Cooldowns(1001); len(cds) != 0 {
+		t.Errorf("a warrior's kick must not create a cooldown; got %v", cds)
+	}
+	if tr.Class() != eqclass.ClassWarrior {
+		t.Errorf("a kick must not change the detected class; got %v", tr.Class())
+	}
+}
+
+// TestSpellRecastCooldown: casting a watched recast spell (Dictate charm /
+// Rapture mez) starts a zone-scoped reuse cooldown read from the spell's own
+// RecastMs, and a zone change clears it (you can recast freely after zoning).
+func TestSpellRecastCooldown(t *testing.T) {
+	b := loadBook(t,
+		// Dictate: a charm (no landing emote), 12s recast
+		row(map[int]string{
+			fName: "Dictate", fFades: "You are no longer charmed.",
+			fCastTime: "1000", fRecastTime: "12000",
+			fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+		}),
+		// Rapture: a single-target mez, 9s recast
+		row(map[int]string{
+			fName: "Rapture", fCastOnOther: " has been mesmerized.",
+			fCastTime: "1000", fRecastTime: "9000",
+			fDurFormula: "3", fDurCap: "120", fGoodEffect: "0",
+		}),
+		// an unwatched detrimental with a recast — must NOT spawn a cooldown
+		row(map[int]string{
+			fName: "Tashani", fCastOnOther: "'s magical defenses fall.",
+			fCastTime: "1000", fRecastTime: "9000",
+			fDurFormula: "3", fDurCap: "120", fGoodEffect: "0",
+		}),
+	)
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+
+	// enter a zone so the recast is "cast in this zone"
+	tr.Observe("You have entered Lake of Ill Omen.", now)
+
+	// cast Dictate → charm completes on the next line, starting its 12s recast
+	tr.BeginCast("Dictate", now)
+	tr.Observe("a sand giant glares at you.", now+1)
+	cds := tr.Cooldowns(now + 1)
+	if len(cds) != 1 || cds[0].Name != "Dictate" || cds[0].Remaining != 12 || cds[0].Total != 12 {
+		t.Fatalf("after Dictate: cooldowns = %+v, want Dictate 12/12", cds)
+	}
+
+	// cast Rapture → its landing emote starts the 9s recast (now two cooldowns)
+	tr.BeginCast("Rapture", now+1)
+	tr.Observe("a sand giant has been mesmerized.", now+2)
+	cds = tr.Cooldowns(now + 2)
+	if len(cds) != 2 {
+		t.Fatalf("after Rapture: want 2 cooldowns, got %+v", cds)
+	}
+	// soonest-ready first: Rapture (9 - 0) before Dictate (12 - 1)
+	if cds[0].Name != "Rapture" || cds[0].Remaining != 9 {
+		t.Errorf("Rapture cooldown = %+v, want Rapture 9", cds[0])
+	}
+
+	// an unwatched recast spell adds no cooldown
+	tr.BeginCast("Tashani", now+2)
+	tr.Observe("a sand giant's magical defenses fall.", now+3)
+	if got := len(tr.Cooldowns(now + 3)); got != 2 {
+		t.Errorf("Tashani must not add a cooldown, have %d", got)
+	}
+
+	// zoning clears the zone-scoped recasts
+	tr.Observe("You have entered Skyfire Mountains.", now+4)
+	if cds := tr.Cooldowns(now + 4); len(cds) != 0 {
+		t.Errorf("a zone change should clear spell recasts, got %+v", cds)
+	}
+}
+
+// TestSpellRecastOnMemorize: memorizing a watched long-recast spell arms its
+// cooldown (it must clear the first gem refresh before it can be cast), without
+// any cast at all. The real log line is "You have finished memorizing Dictate."
+func TestSpellRecastOnMemorize(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Dictate", fFades: "You are no longer charmed.",
+		fCastTime: "5000", fRecastTime: "300000", // P99 Dictate: 5-min recast
+		fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+	tr.Observe("You have entered Lake of Ill Omen.", now)
+
+	tr.Observe("You have finished memorizing Dictate.", now)
+	cds := tr.Cooldowns(now)
+	if len(cds) != 1 || cds[0].Name != "Dictate" || cds[0].Remaining != 300 || cds[0].Total != 300 {
+		t.Fatalf("memorizing Dictate should arm a 300s cooldown, got %+v", cds)
+	}
+
+	// an unwatched spell's memorize line arms nothing
+	tr.Observe("You have finished memorizing Gate.", now)
+	if got := len(tr.Cooldowns(now)); got != 1 {
+		t.Errorf("memorizing an unwatched spell must not add a cooldown, have %d", got)
+	}
+
+	// unmemorizing it ("You forget Dictate.") drops the timer — no longer applicable
+	tr.Observe("You forget Dictate.", now+5)
+	if got := len(tr.Cooldowns(now + 5)); got != 0 {
+		t.Errorf("forgetting Dictate should drop its cooldown, have %d", got)
+	}
+}
+
+// TestSpellRecastClassGated: once the class is known, a recast spell that isn't
+// on that class's watch list is ignored (the class param flows from the tracker
+// through to eqclass.RecastWatched).
+func TestSpellRecastClassGated(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Dictate", fFades: "You are no longer charmed.",
+		fCastTime: "5000", fRecastTime: "300000",
+		fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassWarrior) // not the Enchanter that watches Dictate
+	tr.Observe("You have entered Lake of Ill Omen.", 1000)
+	tr.Observe("You have finished memorizing Dictate.", 1000)
+	if cds := tr.Cooldowns(1000); len(cds) != 0 {
+		t.Errorf("a Warrior must not track Dictate's recast, got %+v", cds)
+	}
+}
+
+// TestSpellRecastNoRecast: a watched spell whose book entry has no recast
+// (RecastMs 0) produces no cooldown rather than a bogus zero-length one.
+func TestSpellRecastNoRecast(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Rapture", fCastOnOther: " has been mesmerized.",
+		fCastTime: "1000", fRecastTime: "0",
+		fDurFormula: "3", fDurCap: "120", fGoodEffect: "0",
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+	tr.Observe("You have entered Lake of Ill Omen.", now)
+	tr.BeginCast("Rapture", now)
+	tr.Observe("a sand giant has been mesmerized.", now+1)
+	if cds := tr.Cooldowns(now + 1); len(cds) != 0 {
+		t.Errorf("a 0-recast spell should make no cooldown, got %+v", cds)
+	}
+}
