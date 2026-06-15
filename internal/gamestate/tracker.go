@@ -53,6 +53,8 @@ type Tracker struct {
 
 	rolls rollTracker // /random loot-roll tracking for the Tools widget (see rolls.go)
 
+	groupJoinedAt int64 // log time you entered the current group (0 = solo); see group.go
+
 	// pending cast awaiting its landing emote. Kept alive across landings (not
 	// cleared on the first) so an AoE/PBAoE that lands on several mobs starts a
 	// timer on each; the cast window (landWindowSec) expires it.
@@ -374,6 +376,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	}
 	t.cool.observeBindLocked(body, at)
 	t.rolls.observeLocked(body, at, t.zone.name)
+	t.observeGroupLocked(body, at)
 }
 
 // matchSelfClickyLocked starts a self-buff timer when a line is the landing
@@ -714,6 +717,7 @@ func (t *Tracker) Clear() {
 	t.zone.clear()
 	t.canni.clear()
 	t.rolls.clear()
+	t.groupJoinedAt = 0
 	t.pending = nil
 	t.level = 0
 	t.class = eqclass.ClassUnknown
