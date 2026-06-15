@@ -323,6 +323,9 @@ func (m *Model) refresh() {
 	mobStr, mobT := mobTracker(th, m.tracker, m.vpMob.Width, m.editMob)
 	m.vpMob.SetContent(mobStr)
 	m.mobTargets = mobT
+	if m.tracker != nil { // close a roll contest that's gone quiet (winner → log)
+		m.tracker.FinalizeStaleRolls(time.Now().Unix())
+	}
 	m.announceCues()
 }
 
@@ -1181,9 +1184,10 @@ func (m Model) View() string {
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}
 
-	// the Tools tab: a home for little helper widgets.
+	// the Tools tab: a 3-column home for little helper widgets.
 	if m.screen == screenTools {
-		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th, innerW))
+		toolsH := max(m.h-5, 6) // outer pad + banner + tab bar (+ slack)
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th, innerW, toolsH))
 		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}

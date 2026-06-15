@@ -2,52 +2,101 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/gamestate"
 )
 
-// The Tools tab is a home for little helper widgets — quick utilities that aren't
-// part of the live meter. The first is a /random winner board for loot rolls:
-// the tracker pairs EQ's two-line /random output, and this lists the rolls with
-// the high roll on top.
+// The Tools tab is a 3-column home for little helper widgets — quick utilities
+// that aren't part of the live meter, each in its own box. The first is a
+// /random roll widget for loot: as people roll on a dropped item the live board
+// shows who's leading; when the rolls stop (or you press c) the high roller is
+// recorded to a winners log with the time and zone, and the board resets for the
+// next item.
 
 // updateTools handles input while the Tools tab is focused. (Tab/number nav is
-// handled earlier, in Update.) `c` clears the roll board between contests.
+// handled earlier, in Update.) c closes the current roll now; x clears the log.
 func (m Model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "c" && m.tracker != nil {
-		m.tracker.ClearRolls()
-		m.flash("rolls cleared")
+	k, ok := msg.(tea.KeyMsg)
+	if !ok || m.tracker == nil {
+		return m, nil
+	}
+	switch k.String() {
+	case "c":
+		m.tracker.FinalizeRolls()
+		m.flash("roll closed")
+	case "x":
+		m.tracker.ClearRollWinners()
+		m.flash("winners cleared")
 	}
 	return m, nil
 }
 
-// toolsView renders the Tools tab body: the /random winner board.
-func (m Model) toolsView(th theme, w int) string {
-	var rolls []gamestate.Roll
-	if m.tracker != nil {
-		rolls = m.tracker.Rolls()
+// toolsView lays the Tools tab out as three equal boxed columns: the /random
+// roll widget, then two reserved slots for future widgets.
+func (m Model) toolsView(th theme, w, h int) string {
+	colW := (w - 2) / 3 // two 1-space gaps between three columns
+	if colW < 10 {
+		colW = 10
 	}
-	return rollBoard(th, rolls, w)
+	lastW := w - 2 - 2*colW // give the remainder to the last column
+	if lastW < colW {
+		lastW = colW
+	}
+
+	var rolls []gamestate.Roll
+	var winners []gamestate.RollWin
+	if m.tracker != nil {
+		rolls, winners = m.tracker.Rolls(), m.tracker.RollWinners()
+	}
+	roll := card(th, colW, h, "🎲 Rolls", rollBoard(th, rolls, winners, time.Now().Unix(), colW-4))
+	soon := card(th, colW, h, "", th.fg(th.dim).Render(truncate("more widgets soon", colW-4)))
+	soon2 := card(th, lastW, h, "", th.fg(th.dim).Render(truncate("more widgets soon", lastW-4)))
+	return lipgloss.JoinHorizontal(lipgloss.Top, roll, " ", soon, " ", soon2)
 }
 
-// rollBoard renders the /random winner list (high roll first, marked ★). Pure
-// data→string so it's unit-tested directly.
-func rollBoard(th theme, rolls []gamestate.Roll, w int) string {
-	ls := []string{paint(th, th.accent, "🎲 Random Rolls", w)}
-	if len(rolls) == 0 {
-		ls = append(ls, "", paint(th, th.dim, "No rolls yet — /random in game to populate.", w))
-		return lines(ls...)
-	}
-	ls = append(ls, paint(th, th.dim, fmt.Sprintf("%d rolls · press c to clear", len(rolls)), w), "")
-	for i, r := range rolls {
-		marker, style := "  ", th.fg(th.text)
-		if i == 0 { // the high roll wins
-			marker, style = "★ ", th.fg(th.accent).Bold(true)
+// rollBoard renders the roll widget body to width w: the live contest leaderboard
+// (high roll first, leader marked ★) over a log of past winners (value · age ·
+// zone). Width-aware so it fits a narrow column. Pure data→string for testing.
+func rollBoard(th theme, current []gamestate.Roll, winners []gamestate.RollWin, now int64, w int) string {
+	var ls []string
+
+	// live contest
+	if len(current) == 0 {
+		ls = append(ls, th.fg(th.dim).Render(truncate("No active roll.", w)))
+	} else {
+		ls = append(ls, th.fg(th.dim).Render(truncate(fmt.Sprintf("rolling · %d–%d", current[0].Low, current[0].High), w)))
+		for i, r := range current {
+			marker, style := "  ", th.fg(th.text)
+			if i == 0 { // current leader
+				marker, style = "★ ", th.fg(th.accent).Bold(true)
+			}
+			ls = append(ls, style.Render(nameValue(marker, r.Roller, fmt.Sprintf("%d", r.Value), w)))
 		}
-		line := fmt.Sprintf("%s%-16s %5d  (%d–%d)", marker, truncate(r.Roller, 16), r.Value, r.Low, r.High)
-		ls = append(ls, style.Render(truncate(line, w)))
 	}
+
+	// winners log
+	if len(winners) > 0 {
+		ls = append(ls, "", th.fg(th.accent).Render(truncate("recent winners", w)))
+		for _, win := range winners {
+			line := fmt.Sprintf("%s %d · %s", win.Roller, win.Value, compactDur(now-win.At))
+			if win.Zone != "" {
+				line += " · " + win.Zone
+			}
+			ls = append(ls, th.fg(th.dim).Render(truncate(line, w)))
+		}
+	}
+
+	ls = append(ls, "", th.fg(th.dim).Render(truncate("c close · x clear log", w)))
 	return lines(ls...)
+}
+
+// nameValue renders "<marker><name> <value>" with the value right-justified and
+// the name truncated to fit width w.
+func nameValue(marker, name, value string, w int) string {
+	nameW := max(w-lipgloss.Width(marker)-lipgloss.Width(value)-1, 1)
+	return truncate(fmt.Sprintf("%s%-*s %s", marker, nameW, truncate(name, nameW), value), w)
 }

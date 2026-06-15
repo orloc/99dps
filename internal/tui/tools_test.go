@@ -25,7 +25,7 @@ func TestToolsTabRendersAndFits(t *testing.T) {
 	for _, w := range []int{60, 80, 120} {
 		mm.w, mm.h, mm.ready = w, 30, true
 		out := mm.View()
-		if !strings.Contains(out, "Random Rolls") {
+		if !strings.Contains(out, "Rolls") {
 			t.Errorf("w=%d: Tools tab should render the roll widget", w)
 		}
 		for _, ln := range strings.Split(out, "\n") {
@@ -36,50 +36,61 @@ func TestToolsTabRendersAndFits(t *testing.T) {
 	}
 }
 
-// TestRollBoard: empty shows a hint; with rolls the high roll leads, marked ★,
-// and every roller/value/range renders.
+// TestRollBoard: the live leader is marked ★ with the range header; the winners
+// log shows value · age · zone; an idle board shows the hint.
 func TestRollBoard(t *testing.T) {
 	th := themes[0]
+	now := int64(10_000)
 
-	if out := rollBoard(th, nil, 60); !strings.Contains(out, "No rolls yet") {
-		t.Errorf("empty board should show the hint, got %q", out)
+	if out := rollBoard(th, nil, nil, now, 60); !strings.Contains(out, "No active roll") {
+		t.Errorf("an idle board should show the no-roll hint, got %q", out)
 	}
 
-	rolls := []gamestate.Roll{
+	current := []gamestate.Roll{
 		{Roller: "Emandar", Low: 0, High: 1000, Value: 952},
 		{Roller: "Trashromancer", Low: 0, High: 1000, Value: 409},
 	}
-	out := rollBoard(th, rolls, 60)
-	if !strings.Contains(out, "★") {
-		t.Error("the high roll should be marked ★")
+	winners := []gamestate.RollWin{
+		{Roller: "Belvinn", Value: 871, At: now - 120, Zone: "Sebilis"}, // 2m ago
 	}
-	for _, want := range []string{"Emandar", "952", "Trashromancer", "409", "(0–1000)", "2 rolls"} {
+	out := rollBoard(th, current, winners, now, 60)
+	if !strings.Contains(out, "★") || strings.Index(out, "Emandar") < strings.Index(out, "★") {
+		t.Error("★ should mark the leading (first) live row")
+	}
+	for _, want := range []string{"rolling · 0–1000", "Emandar", "952", "Trashromancer", "409",
+		"recent winners", "Belvinn", "871", "2m", "Sebilis"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("roll board missing %q in:\n%s", want, out)
 		}
 	}
-	// the ★ marker precedes the winner (Emandar), not the runner-up
-	if star := strings.Index(out, "★"); star < 0 || strings.Index(out, "Emandar") < star {
-		t.Error("★ should mark the winning (first) row")
-	}
 }
 
-// TestUpdateToolsClear: pressing c clears the roll board and flashes.
-func TestUpdateToolsClear(t *testing.T) {
+// TestUpdateToolsKeys: c closes the current contest (winner → log, board resets);
+// x clears the winners log.
+func TestUpdateToolsKeys(t *testing.T) {
 	tr := gamestate.NewTracker(&gamestate.Book{})
 	tr.Observe("**A Magic Die is rolled by Solo.", 1)
 	tr.Observe("**It could have been any number from 0 to 100, but this time it turned up a 77.", 1)
 	if len(tr.Rolls()) != 1 {
-		t.Fatal("setup: expected one roll")
+		t.Fatal("setup: expected one live roll")
 	}
 
 	m := New(&session.SessionManager{}, tr, "X")
 	m.screen = screenTools
+
 	out, _ := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
-	if len(tr.Rolls()) != 0 {
-		t.Error("pressing c should clear the rolls")
+	if len(tr.Rolls()) != 0 || len(tr.RollWinners()) != 1 {
+		t.Errorf("c should close the contest: live=%d winners=%d", len(tr.Rolls()), len(tr.RollWinners()))
 	}
-	if mm := out.(Model); mm.status != "rolls cleared" {
-		t.Errorf("expected a 'rolls cleared' flash, got %q", mm.status)
+	if mm := out.(Model); mm.status != "roll closed" {
+		t.Errorf("expected a 'roll closed' flash, got %q", mm.status)
+	}
+
+	out, _ = out.(Model).updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if len(tr.RollWinners()) != 0 {
+		t.Error("x should clear the winners log")
+	}
+	if mm := out.(Model); mm.status != "winners cleared" {
+		t.Errorf("expected a 'winners cleared' flash, got %q", mm.status)
 	}
 }
