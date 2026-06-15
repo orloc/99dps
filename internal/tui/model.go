@@ -53,6 +53,7 @@ type Model struct {
 	vpClass  viewport.Model // spell timers / skills (class-aware bottom panel)
 	vpMob    viewport.Model
 	vpEnemy  viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
+	vpInv    viewport.Model // Tools tab: scrollable inventory price list
 
 	// Sessions tab: a wide scrollable stats table + a DPS breakdown of the
 	// highlighted session. sessHeader is the sticky column header (rendered above
@@ -833,6 +834,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+		if m.screen == screenTools {
+			if isWheel(msg.Button) { // scroll the inventory list
+				var cmd tea.Cmd
+				m.vpInv, cmd = m.vpInv.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if m.screen != screenMeter {
 			return m, tea.Batch(cmds...)
 		}
@@ -873,6 +882,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case invLoadedMsg:
 		m.invRows, m.invStatus = msg.rows, msg.status
+		m.refreshInventory()
 	case switchMsg:
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
@@ -890,6 +900,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 		case screenSessions:
 			m.refreshSessions()
+		case screenTools:
+			m.refreshInventory() // re-render for theme/status changes
+			m.announceCues()
 		default:
 			m.announceCues() // keep audio alerts live on other screens
 		}
@@ -928,7 +941,17 @@ func (m *Model) resizeViewports() {
 	} else {
 		m.vpExtras.Width, m.vpExtras.Height = ew, eh
 	}
+	// Tools tab: the inventory column is its own scrollable viewport.
+	tColW, _, tH := m.toolsLayout()
+	set(&m.vpInv, tColW, tH)
 	m.ready = true
+	m.refreshInventory() // re-render at the new width
+}
+
+// refreshInventory re-renders the inventory list into its viewport (after an
+// index, a resize, or a theme change).
+func (m *Model) refreshInventory() {
+	m.vpInv.SetContent(inventoryBoard(themes[m.theme], m.invRows, m.invStatus, max(m.vpInv.Width, 1)))
 }
 
 // panelAt returns the viewport whose card contains screen cell (x,y), or nil.
@@ -1201,8 +1224,7 @@ func (m Model) View() string {
 
 	// the Tools tab: a 3-column home for little helper widgets.
 	if m.screen == screenTools {
-		toolsH := max(m.h-5, 6) // outer pad + banner + tab bar (+ slack)
-		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th, innerW, toolsH))
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th))
 		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}

@@ -26,25 +26,31 @@ const invSample = "Location\tName\tID\tCount\tSlots\n" +
 	"General1-Slot1\tBat Wing\t13007\t20\t0\n" +
 	"General1-Slot2\tInsidious Halo\t1246\t1\t0\n" // no tunnel data
 
-// TestInventoryBoard: priced items sort high-value-first as clickable wiki
-// links; unpriced ones fall into a "no tunnel data" group; the header totals.
+// TestInventoryBoard: items split into WORN / INVENTORY / BANK sections, each
+// high-value-first (unpriced last); names are clickable wiki links; header totals.
 func TestInventoryBoard(t *testing.T) {
 	th := themes[0]
 	rows := []invRow{
-		{name: "Bat Wing", location: "General1-Slot1", count: 20, price: 2, priceN: 500},               // 20×2 = 40
-		{name: "Black Sapphire Electrum Earring", location: "Ear", count: 1, price: 615, priceN: 1367}, // 615
-		{name: "Insidious Halo", location: "General1-Slot2", count: 1, price: 0, priceN: 0},            // no data
+		{name: "Bat Wing", location: "General1-Slot1", count: 20, price: 2, priceN: 500},               // INV, 40
+		{name: "Black Sapphire Electrum Earring", location: "Ear", count: 1, price: 615, priceN: 1367}, // WORN, 615
+		{name: "Insidious Halo", location: "General1-Slot2", count: 1, price: 0, priceN: 0},            // INV, no data
+		{name: "Cloudy Stone", location: "Bank3", count: 1, price: 50, priceN: 10},                     // BANK, 50
 	}
 	out := inventoryBoard(th, rows, "", 60)
 
-	for _, want := range []string{"3 items", "no tunnel data (1)", "Black Sapphire", "Insidious Halo"} {
+	for _, want := range []string{"4 items", "WORN", "INVENTORY", "BANK", "Black Sapphire", "Cloudy Stone"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("board missing %q in:\n%s", want, out)
 		}
 	}
-	// the earring (615) outranks the bat wing stack (40), so it appears first
-	if strings.Index(out, "Black Sapphire") > strings.Index(out, "Bat Wing") {
-		t.Error("priced items should sort by total value, earring before bat wing")
+	// the worn earring is in its own section, before the inventory bat wing
+	if !(strings.Index(out, "WORN") < strings.Index(out, "Black Sapphire") &&
+		strings.Index(out, "Black Sapphire") < strings.Index(out, "INVENTORY")) {
+		t.Error("the earring should sit under WORN, above the INVENTORY section")
+	}
+	// within INVENTORY, the priced bat wing (40) outranks the unpriced halo (0)
+	if strings.Index(out, "Bat Wing") > strings.Index(out, "Insidious Halo") {
+		t.Error("priced items should sort above no-data items within a section")
 	}
 	// names are OSC 8 hyperlinks to the P99 wiki
 	if !strings.Contains(out, "\x1b]8;;https://wiki.project1999.com/Black_Sapphire_Electrum_Earring") {
@@ -59,6 +65,20 @@ func TestInventoryBoard(t *testing.T) {
 	// the empty board prompts for indexing
 	if got := inventoryBoard(th, nil, "", 60); !strings.Contains(got, "press i to index") {
 		t.Errorf("empty board hint = %q", got)
+	}
+}
+
+// TestInvCategory maps Location prefixes to the worn/inventory/bank sections.
+func TestInvCategory(t *testing.T) {
+	cases := map[string]int{
+		"Ear": catWorn, "Primary": catWorn, "Fingers": catWorn,
+		"General1": catInv, "General4-Slot2": catInv, "Cursor": catInv,
+		"Bank3": catBank, "Bank8-Slot1": catBank, "SharedBank1": catBank,
+	}
+	for loc, want := range cases {
+		if got := invCategory(loc); got != want {
+			t.Errorf("invCategory(%q) = %d, want %d", loc, got, want)
+		}
 	}
 }
 
@@ -137,10 +157,12 @@ func TestToolsTabRendersAndFits(t *testing.T) {
 	}
 
 	for _, w := range []int{60, 80, 120} {
-		mm.w, mm.h, mm.ready = w, 30, true
-		out := mm.View()
-		if !strings.Contains(out, "Rolls") {
-			t.Errorf("w=%d: Tools tab should render the roll widget", w)
+		// resize via the real message so the inventory viewport is sized for w
+		var tm tea.Model = mm
+		tm, _ = tm.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		out := tm.View()
+		if !strings.Contains(out, "Rolls") || !strings.Contains(out, "Inventory") {
+			t.Errorf("w=%d: Tools tab should render both widgets", w)
 		}
 		for _, ln := range strings.Split(out, "\n") {
 			if lipgloss.Width(ln) > w {

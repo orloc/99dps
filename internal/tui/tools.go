@@ -61,6 +61,10 @@ func (m Model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.ClearRollWinners()
 			m.flash("winners cleared")
 		}
+	case "up", "down", "pgup", "pgdown", "j", "k", "home", "end":
+		var cmd tea.Cmd // scroll the inventory list
+		m.vpInv, cmd = m.vpInv.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -95,16 +99,22 @@ func (m Model) loadInventoryCmd() tea.Cmd {
 	}
 }
 
-// toolsView lays the Tools tab out as three boxed columns.
-func (m Model) toolsView(th theme, w, h int) string {
-	colW := (w - 2) / 3 // two 1-space gaps between three columns
-	if colW < 10 {
-		colW = 10
-	}
-	lastW := w - 2 - 2*colW // remainder to the last column
+// toolsLayout sizes the Tools tab's three equal boxed columns and their height.
+func (m Model) toolsLayout() (colW, lastW, h int) {
+	innerW := max(m.w-2, 8)
+	colW = max((innerW-2)/3, 10) // two 1-space gaps between three columns
+	lastW = innerW - 2 - 2*colW  // remainder to the last column
 	if lastW < colW {
 		lastW = colW
 	}
+	h = max(m.h-4, 6) // outer pad (2) + banner (1) + tab bar (1)
+	return colW, lastW, h
+}
+
+// toolsView lays the Tools tab out as three boxed columns: the /random roll
+// board, the scrollable inventory list (its own viewport), and a reserved slot.
+func (m Model) toolsView(th theme) string {
+	colW, lastW, h := m.toolsLayout()
 
 	var rolls []gamestate.Roll
 	var winners []gamestate.RollWin
@@ -112,14 +122,35 @@ func (m Model) toolsView(th theme, w, h int) string {
 		rolls, winners = m.tracker.Rolls(), m.tracker.RollWinners()
 	}
 	rollCard := card(th, colW, h, "🎲 Rolls", rollBoard(th, rolls, winners, time.Now().Unix(), colW-4))
-	invCard := card(th, colW, h, "🎒 Inventory", inventoryBoard(th, m.invRows, m.invStatus, colW-4))
+	invCard := card(th, colW, h, "🎒 Inventory"+scrollHint(m.vpInv), m.vpInv.View())
 	reserved := card(th, lastW, h, "", th.fg(th.dim).Render(truncate("more widgets soon", lastW-4)))
 	return lipgloss.JoinHorizontal(lipgloss.Top, rollCard, " ", invCard, " ", reserved)
 }
 
-// inventoryBoard renders the indexed inventory to width w: a total-value header,
-// then priced items (high value first) as clickable wiki links with price +
-// location, then a dim "no tunnel data" group. Empty until you press i.
+// inventory categories, by Location prefix in the dump.
+const (
+	catWorn = iota // equipped slots (Ear, Primary, Chest, …)
+	catInv         // carried bags (General1, General4-Slot2, Cursor)
+	catBank        // bank (Bank1, Bank8-Slot3, SharedBank…)
+)
+
+func invCategory(loc string) int {
+	switch {
+	case strings.HasPrefix(loc, "Bank") || strings.HasPrefix(loc, "SharedBank"):
+		return catBank
+	case strings.HasPrefix(loc, "General") || strings.HasPrefix(loc, "Cursor"):
+		return catInv
+	default:
+		return catWorn
+	}
+}
+
+// invValue is an item's total tunnel value (unit price × stack), 0 when unpriced.
+func invValue(r invRow) int { return r.price * stack(r.count) }
+
+// inventoryBoard renders the indexed inventory to width w, split into WORN /
+// INVENTORY / BANK sections (each high-value-first, unpriced items dim at the
+// bottom), under a grand-total header. Empty until you press i.
 func inventoryBoard(th theme, rows []invRow, status string, w int) string {
 	if len(rows) == 0 {
 		hint := status
@@ -129,39 +160,43 @@ func inventoryBoard(th theme, rows []invRow, status string, w int) string {
 		return th.fg(th.dim).Render(truncate(hint, w))
 	}
 
-	var priced, nodata []invRow
+	var groups [3][]invRow
 	for _, r := range rows {
-		if r.priceN > 0 {
-			priced = append(priced, r)
-		} else {
-			nodata = append(nodata, r)
-		}
+		c := invCategory(r.location)
+		groups[c] = append(groups[c], r)
 	}
-	sort.SliceStable(priced, func(i, j int) bool {
-		return priced[i].price*stack(priced[i].count) > priced[j].price*stack(priced[j].count)
-	})
-	total := 0
-	for _, r := range priced {
-		total += r.price * stack(r.count)
+	titles := [3]string{"WORN", "INVENTORY", "BANK"}
+
+	grand := 0
+	var body []string
+	for gi := range groups {
+		g := groups[gi]
+		if len(g) == 0 {
+			continue
+		}
+		sort.SliceStable(g, func(i, j int) bool { return invValue(g[i]) > invValue(g[j]) })
+		sec := 0
+		for _, r := range g {
+			sec += invValue(r)
+		}
+		grand += sec
+		if len(body) > 0 {
+			body = append(body, "")
+		}
+		body = append(body, th.fg(th.accent).Bold(true).Render(
+			truncate(fmt.Sprintf("%s (%d) · %sp", titles[gi], len(g), humanize(sec)), w)))
+		for _, r := range g {
+			body = append(body, invLine(th, r, w))
+		}
 	}
 
-	ls := []string{th.fg(th.dim).Render(truncate(fmt.Sprintf("%d items · ~%sp total", len(rows), humanize(total)), w))}
-	for _, r := range priced {
-		ls = append(ls, invLine(th, r, w))
-	}
-	if len(nodata) > 0 {
-		ls = append(ls, "", th.fg(th.dim).Render(truncate(fmt.Sprintf("no tunnel data (%d)", len(nodata)), w)))
-		for _, r := range nodata {
-			ls = append(ls, invLine(th, r, w))
-		}
-	}
-	ls = append(ls, "", th.fg(th.dim).Render(truncate("i: re-index", w)))
-	return lines(ls...)
+	head := th.fg(th.dim).Render(truncate(fmt.Sprintf("%d items · ~%sp total · i re-index", len(rows), humanize(grand)), w))
+	return lines(append([]string{head, ""}, body...)...)
 }
 
-// invLine renders one item: a clickable wiki link (the item name), its price (or
-// "—"), and its location, sized to width w. The OSC 8 hyperlink is added after
-// the layout is measured on plain text, so widths stay correct.
+// invLine renders one item: a clickable wiki link (the item name) and its price
+// (or "—" for no tunnel data), sized to width w. The OSC 8 hyperlink is added
+// after the layout is measured on plain text, so widths stay correct.
 func invLine(th theme, r invRow, w int) string {
 	color := th.dim
 	price := "—"
@@ -172,15 +207,10 @@ func invLine(th theme, r invRow, w int) string {
 			price = fmt.Sprintf("%dx%sp", r.count, humanize(r.price))
 		}
 	}
-	loc := ""
-	if w >= 30 {
-		loc = " " + truncate(r.location, 10)
-	}
-	nameW := max(w-lipgloss.Width(price)-lipgloss.Width(loc)-1, 1)
+	nameW := max(w-lipgloss.Width(price)-1, 1)
 	plain := truncate(r.name, nameW)
 	pad := strings.Repeat(" ", max(nameW-lipgloss.Width(plain), 0))
-	line := hyperlink(wikiURL(r.name), plain) + pad + " " + price + loc
-	return th.fg(color).Render(line)
+	return th.fg(color).Render(hyperlink(wikiURL(r.name), plain) + pad + " " + price)
 }
 
 // stack treats a 0/1 count as a single item for value math.
