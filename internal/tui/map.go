@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -85,10 +84,11 @@ func (m Model) mapView(th theme, w, h int) string {
 // negated — orient(x,y) = (-x,-y) — because the map files are stored negated
 // relative to position coords. That negate is the dot↔map fit; without it the
 // player doesn't line up.
-// Floors are scoped by Z: the reference height is the player's /loc Z (or the
-// zone's lowest floor when there's no /loc). Segments far from it in Z fade out,
-// and the reference floor draws last so it sits on top — so a multi-level zone
-// (HighKeep) shows your floor, not every floor overlaid.
+//
+// Floors are scoped by Z: only segments on the reference floor are drawn — other
+// levels of a multi-level zone (HighKeep) are hidden entirely, not overlaid. The
+// reference height is the player's /loc Z, or the zone's lowest floor when
+// there's no /loc.
 func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.New(dotW, dotH)
@@ -106,23 +106,13 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, wCells,
 	if havePlayer {
 		refZ = pz
 	}
-	// draw farthest-in-Z first so the reference floor lands on top of each cell.
-	order := make([]int, len(mp.Segments))
-	for i := range order {
-		order[i] = i
-	}
-	sort.Slice(order, func(a, b int) bool {
-		return math.Abs(mp.Segments[order[a]].Z-refZ) > math.Abs(mp.Segments[order[b]].Z-refZ)
-	})
-	for _, i := range order {
-		seg := mp.Segments[i]
-		a := zAlpha(seg.Z, refZ)
-		if a <= 0 {
-			continue // a different floor — hidden
+	for _, seg := range mp.Segments {
+		if !onFloor(seg.Z, refZ) {
+			continue // a different floor — not drawn at all
 		}
 		x0, y0 := project(seg.X1, seg.Y1)
 		x1, y1 := project(seg.X2, seg.Y2)
-		cv.Line(x0, y0, x1, y1, dim(seg.R, a), dim(seg.G, a), dim(seg.B, a))
+		cv.Line(x0, y0, x1, y1, seg.R, seg.G, seg.B)
 	}
 	if havePlayer {
 		dx, dy := project(-px, -py)                                            // orient(): map coords are negated vs /loc
@@ -133,27 +123,10 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, wCells,
 	return cv.String()
 }
 
-// floor-scoping band: a segment within zSameFloor of the reference height is full
-// brightness; it fades to nothing by zHideFloor, so floors of a multi-level zone
-// (HighKeep: ~50 apart) dim out instead of overlapping.
-const (
-	zSameFloor = 25.0
-	zHideFloor = 60.0
-)
+// zFloorBand is the Z half-window for "this floor". Floors in multi-level zones
+// sit ~50 apart (HighKeep), so this captures the current floor while excluding
+// the next one. A segment outside the band is on another floor and isn't drawn.
+const zFloorBand = 30.0
 
-// zAlpha is a segment's brightness for floor scoping: 1 on the reference floor,
-// fading to 0 beyond zHideFloor.
-func zAlpha(z, ref float64) float64 {
-	dz := math.Abs(z - ref)
-	switch {
-	case dz <= zSameFloor:
-		return 1
-	case dz >= zHideFloor:
-		return 0
-	default:
-		return (zHideFloor - dz) / (zHideFloor - zSameFloor)
-	}
-}
-
-// dim scales a color channel by alpha (0..1) for faded off-floor segments.
-func dim(c uint8, a float64) uint8 { return uint8(float64(c) * a) }
+// onFloor reports whether a segment at height z belongs to the reference floor.
+func onFloor(z, ref float64) bool { return math.Abs(z-ref) <= zFloorBand }

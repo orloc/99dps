@@ -36,22 +36,19 @@ func TestRenderMapCanvas(t *testing.T) {
 	}
 }
 
-// TestZAlpha: the floor-scoping band is full on the reference floor and zero on a
-// far floor.
-func TestZAlpha(t *testing.T) {
-	if zAlpha(10, 0) != 1 { // within the same-floor band
-		t.Error("a segment near the reference Z should be full brightness")
+// TestOnFloor: a segment within the band is on the reference floor; one a floor
+// away (~50) is not, so it isn't drawn.
+func TestOnFloor(t *testing.T) {
+	if !onFloor(10, 0) {
+		t.Error("a segment near the reference Z should be on this floor")
 	}
-	if zAlpha(200, 0) != 0 { // a far floor
-		t.Error("a far-Z segment should be hidden")
-	}
-	if a := zAlpha(45, 0); a <= 0 || a >= 1 { // in the fade range
-		t.Errorf("a mid-distance segment should partially fade, got %v", a)
+	if onFloor(50, 0) {
+		t.Error("a segment a floor away (~50) should not be on this floor")
 	}
 }
 
-// TestFloorScoping: with two floors 50 apart, the player's floor renders and the
-// other is dimmed/hidden — so a multi-level zone doesn't overlay everything.
+// TestFloorScoping: with two floors 50 apart, only the player's floor renders —
+// the other is hidden entirely, so a multi-level zone doesn't overlay everything.
 func TestFloorScoping(t *testing.T) {
 	mp := &eqmap.Map{
 		Segments: []eqmap.Segment{
