@@ -18,6 +18,7 @@ const (
 	screenSessions               // all sessions: stats table + DPS breakdown (a tab)
 	screenSettings               // audio / voice configuration (a tab)
 	screenTools                  // little helper widgets — random winner, etc. (a tab)
+	screenMap                    // zone map (braille render of the EQ map file) (a tab)
 	screenSetup                  // first-run onboarding (full-screen, not a tab)
 )
 

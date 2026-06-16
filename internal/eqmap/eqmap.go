@@ -219,6 +219,9 @@ func (l *Loader) Get(short string) (*Map, error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.mem == nil {
+		l.mem = map[string]*Map{}
+	}
 	if m, ok := l.mem[short]; ok {
 		return m, nil
 	}

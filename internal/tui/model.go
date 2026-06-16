@@ -16,6 +16,7 @@ import (
 
 	"99dps/internal/combat"
 	"99dps/internal/eqclass"
+	"99dps/internal/eqmap"
 	"99dps/internal/gamestate"
 	"99dps/internal/prices"
 	"99dps/internal/session"
@@ -112,6 +113,12 @@ type Model struct {
 	invRows   []invRow
 	invStatus string
 
+	// Map tab: a loader (fetch+cache zone maps) and the currently-shown map.
+	mapLoader *eqmap.Loader
+	curMap    *eqmap.Map
+	mapShort  string // short name of the loaded/requested zone (dedup fetches)
+	mapStatus string
+
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
 	setup       setupState
@@ -130,7 +137,7 @@ func New(sm *session.SessionManager, tracker *gamestate.Tracker, character strin
 		sm: sm, tracker: tracker, character: character, follow: true,
 		speaker: tts.New(), announced: map[string]gamestate.Urgency{},
 		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
-		pricer: prices.New(),
+		pricer: prices.New(), mapLoader: eqmap.NewLoader(),
 	}
 }
 
@@ -883,6 +890,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case invLoadedMsg:
 		m.invRows, m.invStatus = msg.rows, msg.status
 		m.refreshInventory()
+	case mapLoadedMsg:
+		if msg.short == m.mapShort { // ignore a stale load if the zone changed
+			m.curMap, m.mapStatus = msg.m, msg.status
+		}
 	case switchMsg:
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
@@ -902,6 +913,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshSessions()
 		case screenTools:
 			m.refreshInventory() // re-render for theme/status changes
+			m.announceCues()
+		case screenMap:
+			if cmd := m.maybeLoadMapCmd(); cmd != nil { // fetch on entry / zone change
+				cmds = append(cmds, cmd)
+			}
 			m.announceCues()
 		default:
 			m.announceCues() // keep audio alerts live on other screens
@@ -1225,6 +1241,13 @@ func (m Model) View() string {
 	// the Tools tab: a 3-column home for little helper widgets.
 	if m.screen == screenTools {
 		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.toolsView(th))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
+	// the Map tab: a braille render of the current zone, player marked from /loc.
+	if m.screen == screenMap {
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.mapView(th, innerW, max(m.h-4, 4)))
 		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}

@@ -1,6 +1,10 @@
 package gamestate
 
-import "slices"
+import (
+	"slices"
+	"strconv"
+	"strings"
+)
 
 // Group-membership timing. EQ logs first-person group join/leave lines, so the
 // clock starts when you join or form a group and clears when you leave it or it
@@ -28,6 +32,37 @@ func (t *Tracker) observeGroupLocked(body string, at int64) {
 	if slices.Contains(groupEndLines, body) {
 		t.groupJoinedAt = 0
 	}
+}
+
+// observeLocLocked captures the player's position from a "/loc" line. EQ prints
+// "Your Location is <Y>, <X>, <Z>", so the world coords are worldX=second,
+// worldY=first. Caller holds the lock.
+func (t *Tracker) observeLocLocked(body string, at int64) {
+	rest, ok := strings.CutPrefix(body, "Your Location is ")
+	if !ok {
+		return
+	}
+	f := strings.FieldsFunc(rest, func(r rune) bool { return r == ',' || r == ' ' })
+	if len(f) < 3 {
+		return
+	}
+	y, e1 := strconv.ParseFloat(f[0], 64)
+	x, e2 := strconv.ParseFloat(f[1], 64)
+	if e1 != nil || e2 != nil {
+		return
+	}
+	t.locX, t.locY, t.haveLoc, t.locAt = x, y, true, at
+}
+
+// Loc returns the player's last-known world position (X, Y) and whether a /loc
+// has been seen. EQ only logs position when you type /loc, so it's a snapshot.
+func (t *Tracker) Loc() (x, y float64, ok bool) {
+	if t == nil {
+		return 0, 0, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.locX, t.locY, t.haveLoc
 }
 
 // TimeInGroup returns how many seconds you've been in the current group and

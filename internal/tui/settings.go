@@ -27,6 +27,7 @@ var tabs = []struct {
 	{screenMeter, "Meter", "◈", false},
 	{screenSessions, "Sessions", "≣", false},
 	{screenTools, "Tools", "✦", false},
+	{screenMap, "Map", "⊞", false},
 	{screenSettings, "Settings", "⚙", true},
 }
 

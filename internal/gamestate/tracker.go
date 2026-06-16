@@ -55,6 +55,12 @@ type Tracker struct {
 
 	groupJoinedAt int64 // log time you entered the current group (0 = solo); see group.go
 
+	// player position from the last "/loc" (world coords). EQ only logs position
+	// on /loc, so this is a snapshot, not live. See group.go.
+	locX, locY float64
+	locAt      int64
+	haveLoc    bool
+
 	// pending cast awaiting its landing emote. Kept alive across landings (not
 	// cleared on the first) so an AoE/PBAoE that lands on several mobs starts a
 	// timer on each; the cast window (landWindowSec) expires it.
@@ -373,6 +379,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	t.cool.observeBindLocked(body, at)
 	t.rolls.observeLocked(body, at, t.zone.name)
 	t.observeGroupLocked(body, at)
+	t.observeLocLocked(body, at)
 }
 
 // matchSelfClickyLocked starts a self-buff timer when a line is the landing
@@ -714,6 +721,7 @@ func (t *Tracker) Clear() {
 	t.canni.clear()
 	t.rolls.clear()
 	t.groupJoinedAt = 0
+	t.locX, t.locY, t.locAt, t.haveLoc = 0, 0, 0, false
 	t.pending = nil
 	t.level = 0
 	t.class = eqclass.ClassUnknown
