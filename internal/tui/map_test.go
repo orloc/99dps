@@ -21,7 +21,7 @@ func TestRenderMapCanvas(t *testing.T) {
 		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	out := renderMapCanvas(mp, 0, 0, true, 20, 10)
+	out := renderMapCanvas(mp, 0, 0, 0, true, 20, 10)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 10 {
 		t.Fatalf("want 10 cell rows, got %d", len(lines))
@@ -33,6 +33,42 @@ func TestRenderMapCanvas(t *testing.T) {
 	}
 	if !strings.Contains(out, "255;255;0") { // the yellow player marker
 		t.Error("player marker should be drawn")
+	}
+}
+
+// TestZAlpha: the floor-scoping band is full on the reference floor and zero on a
+// far floor.
+func TestZAlpha(t *testing.T) {
+	if zAlpha(10, 0) != 1 { // within the same-floor band
+		t.Error("a segment near the reference Z should be full brightness")
+	}
+	if zAlpha(200, 0) != 0 { // a far floor
+		t.Error("a far-Z segment should be hidden")
+	}
+	if a := zAlpha(45, 0); a <= 0 || a >= 1 { // in the fade range
+		t.Errorf("a mid-distance segment should partially fade, got %v", a)
+	}
+}
+
+// TestFloorScoping: with two floors 50 apart, the player's floor renders and the
+// other is dimmed/hidden — so a multi-level zone doesn't overlay everything.
+func TestFloorScoping(t *testing.T) {
+	mp := &eqmap.Map{
+		Segments: []eqmap.Segment{
+			{X1: -50, Y1: -50, X2: 50, Y2: 50, Z: 0, R: 200, G: 200, B: 200},  // ground
+			{X1: -50, Y1: 50, X2: 50, Y2: -50, Z: 50, R: 200, G: 200, B: 200}, // upper floor
+		},
+		MinX: -50, MinY: -50, MaxX: 50, MaxY: 50, MinZ: 0,
+	}
+	ground := renderMapCanvas(mp, 0, 0, 0, true, 20, 10) // player on the ground floor
+	if !strings.Contains(ground, "200;200;200") {
+		t.Error("the player's own floor should render at full brightness")
+	}
+	// the upper floor (Z=50) is >zHideFloor away → hidden; full-bright upper-floor
+	// color must not appear when standing on the ground floor.
+	upper := renderMapCanvas(mp, 0, 0, 50, true, 20, 10) // player on the upper floor
+	if ground == upper {
+		t.Error("standing on different floors should render different geometry")
 	}
 }
 

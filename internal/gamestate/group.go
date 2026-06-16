@@ -48,21 +48,23 @@ func (t *Tracker) observeLocLocked(body string, at int64) {
 	}
 	y, e1 := strconv.ParseFloat(f[0], 64)
 	x, e2 := strconv.ParseFloat(f[1], 64)
-	if e1 != nil || e2 != nil {
+	z, e3 := strconv.ParseFloat(f[2], 64)
+	if e1 != nil || e2 != nil || e3 != nil {
 		return
 	}
-	t.locX, t.locY, t.haveLoc, t.locAt = x, y, true, at
+	t.locX, t.locY, t.locZ, t.haveLoc, t.locAt = x, y, z, true, at
 }
 
-// Loc returns the player's last-known world position (X, Y) and whether a /loc
-// has been seen. EQ only logs position when you type /loc, so it's a snapshot.
-func (t *Tracker) Loc() (x, y float64, ok bool) {
+// Loc returns the player's last-known world position (X, Y, Z) and whether a
+// /loc has been seen. EQ only logs position on /loc, so it's a snapshot. Z drives
+// the map's floor scoping in multi-level zones.
+func (t *Tracker) Loc() (x, y, z float64, ok bool) {
 	if t == nil {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.locX, t.locY, t.haveLoc
+	return t.locX, t.locY, t.locZ, t.haveLoc
 }
 
 // TimeInGroup returns how many seconds you've been in the current group and

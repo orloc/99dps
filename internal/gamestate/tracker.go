@@ -57,9 +57,9 @@ type Tracker struct {
 
 	// player position from the last "/loc" (world coords). EQ only logs position
 	// on /loc, so this is a snapshot, not live. See group.go.
-	locX, locY float64
-	locAt      int64
-	haveLoc    bool
+	locX, locY, locZ float64
+	locAt            int64
+	haveLoc          bool
 
 	// pending cast awaiting its landing emote. Kept alive across landings (not
 	// cleared on the first) so an AoE/PBAoE that lands on several mobs starts a
@@ -721,7 +721,7 @@ func (t *Tracker) Clear() {
 	t.canni.clear()
 	t.rolls.clear()
 	t.groupJoinedAt = 0
-	t.locX, t.locY, t.locAt, t.haveLoc = 0, 0, 0, false
+	t.locX, t.locY, t.locZ, t.locAt, t.haveLoc = 0, 0, 0, 0, false
 	t.pending = nil
 	t.level = 0
 	t.class = eqclass.ClassUnknown

@@ -37,12 +37,14 @@ type Point struct {
 	Label   string
 }
 
-// Map is a zone's parsed geometry plus its bounding box (for auto-fit).
+// Map is a zone's parsed geometry plus its bounding box (for auto-fit). MinZ is
+// the lowest segment mid-height — the default floor when there's no player /loc.
 type Map struct {
 	Zone                   string
 	Segments               []Segment
 	Points                 []Point
 	MinX, MinY, MaxX, MaxY float64
+	MinZ                   float64
 }
 
 // Empty reports whether the map has no drawable geometry.
@@ -133,9 +135,12 @@ func ComputeBounds(m *Map) {
 		m.MinX, m.MaxX = min(m.MinX, x), max(m.MaxX, x)
 		m.MinY, m.MaxY = min(m.MinY, y), max(m.MaxY, y)
 	}
-	for _, s := range m.Segments {
+	for i, s := range m.Segments {
 		upd(s.X1, s.Y1)
 		upd(s.X2, s.Y2)
+		if i == 0 || s.Z < m.MinZ {
+			m.MinZ = s.Z
+		}
 	}
 	for _, p := range m.Points {
 		upd(p.X, p.Y)
