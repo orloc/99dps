@@ -96,3 +96,25 @@ func TestLoaderFetchCacheLayers(t *testing.T) {
 		t.Error("a zone with no map data should error")
 	}
 }
+
+// TestLoaderEmptyBaseFallsBackToLayers: some zones (e.g. Skyfire) have an empty
+// base file but the real geometry in a numbered layer — load it.
+func TestLoaderEmptyBaseFallsBackToLayers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "skyfire.txt"):
+			// empty base (200 OK, no body) — like the real repo
+		case strings.HasSuffix(r.URL.Path, "skyfire_1.txt"):
+			w.Write([]byte("L 0,0,0, 10,10,0, 1,2,3\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	l := &Loader{BaseURL: srv.URL, HTTP: srv.Client()}
+	m, err := l.Get("skyfire")
+	if err != nil || len(m.Segments) != 1 {
+		t.Fatalf("empty base should fall back to _1; got %d segs, err %v", len(m.Segments), err)
+	}
+}
