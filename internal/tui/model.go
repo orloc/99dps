@@ -113,11 +113,13 @@ type Model struct {
 	invRows   []invRow
 	invStatus string
 
-	// Map tab: a loader (fetch+cache zone maps) and the currently-shown map.
+	// Map tab: a loader (fetch+cache zone maps), the currently-shown map, and the
+	// zoom level (centered on the player when a /loc is known).
 	mapLoader *eqmap.Loader
 	curMap    *eqmap.Map
 	mapShort  string // short name of the loaded/requested zone (dedup fetches)
 	mapStatus string
+	mapZoom   float64
 
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
@@ -137,7 +139,7 @@ func New(sm *session.SessionManager, tracker *gamestate.Tracker, character strin
 		sm: sm, tracker: tracker, character: character, follow: true,
 		speaker: tts.New(), announced: map[string]gamestate.Urgency{},
 		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
-		pricer: prices.New(), mapLoader: eqmap.NewLoader(),
+		pricer: prices.New(), mapLoader: eqmap.NewLoader(), mapZoom: 4,
 	}
 }
 
@@ -779,6 +781,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.screen == screenTools {
 			return m.updateTools(msg)
+		}
+		if m.screen == screenMap {
+			return m.updateMap(msg)
 		}
 		switch msg.String() {
 		case "t":

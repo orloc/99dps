@@ -21,7 +21,7 @@ func TestRenderMapCanvas(t *testing.T) {
 		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	out := renderMapCanvas(mp, 0, 0, 0, true, 20, 10)
+	out := renderMapCanvas(mp, 0, 0, 0, true, 1, 20, 10)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 10 {
 		t.Fatalf("want 10 cell rows, got %d", len(lines))
@@ -57,13 +57,13 @@ func TestFloorScoping(t *testing.T) {
 		},
 		MinX: -50, MinY: -50, MaxX: 50, MaxY: 50, MinZ: 0,
 	}
-	ground := renderMapCanvas(mp, 0, 0, 0, true, 20, 10) // player on the ground floor
+	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, 20, 10) // player on the ground floor
 	if !strings.Contains(ground, "200;200;200") {
 		t.Error("the player's own floor should render at full brightness")
 	}
 	// the upper floor (Z=50) is >zHideFloor away → hidden; full-bright upper-floor
 	// color must not appear when standing on the ground floor.
-	upper := renderMapCanvas(mp, 0, 0, 50, true, 20, 10) // player on the upper floor
+	upper := renderMapCanvas(mp, 0, 0, 50, true, 1, 20, 10) // player on the upper floor
 	if ground == upper {
 		t.Error("standing on different floors should render different geometry")
 	}
@@ -133,6 +133,34 @@ func TestMaybeLoadMapCmd(t *testing.T) {
 	// a second call for the same zone is a no-op (cached request)
 	if cmd := m.maybeLoadMapCmd(); cmd != nil {
 		t.Error("same-zone reload should be a no-op")
+	}
+}
+
+// TestMapZoom: +/- adjust the zoom (clamped ≥1), and a higher zoom centered on
+// the player renders differently (zoomed in) than the whole-zone fit.
+func TestMapZoom(t *testing.T) {
+	m := New(&session.SessionManager{}, nil, "X")
+	if m.mapZoom != 4 {
+		t.Fatalf("default zoom = %v, want 4", m.mapZoom)
+	}
+	out, _ := m.updateMap(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")})
+	if z := out.(Model).mapZoom; z <= 4 {
+		t.Errorf("+ should zoom in, got %v", z)
+	}
+	m.mapZoom = 1
+	out, _ = m.updateMap(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("-")})
+	if z := out.(Model).mapZoom; z < 1 {
+		t.Errorf("zoom must clamp at 1, got %v", z)
+	}
+
+	mp := &eqmap.Map{
+		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
+		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
+	}
+	near := renderMapCanvas(mp, 20, 20, 0, true, 8, 30, 15) // zoomed in on the player
+	far := renderMapCanvas(mp, 20, 20, 0, true, 1, 30, 15)  // whole-zone fit
+	if near == far {
+		t.Error("zooming in should change the rendered map")
 	}
 }
 

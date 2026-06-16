@@ -61,7 +61,7 @@ func (m Model) mapView(th theme, w, h int) string {
 	}
 	loc := "no /loc yet — type /loc in game"
 	if haveLoc {
-		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f", px, py, pz)
+		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f · %.0f× · +/- zoom", px, py, pz, math.Max(m.mapZoom, 1))
 	}
 	header := paint(th, th.accent, truncate("⊞ "+zone+"   ", w), w) +
 		"\n" + paint(th, th.dim, truncate(loc, w), w)
@@ -74,7 +74,20 @@ func (m Model) mapView(th theme, w, h int) string {
 		}
 		return header + "\n" + paint(th, th.dim, truncate(msg, w), w)
 	}
-	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, w, bodyH)
+	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, w, bodyH)
+}
+
+// updateMap handles Map-tab input: +/- zoom in/out (centered on the player).
+func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "+", "=":
+			m.mapZoom = math.Min(math.Max(m.mapZoom, 1)*1.5, 32)
+		case "-", "_":
+			m.mapZoom = math.Max(math.Max(m.mapZoom, 1)/1.5, 1)
+		}
+	}
+	return m, nil
 }
 
 // renderMapCanvas draws a zone map auto-fit to a w×h character area and marks the
@@ -89,17 +102,23 @@ func (m Model) mapView(th theme, w, h int) string {
 // levels of a multi-level zone (HighKeep) are hidden entirely, not overlaid. The
 // reference height is the player's /loc Z, or the zone's lowest floor when
 // there's no /loc.
-func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, wCells, hCells int) string {
+func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.New(dotW, dotH)
 
-	midX, midY := (mp.MinX+mp.MaxX)/2, (mp.MinY+mp.MaxY)/2
 	worldW := math.Max(mp.MaxX-mp.MinX, 1)
 	worldH := math.Max(mp.MaxY-mp.MinY, 1)
-	s := math.Min(float64(dotW-1)/worldW, float64(dotH-1)/worldH) // fit, keep aspect
+	fit := math.Min(float64(dotW-1)/worldW, float64(dotH-1)/worldH) // whole-zone fit, keep aspect
+	// center on the player and zoom in when we have a /loc; otherwise show the
+	// whole zone. (Map coords are negated vs /loc, so the player's map point is
+	// (-px,-py).) Off-canvas segments are simply clipped by Set/Line.
+	centerX, centerY, s := (mp.MinX+mp.MaxX)/2, (mp.MinY+mp.MaxY)/2, fit
+	if havePlayer {
+		centerX, centerY, s = -px, -py, fit*math.Max(zoom, 1)
+	}
 	cxDot, cyDot := float64(dotW-1)/2, float64(dotH-1)/2
 	project := func(x, y float64) (int, int) {
-		return int(math.Round(cxDot + (x-midX)*s)), int(math.Round(cyDot + (y-midY)*s))
+		return int(math.Round(cxDot + (x-centerX)*s)), int(math.Round(cyDot + (y-centerY)*s))
 	}
 
 	refZ := mp.MinZ // no /loc → the bottom floor
