@@ -29,6 +29,20 @@ func TestParseTimestamp_Local(t *testing.T) {
 	}
 }
 
+// TestParseTimestamp_ShortLine: blank/short lines (EQ logs have blank lines) must
+// not panic — they return an error. Regression for a slice-bounds crash in line().
+func TestParseTimestamp_ShortLine(t *testing.T) {
+	for _, s := range []string{"", "x", "[Sat Jun", "[Sat Jun 06 22:55:24"} {
+		if _, err := parseTimestamp(s); err == nil {
+			t.Errorf("parseTimestamp(%q) should error, not parse", s)
+		}
+	}
+	// and the per-line path must tolerate a blank line without panicking
+	p := &DmgParser{}
+	p.line("", nil)
+	p.line("   ", nil)
+}
+
 // spellRow builds a 217-field spells_us.txt line with the given fields set.
 func spellRow(set map[int]string) string {
 	f := make([]string, 217)

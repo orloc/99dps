@@ -379,6 +379,9 @@ func normalizeTarget(s string) string {
 // time.Local — otherwise the resulting unix time is off by the UTC offset, which
 // makes wall-clock comparisons (spell timers) and displayed session times wrong.
 func parseTimestamp(input string) (int64, error) {
+	if len(input) < LOG_TS_INDEX_END { // blank/short line (no "[time.ANSIC]" head)
+		return 0, fmt.Errorf("line too short for a timestamp")
+	}
 	t, err := time.ParseInLocation(time.ANSIC, input[1:LOG_TS_INDEX_END], time.Local)
 	if err != nil {
 		return 0, err
