@@ -39,6 +39,22 @@ func TestSetOutOfRangeIgnored(t *testing.T) {
 	}
 }
 
+// TestBackground: a set background colors every cell (lit and empty) so lines
+// stay visible against it.
+func TestBackground(t *testing.T) {
+	c := New(4, 4)
+	c.Background(198, 190, 170)
+	c.Set(0, 0, 0, 0, 0) // a dark line dot
+	out := c.String()
+	if !strings.Contains(out, "\x1b[48;2;198;190;170m") {
+		t.Error("background color escape should be emitted")
+	}
+	// empty cells carry the background too (so the whole map area is filled)
+	if strings.Count(out, "\x1b[48;2;198;190;170m") < 2 {
+		t.Error("empty cells should also get the background")
+	}
+}
+
 func TestLine(t *testing.T) {
 	c := New(8, 4)
 	c.Line(0, 0, 7, 0, 0, 255, 0) // a horizontal line across the top

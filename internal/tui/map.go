@@ -117,6 +117,7 @@ func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, floors bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.New(dotW, dotH)
+	cv.Background(mapBgR, mapBgG, mapBgB) // a light "paper" backdrop so dark lines show
 
 	worldW := math.Max(mp.MaxX-mp.MinX, 1)
 	worldH := math.Max(mp.MaxY-mp.MinY, 1)
@@ -163,6 +164,13 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom fl
 
 // playerMarker is the "you are here" glyph drawn on the map (double-width emoji).
 const playerMarker = "📍"
+
+// the map's "paper" backdrop — a muted parchment so the map's dark line colors
+// (a lot of EQ geometry is ~64,64,64 gray) stay legible instead of vanishing
+// into a black terminal.
+const (
+	mapBgR, mapBgG, mapBgB = 198, 190, 170
+)
 
 // zFloorBand is the Z half-window for "this floor". Floors in multi-level zones
 // sit ~50 apart (HighKeep), so this captures the current floor while excluding

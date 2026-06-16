@@ -26,9 +26,11 @@ type cell struct {
 // Canvas is a braille drawing surface measured in DOTS (2 per char wide, 4 per
 // char tall). (0,0) is top-left.
 type Canvas struct {
-	dotW, dotH int
-	cols, rows int
-	cells      []cell
+	dotW, dotH    int
+	cols, rows    int
+	cells         []cell
+	bgR, bgG, bgB uint8
+	hasBg         bool
 }
 
 // New makes a canvas sized in dots; its character size rounds up (Cols/Rows).
@@ -45,6 +47,10 @@ func (c *Canvas) Rows() int { return c.rows }
 // DotW and DotH are the canvas size in dots.
 func (c *Canvas) DotW() int { return c.dotW }
 func (c *Canvas) DotH() int { return c.dotH }
+
+// Background fills every cell (lit or empty) with a color, so dark lines stay
+// visible against it instead of the terminal's background.
+func (c *Canvas) Background(r, g, b uint8) { c.bgR, c.bgG, c.bgB, c.hasBg = r, g, b, true }
 
 // Set lights the dot at (x,y) with a color. Out-of-range coords are ignored.
 func (c *Canvas) Set(x, y int, r, g, b uint8) {
@@ -96,20 +102,28 @@ func (c *Canvas) StringWithMarker(markCol, markRow int, marker string) string {
 }
 
 func (c *Canvas) render(markCol, markRow int, marker string) string {
+	bg := ""
+	if c.hasBg {
+		bg = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.bgR, c.bgG, c.bgB)
+	}
 	var sb strings.Builder
 	for row := 0; row < c.rows; row++ {
 		for col := 0; col < c.cols; col++ {
 			if marker != "" && row == markRow && col == markCol {
-				sb.WriteString(marker)
+				sb.WriteString(bg + marker + "\x1b[0m")
 				col++ // the marker is double-width — also consume the next cell's column
 				continue
 			}
 			cl := c.cells[row*c.cols+col]
 			if cl.bits == 0 {
-				sb.WriteByte(' ')
+				if bg == "" {
+					sb.WriteByte(' ')
+				} else {
+					sb.WriteString(bg + " \x1b[0m")
+				}
 				continue
 			}
-			fmt.Fprintf(&sb, "\x1b[38;2;%d;%d;%dm%c\x1b[0m", cl.r, cl.g, cl.b, rune(0x2800+int(cl.bits)))
+			fmt.Fprintf(&sb, "%s\x1b[38;2;%d;%d;%dm%c\x1b[0m", bg, cl.r, cl.g, cl.b, rune(0x2800+int(cl.bits)))
 		}
 		if row < c.rows-1 {
 			sb.WriteByte('\n')
