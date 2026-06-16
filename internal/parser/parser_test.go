@@ -419,6 +419,32 @@ func (recordingObserver) SetLevel(int)            {}
 func (recordingObserver) SetClass(eqclass.Class)  {}
 func (recordingObserver) FeignAttempt(int64)      {}
 func (recordingObserver) FeignFailed(int64)       {}
+func (recordingObserver) LogoutPause(int64)       {}
+
+// pauseRecorder records LogoutPause calls to test camp/logout gap detection.
+type pauseRecorder struct {
+	recordingObserver
+	last  int64
+	calls int
+}
+
+func (p *pauseRecorder) LogoutPause(s int64) { p.last = s; p.calls++ }
+
+// TestDoParse_LogoutGap: a normal gap is ignored, but a long silence (camp/logout)
+// triggers LogoutPause with the gap length.
+func TestDoParse_LogoutGap(t *testing.T) {
+	rec := &pauseRecorder{}
+	p := DmgParser{tracker: rec}
+	p.line("[Sat Jun 14 20:00:00 2026] You say, 'one'", nil) // sets baseline
+	p.line("[Sat Jun 14 20:01:00 2026] You say, 'two'", nil) // 60s gap — ignored
+	if rec.calls != 0 {
+		t.Fatalf("a 60s gap must not trigger a logout pause, got %d", rec.calls)
+	}
+	p.line("[Sat Jun 14 20:15:00 2026] You say, 'three'", nil) // 14m gap — logout
+	if rec.calls != 1 || rec.last != 14*60 {
+		t.Errorf("a 14m gap should pause by 840s, got calls=%d last=%d", rec.calls, rec.last)
+	}
+}
 
 // RebuildTrackerFromFile must no-op (not panic) on a nil tracker and on a
 // missing file path.
@@ -558,13 +584,12 @@ func TestObserveSpells_MonkClickyBuffTracked(t *testing.T) {
 func replayLog(t *testing.T, lines []string, character string, tr *gamestate.Tracker) *session.SessionManager {
 	t.Helper()
 	sm := &session.SessionManager{}
-	p := DmgParser{character: character, tracker: tr}
+	p := DmgParser{character: character}
+	if tr != nil { // avoid a typed-nil interface (a nil *Tracker is a non-nil iface)
+		p.tracker = tr
+	}
 	for _, ln := range lines {
-		text := strings.TrimRight(ln, "\r\n")
-		p.dispatch(text, sm)
-		if tr != nil {
-			p.observeSpells(text)
-		}
+		p.line(strings.TrimRight(ln, "\r\n"), sm)
 	}
 	return sm
 }

@@ -55,6 +55,28 @@ func (t *Tracker) observeLocLocked(body string, at int64) {
 	t.locX, t.locY, t.locZ, t.haveLoc, t.locAt = x, y, z, true, at
 }
 
+// LogoutPause accounts for a camp/logout: EQ buffs pause while you're logged
+// out, but the app's timers are real-time, so when the log resumes after a long
+// silence we shift active SELF-BUFFS forward by the gap (freezing them over the
+// logout) and drop effects that don't survive a relog — mob debuffs, charm/mez,
+// and incoming debuffs on you. A later wear-off line self-corrects any overshoot.
+func (t *Tracker) LogoutPause(seconds int64) {
+	if t == nil || seconds <= 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, tm := range t.timers {
+		if tm.Target == "You" && !tm.Detrimental {
+			tm.Start += seconds
+			tm.Expiry += seconds
+			t.timers[k] = tm
+		} else {
+			delete(t.timers, k) // a mob debuff / charm / mez / incoming — gone on relog
+		}
+	}
+}
+
 // Loc returns the player's last-known world position (X, Y, Z) and whether a
 // /loc has been seen. EQ only logs position on /loc, so it's a snapshot. Z drives
 // the map's floor scoping in multi-level zones.

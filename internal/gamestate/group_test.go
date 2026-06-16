@@ -2,6 +2,29 @@ package gamestate
 
 import "testing"
 
+// TestLogoutPause: a camp/logout shifts active self-buffs forward by the gap
+// (they pause while you're out) and drops effects that don't survive a relog.
+func TestLogoutPause(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	now := int64(1000)
+	tr.timers = map[string]Timer{
+		key("Clarity", "You"):  {Spell: "Clarity", Target: "You", Start: now, Expiry: now + 600},                     // self-buff
+		key("Slow", "a giant"): {Spell: "Slow", Target: "a giant", Start: now, Expiry: now + 120, Detrimental: true}, // mob debuff
+		key("Snare", "You"):    {Spell: "Snare", Target: "You", Start: now, Expiry: now + 60, Detrimental: true},     // incoming debuff on you
+	}
+
+	tr.LogoutPause(300) // logged out for 5 minutes
+
+	got := tr.timers
+	if len(got) != 1 {
+		t.Fatalf("only the self-buff should survive a relog, got %d timers: %+v", len(got), got)
+	}
+	cl := got[key("Clarity", "You")]
+	if cl.Expiry != now+600+300 || cl.Start != now+300 {
+		t.Errorf("self-buff should shift by the 300s gap, got start=%d expiry=%d", cl.Start, cl.Expiry)
+	}
+}
+
 // TestTimeInGroup: the clock starts on join/form, counts up, spans zones, and
 // clears when you leave or the group disbands.
 func TestTimeInGroup(t *testing.T) {

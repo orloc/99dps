@@ -37,6 +37,7 @@ type SpellObserver interface {
 	SetClass(c eqclass.Class)
 	FeignAttempt(at int64)
 	FeignFailed(at int64)
+	LogoutPause(seconds int64) // the log went silent (camp/logout) for this long
 }
 
 type DmgParser struct {
@@ -46,6 +47,8 @@ type DmgParser struct {
 	// tracker, when non-nil, receives cast/level/landing signals for the spell
 	// timer overlay.
 	tracker SpellObserver
+	// lastTS is the previous line's log timestamp, for camp/logout gap detection.
+	lastTS int64
 }
 
 const COMBAT_VERB_STRING = "gores|gore|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush"
@@ -64,13 +67,31 @@ func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver) {
 		}
 		// EQ writes CRLF; strip the trailing \r so exact/suffix matches (spell
 		// landing emotes, wear-offs) aren't thrown off by it.
-		text := strings.TrimRight(line.Text, "\r\n")
-		p.dispatch(text, sink)
-		if p.tracker != nil {
-			p.observeSpells(text)
-		}
+		p.line(strings.TrimRight(line.Text, "\r\n"), sink)
 	}
 }
+
+// line processes one log line: detect a camp/logout gap, classify combat, and
+// feed the spell tracker. Shared by DoParse and tests.
+func (p *DmgParser) line(text string, sink Sink) {
+	// A long silence then resumed activity is a camp/logout: EQ buffs pause while
+	// you're out, so tell the tracker to freeze them over the gap.
+	if ts, err := parseTimestamp(text); err == nil {
+		if p.lastTS != 0 && ts-p.lastTS > logoutGapSec && p.tracker != nil {
+			p.tracker.LogoutPause(ts - p.lastTS)
+		}
+		p.lastTS = ts
+	}
+	p.dispatch(text, sink)
+	if p.tracker != nil {
+		p.observeSpells(text)
+	}
+}
+
+// logoutGapSec is the log-silence span that counts as a camp/logout (vs a normal
+// zone load or lull). Buffs pause while logged out, so a gap this long freezes
+// them; shorter gaps are ignored.
+const logoutGapSec = 120
 
 // RebuildTrackerFromFile replays a log file's spell/zone/class signals into the
 // tracker only (no Sink, so no session side-effects). Used on a character switch
