@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -62,7 +63,7 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 	// the /outputfile inventory dump lands in the EQ folder — the parent of the
 	// logs dir, where spells_us.txt also lives.
 	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, filepath.Dir(logDir), tts)
-	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker}
+	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker, crash: make(chan string, 4)}
 	ctrl.startParse(src)
 
 	stop := make(chan struct{})
@@ -72,6 +73,7 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 		bg.Add(1)
 		go func() {
 			defer bg.Done()
+			defer ctrl.recoverTerminal()
 			ctrl.watch(stop)
 		}()
 	}
@@ -82,6 +84,13 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 	close(stop)
 	bg.Wait()
 	ctrl.shutdown()
+	// a background goroutine that panicked killed the UI to restore the terminal;
+	// now that it's restored, surface the crash so it isn't swallowed.
+	select {
+	case msg := <-ctrl.crash:
+		log.Printf("99dps stopped on a background error (terminal restored):\n%s", msg)
+	default:
+	}
 }
 
 // logController owns the currently-followed log source and hot-swaps it when a
@@ -95,6 +104,24 @@ type logController struct {
 	mu      sync.Mutex
 	cur     *loader.LogSource
 	parseWG sync.WaitGroup
+	crash   chan string // a background panic, reported after the terminal is restored
+}
+
+// recoverTerminal is a deferred safety net for background goroutines (parser,
+// watcher): a panic there would abort the process before Bubble Tea restored the
+// terminal, leaving it in raw mode (you can type but nothing echoes). Instead we
+// recover, Kill the UI (which restores the terminal and unblocks Run), and stash
+// the crash so runTUI can print it afterward.
+func (c *logController) recoverTerminal() {
+	if r := recover(); r != nil {
+		if c.tui != nil {
+			c.tui.Kill()
+		}
+		select {
+		case c.crash <- fmt.Sprintf("%v\n%s", r, debug.Stack()):
+		default:
+		}
+	}
 }
 
 // observer adapts the optional tracker to the parser's SpellObserver interface,
@@ -113,6 +140,7 @@ func (c *logController) startParse(src *loader.LogSource) {
 	c.parseWG.Add(1)
 	go func() {
 		defer c.parseWG.Done()
+		defer c.recoverTerminal() // a parse panic must not leave the terminal wedged
 		parser.DoParse(src.Tail, c.sm, src.Character, c.observer())
 	}()
 }

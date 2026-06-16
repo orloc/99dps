@@ -1680,6 +1680,11 @@ func (pr *Program) Run() error {
 	return err
 }
 
+// Kill stops the program immediately, restoring the terminal (leaves raw mode,
+// the alt screen, and mouse reporting). Used as a safety net so a background
+// goroutine panic can't leave the terminal wedged. Run returns after this.
+func (pr *Program) Kill() { pr.p.Kill() }
+
 // SwitchCharacter notifies the running UI that a different character's log is now
 // active. Safe to call from another goroutine. No-op once the program has quit.
 func (pr *Program) SwitchCharacter(name string) {
