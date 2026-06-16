@@ -21,7 +21,7 @@ func TestRenderMapCanvas(t *testing.T) {
 		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	out := renderMapCanvas(mp, 0, 0, 0, true, 1, 20, 10)
+	out := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 10 {
 		t.Fatalf("want 10 cell rows, got %d", len(lines))
@@ -57,15 +57,31 @@ func TestFloorScoping(t *testing.T) {
 		},
 		MinX: -50, MinY: -50, MaxX: 50, MaxY: 50, MinZ: 0,
 	}
-	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, 20, 10) // player on the ground floor
+	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, true, 20, 10) // floor-scope on, on the ground floor
 	if !strings.Contains(ground, "200;200;200") {
-		t.Error("the player's own floor should render at full brightness")
+		t.Error("the player's own floor should render")
 	}
-	// the upper floor (Z=50) is >zHideFloor away → hidden; full-bright upper-floor
-	// color must not appear when standing on the ground floor.
-	upper := renderMapCanvas(mp, 0, 0, 50, true, 1, 20, 10) // player on the upper floor
+	// the upper floor (Z=50) is a floor away → hidden when scoped to the ground;
+	// standing on the upper floor renders different geometry.
+	upper := renderMapCanvas(mp, 0, 0, 50, true, 1, true, 20, 10) // floor-scope on, on the upper floor
 	if ground == upper {
 		t.Error("standing on different floors should render different geometry")
+	}
+
+	// with floor-scoping OFF (the default), both floors render — more than scoped.
+	all := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10)
+	if all == ground {
+		t.Error("floor-scoping off should show more geometry than scoped")
+	}
+
+	// f toggles floor-scoping on the model (default off)
+	m := New(&session.SessionManager{}, nil, "X")
+	if m.mapFloors {
+		t.Error("floor-scoping should default off")
+	}
+	out, _ := m.updateMap(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if !out.(Model).mapFloors {
+		t.Error("f should toggle floor-scoping on")
 	}
 }
 
@@ -157,8 +173,8 @@ func TestMapZoom(t *testing.T) {
 		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	near := renderMapCanvas(mp, 20, 20, 0, true, 8, 30, 15) // zoomed in on the player
-	far := renderMapCanvas(mp, 20, 20, 0, true, 1, 30, 15)  // whole-zone fit
+	near := renderMapCanvas(mp, 20, 20, 0, true, 8, false, 30, 15) // zoomed in on the player
+	far := renderMapCanvas(mp, 20, 20, 0, true, 1, false, 30, 15)  // whole-zone fit
 	if near == far {
 		t.Error("zooming in should change the rendered map")
 	}

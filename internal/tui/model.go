@@ -120,6 +120,7 @@ type Model struct {
 	mapShort  string // short name of the loaded/requested zone (dedup fetches)
 	mapStatus string
 	mapZoom   float64
+	mapFloors bool // floor-scope (hide other levels) — off by default; on for stacked zones
 
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen

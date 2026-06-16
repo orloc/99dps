@@ -59,9 +59,13 @@ func (m Model) mapView(th theme, w, h int) string {
 	if m.tracker != nil {
 		px, py, pz, haveLoc = m.tracker.Loc()
 	}
+	floorState := "off"
+	if m.mapFloors {
+		floorState = "on"
+	}
 	loc := "no /loc yet — type /loc in game"
 	if haveLoc {
-		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f · %.0f× · +/- zoom", px, py, pz, math.Max(m.mapZoom, 1))
+		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f · %.0f× · +/- zoom · f floors:%s", px, py, pz, math.Max(m.mapZoom, 1), floorState)
 	}
 	header := paint(th, th.accent, truncate("⊞ "+zone+"   ", w), w) +
 		"\n" + paint(th, th.dim, truncate(loc, w), w)
@@ -74,10 +78,11 @@ func (m Model) mapView(th theme, w, h int) string {
 		}
 		return header + "\n" + paint(th, th.dim, truncate(msg, w), w)
 	}
-	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, w, bodyH)
+	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, m.mapFloors, w, bodyH)
 }
 
-// updateMap handles Map-tab input: +/- zoom in/out (centered on the player).
+// updateMap handles Map-tab input: +/- zoom, f toggles floor-scoping (off by
+// default — only useful in stacked multi-level zones like HighKeep).
 func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
@@ -85,6 +90,8 @@ func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mapZoom = math.Min(math.Max(m.mapZoom, 1)*1.5, 32)
 		case "-", "_":
 			m.mapZoom = math.Max(math.Max(m.mapZoom, 1)/1.5, 1)
+		case "f":
+			m.mapFloors = !m.mapFloors
 		}
 	}
 	return m, nil
@@ -102,7 +109,7 @@ func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 // levels of a multi-level zone (HighKeep) are hidden entirely, not overlaid. The
 // reference height is the player's /loc Z, or the zone's lowest floor when
 // there's no /loc.
-func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, wCells, hCells int) string {
+func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, floors bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.New(dotW, dotH)
 
@@ -126,8 +133,10 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom fl
 		refZ = pz
 	}
 	for _, seg := range mp.Segments {
-		if !onFloor(seg.Z, refZ) {
-			continue // a different floor — not drawn at all
+		// floor-scope only when asked AND we know the player's Z — outdoor zones
+		// span a huge Z range, so scoping there would wrongly hide most of the map.
+		if floors && havePlayer && !onFloor(seg.Z, refZ) {
+			continue // a different floor — not drawn
 		}
 		x0, y0 := project(seg.X1, seg.Y1)
 		x1, y1 := project(seg.X2, seg.Y2)
