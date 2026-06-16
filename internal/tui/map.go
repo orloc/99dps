@@ -65,7 +65,7 @@ func (m Model) mapView(th theme, w, h int) string {
 	}
 	loc := "no /loc yet — type /loc in game"
 	if haveLoc {
-		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f · %.0f× · +/- zoom · f floors:%s", px, py, pz, math.Max(m.mapZoom, 1), floorState)
+		loc = fmt.Sprintf("/loc %.0f, %.0f, %.0f · %.0f× scroll zoom · f floors:%s", px, py, pz, math.Max(m.mapZoom, 1), floorState)
 	}
 	header := paint(th, th.accent, truncate("⊞ "+zone+"   ", w), w) +
 		"\n" + paint(th, th.dim, truncate(loc, w), w)
@@ -81,15 +81,20 @@ func (m Model) mapView(th theme, w, h int) string {
 	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, m.mapFloors, w, bodyH)
 }
 
-// updateMap handles Map-tab input: +/- zoom, f toggles floor-scoping (off by
-// default — only useful in stacked multi-level zones like HighKeep).
+// zoomIn / zoomOut step the map zoom (clamped to [1, 32]), shared by the +/-
+// keys and the mouse wheel.
+func (m *Model) zoomIn()  { m.mapZoom = math.Min(math.Max(m.mapZoom, 1)*1.5, 32) }
+func (m *Model) zoomOut() { m.mapZoom = math.Max(math.Max(m.mapZoom, 1)/1.5, 1) }
+
+// updateMap handles Map-tab keys: +/- zoom (the wheel zooms too, in Update), f
+// toggles floor-scoping (off by default — only useful in stacked zones).
 func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "+", "=":
-			m.mapZoom = math.Min(math.Max(m.mapZoom, 1)*1.5, 32)
+			m.zoomIn()
 		case "-", "_":
-			m.mapZoom = math.Max(math.Max(m.mapZoom, 1)/1.5, 1)
+			m.zoomOut()
 		case "f":
 			m.mapFloors = !m.mapFloors
 		}

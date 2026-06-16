@@ -169,6 +169,21 @@ func TestMapZoom(t *testing.T) {
 		t.Errorf("zoom must clamp at 1, got %v", z)
 	}
 
+	// the mouse wheel zooms on the Map tab
+	mw := New(&session.SessionManager{}, nil, "X")
+	mw.screen = screenMap
+	mw.mapZoom = 4
+	var tm tea.Model = mw
+	tm, _ = tm.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	if z := tm.(Model).mapZoom; z <= 4 {
+		t.Errorf("wheel up should zoom in, got %v", z)
+	}
+	tm, _ = tm.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	tm, _ = tm.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	if z := tm.(Model).mapZoom; z >= 6 {
+		t.Errorf("wheel down should zoom out, got %v", z)
+	}
+
 	mp := &eqmap.Map{
 		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,

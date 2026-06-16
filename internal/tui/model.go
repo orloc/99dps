@@ -855,6 +855,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+		if m.screen == screenMap {
+			switch msg.Button { // wheel zooms the map
+			case tea.MouseButtonWheelUp:
+				m.zoomIn()
+			case tea.MouseButtonWheelDown:
+				m.zoomOut()
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if m.screen != screenMeter {
 			return m, tea.Batch(cmds...)
 		}
