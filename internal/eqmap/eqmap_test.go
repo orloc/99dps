@@ -66,11 +66,9 @@ func TestLoaderFetchCacheLayers(t *testing.T) {
 		hits++
 		switch {
 		case strings.HasSuffix(r.URL.Path, "sebilis.txt"):
-			w.Write([]byte("L 0,0,0, 10,10,0, 1,2,3\n"))
-		case strings.HasSuffix(r.URL.Path, "sebilis_1.txt"):
-			w.Write([]byte("L 10,10,0, 20,5,0, 4,5,6\n"))
+			w.Write([]byte("L 0,0,0, 10,10,0, 1,2,3\nL 0,0,0, -5,5,0, 7,8,9\n"))
 		default:
-			w.WriteHeader(http.StatusNotFound) // _2 / _3 missing
+			w.WriteHeader(http.StatusNotFound) // only the base layer is loaded
 		}
 	}))
 	defer srv.Close()
@@ -80,8 +78,8 @@ func TestLoaderFetchCacheLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Segments) != 2 { // base + _1 merged, _2/_3 404 ignored
-		t.Fatalf("want 2 merged segments, got %d", len(m.Segments))
+	if len(m.Segments) != 2 { // both base-layer lines; detail layers not requested
+		t.Fatalf("want 2 base segments, got %d", len(m.Segments))
 	}
 	firstHits := hits
 	if _, err := l.Get("sebilis"); err != nil { // memory cache → no new requests
@@ -89,6 +87,9 @@ func TestLoaderFetchCacheLayers(t *testing.T) {
 	}
 	if hits != firstHits {
 		t.Errorf("second Get should hit the cache, made %d new requests", hits-firstHits)
+	}
+	if firstHits != 1 { // only the base file is fetched (one request), not 4 layers
+		t.Errorf("expected a single base fetch, got %d", firstHits)
 	}
 
 	if _, err := l.Get("nowhere"); err == nil {

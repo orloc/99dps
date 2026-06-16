@@ -264,11 +264,12 @@ func (l *Loader) Get(short string) (*Map, error) {
 	if m, ok := l.mem[short]; ok {
 		return m, nil
 	}
+	// Only the base layer: the optional _1.._3 detail layers overlay extra strokes
+	// that read as thick/"bold" walls at braille resolution, and the base already
+	// carries every floor (encoded by Z). So the base alone is the clean outline.
 	m := &Map{Zone: short}
-	for _, suffix := range []string{"", "_1", "_2", "_3"} {
-		if raw, err := l.fetch(short + suffix + ".txt"); err == nil && len(raw) > 0 {
-			Parse(bytes.NewReader(raw), m)
-		}
+	if raw, err := l.fetch(short + ".txt"); err == nil && len(raw) > 0 {
+		Parse(bytes.NewReader(raw), m)
 	}
 	if m.Empty() {
 		return nil, fmt.Errorf("no map data for %q", short)
