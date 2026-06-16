@@ -31,8 +31,8 @@ func TestRenderMapCanvas(t *testing.T) {
 			t.Errorf("row %d wider than 20: %d", i, lipgloss.Width(ln))
 		}
 	}
-	if !strings.Contains(out, "255;255;0") { // the yellow player marker
-		t.Error("player marker should be drawn")
+	if !strings.Contains(out, playerMarker) { // the emoji "you are here" pin
+		t.Error("player marker emoji should be drawn")
 	}
 }
 

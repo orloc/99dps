@@ -86,10 +86,24 @@ func (c *Canvas) Line(x0, y0, x1, y1 int, r, g, b uint8) {
 
 // String renders the canvas to 24-bit-color ANSI, one text line per cell row.
 // Empty cells render as a space.
-func (c *Canvas) String() string {
+func (c *Canvas) String() string { return c.render(-1, -1, "") }
+
+// StringWithMarker renders like String but draws marker (a double-width glyph,
+// e.g. an emoji) at cell (markCol, markRow), consuming that cell and the next so
+// the line keeps its width. Out-of-range coords render no marker.
+func (c *Canvas) StringWithMarker(markCol, markRow int, marker string) string {
+	return c.render(markCol, markRow, marker)
+}
+
+func (c *Canvas) render(markCol, markRow int, marker string) string {
 	var sb strings.Builder
 	for row := 0; row < c.rows; row++ {
 		for col := 0; col < c.cols; col++ {
+			if marker != "" && row == markRow && col == markCol {
+				sb.WriteString(marker)
+				col++ // the marker is double-width — also consume the next cell's column
+				continue
+			}
 			cl := c.cells[row*c.cols+col]
 			if cl.bits == 0 {
 				sb.WriteByte(' ')

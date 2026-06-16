@@ -148,13 +148,21 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom fl
 		cv.Line(x0, y0, x1, y1, seg.R, seg.G, seg.B)
 	}
 	if havePlayer {
-		dx, dy := project(-px, -py)                                            // orient(): map coords are negated vs /loc
-		for _, d := range [][2]int{{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}} { // a bright cross
-			cv.Set(dx+d[0], dy+d[1], 255, 255, 0)
+		// mark the player with an emoji pin (double-width) instead of a colored dot.
+		dx, dy := project(-px, -py) // orient(): map coords are negated vs /loc
+		col, row := dx/2, dy/4      // dot → cell
+		if col >= 0 && row >= 0 && col < cv.Cols() && row < cv.Rows() {
+			if col > cv.Cols()-2 {
+				col = cv.Cols() - 2 // keep room for the 2-wide glyph at the edge
+			}
+			return cv.StringWithMarker(col, row, playerMarker)
 		}
 	}
 	return cv.String()
 }
+
+// playerMarker is the "you are here" glyph drawn on the map (double-width emoji).
+const playerMarker = "📍"
 
 // zFloorBand is the Z half-window for "this floor". Floors in multi-level zones
 // sit ~50 apart (HighKeep), so this captures the current floor while excluding
