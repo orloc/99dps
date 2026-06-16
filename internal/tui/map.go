@@ -77,30 +77,33 @@ func (m Model) mapView(th theme, w, h int) string {
 	return header + "\n" + renderMapCanvas(m.curMap, px, py, haveLoc, w, bodyH)
 }
 
-// renderMapCanvas draws a zone map auto-fit to a w×h character area, flipping to
-// EQ orientation (north up, west left) and marking the player. (The flip may
-// need an in-game tweak once verified against a live /loc.)
+// renderMapCanvas draws a zone map auto-fit to a w×h character area and marks the
+// player. The orientation is the one LOCKED + verified in-game in the eqscripts
+// web overlay: map segments are drawn in their native file coords (centered, no
+// per-axis flip, screen-Y growing down), and the player's /loc position is
+// negated — orient(x,y) = (-x,-y) — because the map files are stored negated
+// relative to position coords. That negate is the dot↔map fit; without it the
+// player doesn't line up.
 func renderMapCanvas(mp *eqmap.Map, px, py float64, havePlayer bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.New(dotW, dotH)
 
+	midX, midY := (mp.MinX+mp.MaxX)/2, (mp.MinY+mp.MaxY)/2
 	worldW := math.Max(mp.MaxX-mp.MinX, 1)
 	worldH := math.Max(mp.MaxY-mp.MinY, 1)
 	s := math.Min(float64(dotW-1)/worldW, float64(dotH-1)/worldH) // fit, keep aspect
-	offX := (float64(dotW-1) - worldW*s) / 2
-	offY := (float64(dotH-1) - worldH*s) / 2
-	toDot := func(wx, wy float64) (int, int) {
-		return int(math.Round(offX + (mp.MaxX-wx)*s)), // flip X → west on the left
-			int(math.Round(offY + (mp.MaxY-wy)*s)) // flip Y → north up
+	cxDot, cyDot := float64(dotW-1)/2, float64(dotH-1)/2
+	project := func(x, y float64) (int, int) {
+		return int(math.Round(cxDot + (x-midX)*s)), int(math.Round(cyDot + (y-midY)*s))
 	}
 
 	for _, seg := range mp.Segments {
-		x0, y0 := toDot(seg.X1, seg.Y1)
-		x1, y1 := toDot(seg.X2, seg.Y2)
+		x0, y0 := project(seg.X1, seg.Y1)
+		x1, y1 := project(seg.X2, seg.Y2)
 		cv.Line(x0, y0, x1, y1, seg.R, seg.G, seg.B)
 	}
 	if havePlayer {
-		dx, dy := toDot(px, py)
+		dx, dy := project(-px, -py)                                            // orient(): map coords are negated vs /loc
 		for _, d := range [][2]int{{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}} { // a bright cross
 			cv.Set(dx+d[0], dy+d[1], 255, 255, 0)
 		}
