@@ -58,8 +58,8 @@ func TestFloorScoping(t *testing.T) {
 		MinX: -50, MinY: -50, MaxX: 50, MaxY: 50, MinZ: 0,
 	}
 	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, true, 20, 10) // floor-scope on, on the ground floor
-	if !strings.Contains(ground, "200;200;200") {
-		t.Error("the player's own floor should render")
+	if !strings.Contains(ground, "110;110;110") {                 // 200 darkened by inkDarken (0.55)
+		t.Error("the player's own floor should render (as darkened ink)")
 	}
 	// the upper floor (Z=50) is a floor away → hidden when scoped to the ground;
 	// standing on the upper floor renders different geometry.

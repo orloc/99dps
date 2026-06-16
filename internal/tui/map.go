@@ -146,7 +146,7 @@ func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom fl
 		}
 		x0, y0 := project(seg.X1, seg.Y1)
 		x1, y1 := project(seg.X2, seg.Y2)
-		cv.Line(x0, y0, x1, y1, seg.R, seg.G, seg.B)
+		cv.Line(x0, y0, x1, y1, ink(seg.R), ink(seg.G), ink(seg.B)) // darker ink on the paper bg
 	}
 	if havePlayer {
 		// mark the player with an emoji pin (double-width) instead of a colored dot.
@@ -171,6 +171,12 @@ const playerMarker = "📍"
 const (
 	mapBgR, mapBgG, mapBgB = 198, 190, 170
 )
+
+// inkDarken scales map line colors down so they read as darker "ink" against the
+// light paper background.
+const inkDarken = 0.55
+
+func ink(c uint8) uint8 { return uint8(float64(c) * inkDarken) }
 
 // zFloorBand is the Z half-window for "this floor". Floors in multi-level zones
 // sit ~50 apart (HighKeep), so this captures the current floor while excluding
