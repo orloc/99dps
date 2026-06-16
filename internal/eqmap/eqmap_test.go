@@ -35,12 +35,23 @@ func TestParseAndBounds(t *testing.T) {
 
 func TestShortName(t *testing.T) {
 	cases := map[string]string{
-		"Sebilis":              "sebilis",
-		"Lake of Ill Omen":     "lakeofillomen",
-		"The Estate of Unrest": "unrest", // override
-		"Plane of Fear":        "fear",   // override
-		"Kael Drakkel":         "kael",   // override
-		"":                     "",
+		// overrides (display names that don't normalize to the file name)
+		"Kithicor Woods":      "kithicor",
+		"The Nektulos Forest": "nektulos",
+		"Nagafen's Lair":      "soldungb",
+		"Old Sebilis":         "sebilis",
+		"Erudin":              "erudnext",
+		"Greater Faydark":     "gfaydark",
+		"East Commonlands":    "ecommons",
+		"Kael Drakkel":        "kael",
+		"Plane of Fear":       "fear",
+		// normalize fallback (display already matches the short name)
+		"Rivervale": "rivervale",
+		"Oggok":     "oggok",
+		"Chardok":   "chardok",
+		// unknown zone → best-effort normalize
+		"Somewhere New": "somewherenew",
+		"":              "",
 	}
 	for in, want := range cases {
 		if got := ShortName(in); got != want {

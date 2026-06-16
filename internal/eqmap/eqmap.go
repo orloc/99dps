@@ -142,26 +142,60 @@ func ComputeBounds(m *Map) {
 	}
 }
 
-// shortNameOverrides maps EQ zone *display* names (from "You have entered X") to
-// the map-file short name when a plain normalize wouldn't get it. Seeded with
-// common classic mismatches; extend as zones are confirmed.
+// shortNameOverrides maps an EQ zone *display* name (from "You have entered X",
+// lowercased) to its map-file short name, for the many zones whose display name
+// doesn't normalize to the file name. Short names are the canonical EQ ones,
+// verified against the map repo; a wrong/missing entry just degrades to "no map"
+// (the repo also has empty placeholders for some classic zones). Keys are the
+// exact display strings as logged.
 var shortNameOverrides = map[string]string{
-	"the estate of unrest":  "unrest",
-	"plane of fear":         "fear",
-	"plane of hate":         "hate",
-	"plane of sky":          "airplane",
-	"plane of mischief":     "mischiefplane",
-	"plane of growth":       "growthplane",
-	"kael drakkel":          "kael",
-	"the wakening land":     "wakening",
-	"the wakening lands":    "wakening",
-	"western wastes":        "westwastes",
-	"eastern wastes":        "eastwastes",
-	"the great divide":      "greatdivide",
-	"icewell keep":          "thurgadinb",
-	"the temple of veeshan": "templeveeshan",
-	"sleeper's tomb":        "sleeper",
-	"dragon necropolis":     "necropolis",
+	// --- Classic: Faydwer ---
+	"greater faydark": "gfaydark", "lesser faydark": "lfaydark",
+	"butcherblock mountains": "butcher", "north kaladim": "kaladima", "south kaladim": "kaladimb",
+	"ak'anon": "akanon", "steamfont mountains": "steamfont", "castle mistmoore": "mistmoore",
+	"clan runnyeye": "runnyeye",
+	// --- Classic: Antonica ---
+	"east commonlands": "ecommons", "west commonlands": "commons",
+	"north freeport": "freportn", "east freeport": "freporte", "west freeport": "freportw",
+	"northern desert of ro": "nro", "southern desert of ro": "sro",
+	"oasis of marr": "oasis", "the oasis of marr": "oasis",
+	"innothule swamp": "innothule", "the feerrott": "feerrott",
+	"lake rathetear": "lakerathe", "rathe mountains": "rathemtn",
+	"northern plains of karana": "northkarana", "southern plains of karana": "southkarana",
+	"eastern plains of karana": "eastkarana",
+	"highpass hold":            "highpasshold", "high keep": "highkeep", "surefall glade": "qrg",
+	"misty thicket": "mistythicket", "kithicor woods": "kithicor", "kithicor forest": "kithicor",
+	"the nektulos forest": "nektulos", "nektulos forest": "nektulos",
+	"lavastorm mountains": "lavastorm", "everfrost peaks": "everfrost",
+	"permafrost caverns": "permafrost", "solusek's eye": "soldunga", "nagafen's lair": "soldungb",
+	"the estate of unrest": "unrest", "estate of unrest": "unrest",
+	"lost temple of cazic-thule": "cazicthule", "cazic-thule": "cazicthule",
+	"kerra isle": "kerraridge",
+	// --- Classic: Odus ---
+	"erudin": "erudnext", "erudin palace": "erudnint", "toxxulia forest": "tox",
+	"erud's crossing": "erudsxing", "the hole": "hole", "stonebrunt mountains": "stonebrunt",
+	// --- Kunark ---
+	"cabilis east": "cabeast", "cabilis west": "cabwest", "field of bone": "fieldofbone",
+	"warsliks woods": "warslikswood", "lake of ill omen": "lakeofillomen", "firiona vie": "firiona",
+	"the burning wood": "burningwood", "frontier mountains": "frontiermtns",
+	"the overthere": "overthere", "skyfire mountains": "skyfire", "timorous deep": "timorous",
+	"the emerald jungle": "emeraldjungle", "trakanon's teeth": "trakanon",
+	"the city of mist": "citymist", "city of mist": "citymist", "old sebilis": "sebilis",
+	"karnor's castle": "karnor", "the howling stones": "charasis", "howling stones": "charasis",
+	"mines of nurga": "nurga", "temple of droga": "droga", "the crypt of dalnir": "dalnir",
+	"swamp of no hope": "swampofnohope", "warslik's woods": "warslikswood",
+	// --- Velious ---
+	"great divide": "greatdivide", "the great divide": "greatdivide",
+	"eastern wastelands": "eastwastes", "western wastes": "westwastes",
+	"iceclad ocean": "iceclad", "cobalt scar": "cobaltscar", "kael drakkel": "kael",
+	"the wakening lands": "wakening", "wakening lands": "wakening",
+	"temple of veeshan": "templeveeshan", "sleepers tomb": "sleeper", "sleeper's tomb": "sleeper",
+	"dragon necropolis": "necropolis", "tower of frozen shadow": "frozenshadow",
+	"siren's grotto": "sirens", "sirens grotto": "sirens", "icewell keep": "thurgadinb",
+	"crystal caverns": "crystal", "velketor's labyrinth": "velketor",
+	// --- Planes ---
+	"plane of fear": "fear", "plane of hate": "hate", "plane of sky": "airplane",
+	"plane of growth": "growthplane", "plane of mischief": "mischiefplane",
 }
 
 // ShortName maps a zone display name to its map-file short name (best-effort: an
