@@ -8,7 +8,23 @@ A terminal DPS meter for classic EverQuest (P99). It tails the active EQ log fil
 
 Go 1.25. Tests live next to the code; run `go test ./...`.
 
-**Layout** (standard Go): `cmd/99dps/` holds `package main` (`main.go` + `run.go` wiring); all library packages live under `internal/` (`combat` — combat DTOs; `eqclass` — class/category taxonomy; `loader`, `parser`, `session`, `gamestate`, `tts` — shared audio-cue engine, and `tui` — the Bubble Tea UI) so they can't be imported externally. Import paths are `99dps/internal/<pkg>`. `parser` depends on the `Sink` and `SpellObserver` interfaces (not on `session`/`gamestate`); `gamestate` owns the zone-respawn data; `tui` reads lock-free session/tracker snapshots and never imports the parser.
+**Layout** (standard Go): `cmd/99dps/` holds `package main` (`main.go` + `run.go` wiring); all library packages live under `internal/` so they can't be imported externally. Import paths are `99dps/internal/<pkg>`. The 14 packages:
+- **`combat`** — combat DTOs (pure value types, which is what makes session snapshots a trivial deep copy).
+- **`eqclass`** — class/category taxonomy (title→class, disciplines, per-class profile).
+- **`parser`** — the line dispatcher; depends on the `Sink` and `SpellObserver` interfaces (`combat` + `eqclass` only — **not** `session`/`gamestate`).
+- **`session`** — `SessionManager` + `CombatSession` (segmentation, dealer attribution, the RWMutex snapshot pattern); depends on `combat` + `mobstats`.
+- **`gamestate`** — the spell `Book` + live `Tracker` (timers, zones/repops, cooldowns, pet/group, incoming debuffs, …); **owns the zone-respawn data**; depends on `eqclass`.
+- **`mobstats`** — app-wide rolling index of how hard each NPC hits in melee (feeds the rune-absorb estimate); fed by the parse goroutine, read concurrently.
+- **`loader`** — log-dir resolution, EQ detection, file following/tailing.
+- **`cues`** — the audio-cue engine: decides **what** to announce from live game state (spawn/fade/low-buff/charm-break/feign-fail/resist); depends on `eqclass` + `gamestate`.
+- **`tts`** — the speech **backend** behind the `cues.Speaker` seam: an `Engine` interface implemented by a Kokoro neural-TTS engine (subprocess) with on-demand asset download and platform playback. Zero internal deps. (`cues` + `tts` together replace what used to be one "tts" cue engine.)
+- **`braille`** — pure-Go Unicode-braille drawing surface (used by the TUI zone map). No deps.
+- **`eqmap`** — loads/caches EQ zone-map vector files (MQ2/Brewall format); fetches over the network once per zone. No internal deps.
+- **`inventory`** — reads the Titanium `/outputfile inventory` dump. No deps.
+- **`prices`** — client for the pigparse P99 tunnel-price API (on-demand HTTP). No internal deps.
+- **`tui`** — the Bubble Tea UI; the fan-in hub (imports `braille`, `combat`, `cues`, `eqclass`, `eqmap`, `gamestate`, `inventory`, `prices`, `session`, `tts`). Reads lock-free session/tracker snapshots and **never imports the parser**.
+
+The internal dependency graph is acyclic; `cmd/99dps` wires `gamestate`/`loader`/`parser`/`session`/`tui` together. Note `eqmap` and `prices` are the two packages that reach the network (always on demand, off the render loop via a `tea.Cmd`); `tts` also downloads its ~120MB model on first enable.
 
 ## Commands
 
@@ -28,7 +44,7 @@ The app is portable: pure-Go deps (no cgo); Bubble Tea + Lipgloss render truecol
   - `locate_windows.go`: roots = `C:\P99`, Sony/Daybreak dirs, Desktop/Downloads/Games/My Games, the exe folder; prompt = **native Yes/No box** to confirm a find, else a **folder picker** (PowerShell WinForms).
   - `locate_unix.go`: roots = `~/Desktop|Downloads|Games|Documents`, `~/.wine/drive_c`, `/mnt`, `/opt`, the exe folder; prompt = **console** (list+confirm or type a path), since the app launches from a terminal.
   Both persist the pick to the same config file, so it's a one-time question. Saving is unified; only the candidate roots and prompt mechanism differ by OS.
-- **`internal/tts/speaker_{unix,windows}.go`** — TTS engine. Unix probes `spd-say`/`espeak`; Windows uses built-in SAPI via `powershell … System.Speech` (hidden window). No engine → cues silently no-op.
+- **`internal/tts/play_{unix,windows}.go`** — WAV playback for the Kokoro neural engine (`tts/kokoro.go`, which drives the bundled sherpa-onnx offline-TTS CLI as a subprocess; assets fetched on first enable by `tts/fetch.go`). Unix plays the synthesized clip through the first available CLI player (`paplay`/`aplay`/`ffplay`/`sox`); Windows uses the built-in `System.Media.SoundPlayer` via `powershell` (hidden window). Both subprocess calls (synth + playback) are bounded by a timeout so a wedged process can't stall the serial cue worker. No player / no downloaded model → cues silently no-op.
 The Linux-only log-rotation tooling (`scripts/`, systemd) has no Windows equivalent; on Windows logs just grow (or wire a Task Scheduler + PowerShell job).
 
 ## Data flow (three concurrent pieces)
@@ -67,10 +83,13 @@ Line categories in `dispatch` (order matters — see the `hasDamage` gotcha belo
 
 ## Rendering layer (`internal/tui`, Bubble Tea + Lipgloss)
 
-The UI is a single Bubble Tea `Model` (Elm-style `Init`/`Update`/`View`) reading lock-free snapshots:
-- **`model.go`** — the root `Model`: state, `layout()` (panel rectangles for the window size), `Update` (keys/mouse/tick/resize/switch), `View` (composes the banner + Sessions sidebar + Damage meter / Specials-Avoidance / class panel / Mob Tracker + footer), and the damage-meter renderer. `NewProgram`/`Program` wrap `*tea.Program` so the host can `SwitchCharacter`.
-- **`panels.go`** — pure `data → string` panel renderers (`sessionsList`, `timersBody`, `ccBody`, `mobTracker`, `damageSpecials`, `damageAvoidance`, `card`). No program state, so they're unit-tested directly. **`class.go`** — the class-aware bottom panel (`classPanel`). **`theme.go`** — the 3 themes + gradient/`fg` helpers. **`format.go`** — number/time formatters.
-- Each overflowing panel renders into its own `bubbles/viewport` (independent scroll); the mouse wheel routes to whichever panel the cursor is over (`panelAt`), and clicks resolve via line→target maps (`classTargets`/`ccTargets`/`mobTargets`).
+The UI is a single Bubble Tea `Model` (Elm-style `Init`/`Update`/`View`) reading lock-free snapshots. `model.go` (the root `Model`: state, tick, `refresh`) has been **decomposed by concern** into per-file pieces:
+- **`model.go`** — the root `Model` struct, `NewModel`, the 1s self-`tick`, `refresh()`/`rebuildInteractive` (snapshot + re-render), and `announceCues`. **`program.go`** — `NewProgram`/`Program` wrap `*tea.Program` so the host can `SwitchCharacter`.
+- **`layout.go`** — `layout()` computes panel rectangles for the window. **`view.go`** — `View` composes the active screen (banner + Sessions sidebar + Damage meter / Offense·Defense / class panel / Mob Tracker + footer). **`update.go`** — `Update` (keys/mouse/tick/resize/switch) plus input routing: `panelAt` (wheel → hovered panel), `hoverTargetAt`/`mobAt` (clicks → targets), `editKey`.
+- **`damage.go`** — the damage-meter renderer (`damageMeter`, pure; `damageContent` a thin forwarder). **`sessions.go`** — the Sessions sidebar/table + its selection/scroll. **`panels.go`** — pure `data → string` renderers (`card`, the timer-column split, mob tracker, specials/avoidance). **`class.go`** — the class-aware bottom panel (`classPanel`, cooldown/discipline/canni rows). No program state in the pure renderers, so they're unit-tested directly.
+- **Tabbed screens** (`settings.go`: `tabBar`/`cycleTab`/`gotoScreen`) — beyond the main meter there are **Map** (`map.go`: braille zone map from `eqmap`, player marked from `/loc`), **Tools** (`tools.go`: inventory board from `internal/inventory` + `prices` lookups), **Setup** (`setup.go`: first-run onboarding + the neural-voice download), and **Settings** screens. **`store.go`** persists per-character UI prefs; **`layoutprefs.go`** the panel-size prefs.
+- **`theme.go`** — the themes + gradient/`fg` helpers. **`format.go`** — number/time/name formatters (`humanize`, `truncate`, `mmss`, …).
+- Each overflowing panel renders into its own `bubbles/viewport` (independent scroll); the mouse wheel routes to whichever panel the cursor is over (`panelAt`), and clicks resolve via line→target maps built by the same code that renders them (the anti-drift pattern).
 - **Lipgloss wraps overlong lines** (it doesn't clip), which reads as "scrunched". So every line must fit its width: tables are **width-aware** (Hit%/Crit% gate on width; the share bar yields before the name; the countdown column is never dropped), free text is clipped with `truncate`/`MaxWidth`, and a degenerate early `WindowSizeMsg` (0×0) is ignored. `TestViewFitsWindow`/`TestDamageNoOverflow` guard this.
 
 ## Spell timers and live state (`gamestate` package)

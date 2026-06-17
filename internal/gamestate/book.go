@@ -1,7 +1,13 @@
-// Package spell parses EverQuest's spells_us.txt into a lookup table and tracks
-// live durations for spells the player casts (debuffs on others, self/other
-// buffs). The data is the canonical client SPDat_Spell_Struct (217 ^-delimited
-// fields); only the handful we need are decoded.
+// Package gamestate derives and holds the live, non-DPS game state read from the
+// log: the spell Book (parsed from spells_us.txt) and the central Tracker — spell
+// timers, zone/repop tracking, cooldowns, pet/group attribution, incoming
+// debuffs, and the detected class/level. The Tracker is fed one log line at a
+// time via Observe and read lock-free by the UI.
+//
+// This file (book.go) is the spell Book: it parses EverQuest's spells_us.txt into
+// a lookup table and computes durations for spells the player casts (debuffs on
+// others, self/other buffs). The data is the canonical client SPDat_Spell_Struct
+// (217 ^-delimited fields); only the handful we need are decoded.
 package gamestate
 
 import (
