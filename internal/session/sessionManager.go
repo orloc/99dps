@@ -56,7 +56,7 @@ func (sm *SessionManager) Apply(set *combat.DamageSet) {
 	// player's own hits — it's an index of how hard mobs hit.
 	if set.Dealer != "You" {
 		if sm.mobs == nil {
-			sm.mobs = mobstats.New()
+			sm.mobs = mobstats.NewIndex()
 		}
 		sm.mobs.Record(set.Dealer, set.Dmg, set.ActionTime)
 	}

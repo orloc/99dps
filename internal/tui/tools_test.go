@@ -89,7 +89,7 @@ func TestLoadInventory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Iznoa-Inventory.txt"), []byte(invSample), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m := New(&session.SessionManager{}, nil, "Iznoa")
+	m := NewModel(&session.SessionManager{}, nil, "Iznoa")
 	m.eqDir = dir
 	m.pricer = fakePricer{m: map[string]prices.Price{
 		"black sapphire electrum earring": {Name: "Black Sapphire Electrum Earring", Avg: 615, Count: 1367},
@@ -136,7 +136,7 @@ func TestLoadInventory(t *testing.T) {
 
 // TestLoadInventoryNoDump: a missing dump yields a helpful status, no rows.
 func TestLoadInventoryNoDump(t *testing.T) {
-	m := New(&session.SessionManager{}, nil, "Ghost")
+	m := NewModel(&session.SessionManager{}, nil, "Ghost")
 	m.eqDir = t.TempDir() // exists, but no dump for "Ghost"
 	_, cmd := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
 	msg := cmd().(invLoadedMsg)
@@ -148,7 +148,7 @@ func TestLoadInventoryNoDump(t *testing.T) {
 // TestToolsTabRendersAndFits: the Tools tab is reachable, renders the roll
 // widget, and never overflows the window width.
 func TestToolsTabRendersAndFits(t *testing.T) {
-	var m tea.Model = New(&session.SessionManager{}, nil, "X")
+	var m tea.Model = NewModel(&session.SessionManager{}, nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
 	mm := m.(Model)
@@ -211,7 +211,7 @@ func TestUpdateToolsKeys(t *testing.T) {
 		t.Fatal("setup: expected one live roll")
 	}
 
-	m := New(&session.SessionManager{}, tr, "X")
+	m := NewModel(&session.SessionManager{}, tr, "X")
 	m.screen = screenTools
 
 	out, _ := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})

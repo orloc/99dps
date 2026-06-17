@@ -6,18 +6,18 @@ import (
 )
 
 func TestDimensions(t *testing.T) {
-	c := New(10, 8)
+	c := NewCanvas(10, 8)
 	if c.Cols() != 5 || c.Rows() != 2 {
-		t.Errorf("New(10,8) → %dx%d cells, want 5x2", c.Cols(), c.Rows())
+		t.Errorf("NewCanvas(10,8) → %dx%d cells, want 5x2", c.Cols(), c.Rows())
 	}
 	// rounds up: 3 dots wide → 2 cols, 5 dots tall → 2 rows
-	if c2 := New(3, 5); c2.Cols() != 2 || c2.Rows() != 2 {
-		t.Errorf("New(3,5) → %dx%d, want 2x2", c2.Cols(), c2.Rows())
+	if c2 := NewCanvas(3, 5); c2.Cols() != 2 || c2.Rows() != 2 {
+		t.Errorf("NewCanvas(3,5) → %dx%d, want 2x2", c2.Cols(), c2.Rows())
 	}
 }
 
 func TestSetBitsAndRune(t *testing.T) {
-	c := New(2, 4) // one cell
+	c := NewCanvas(2, 4) // one cell
 	c.Set(0, 0, 255, 0, 0)
 	c.Set(1, 3, 255, 0, 0) // top-left dot (0x01) + bottom-right dot (0x80) → 0x81
 	out := c.String()
@@ -30,7 +30,7 @@ func TestSetBitsAndRune(t *testing.T) {
 }
 
 func TestSetOutOfRangeIgnored(t *testing.T) {
-	c := New(2, 4)
+	c := NewCanvas(2, 4)
 	c.Set(-1, 0, 1, 1, 1)
 	c.Set(0, 99, 1, 1, 1)
 	c.Set(5, 0, 1, 1, 1)
@@ -42,7 +42,7 @@ func TestSetOutOfRangeIgnored(t *testing.T) {
 // TestBackground: a set background colors every cell (lit and empty) so lines
 // stay visible against it.
 func TestBackground(t *testing.T) {
-	c := New(4, 4)
+	c := NewCanvas(4, 4)
 	c.Background(198, 190, 170)
 	c.Set(0, 0, 0, 0, 0) // a dark line dot
 	out := c.String()
@@ -56,7 +56,7 @@ func TestBackground(t *testing.T) {
 }
 
 func TestLine(t *testing.T) {
-	c := New(8, 4)
+	c := NewCanvas(8, 4)
 	c.Line(0, 0, 7, 0, 0, 255, 0) // a horizontal line across the top
 	// every cell in the top dot-row should be lit (4 cells wide)
 	lit := strings.Count(c.String(), "\x1b[38;2;0;255;0m")

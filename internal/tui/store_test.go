@@ -11,7 +11,7 @@ import (
 // TestSwitchReloadsCharacterSettings: a character hot-swap loads that toon's own
 // saved layout/cues/audio, so settings really are per-character at runtime.
 func TestSwitchReloadsCharacterSettings(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	mm := m.(Model)
 	mm.store.setChar("Kelkix", charSettings{Damage: panelFull})

@@ -197,7 +197,7 @@ func TestUpdateSettingsPreviewVoice(t *testing.T) {
 // TestSettingsClickAt resolves clicks to (col, sel): a left selectable row, a
 // right cue toggle, a header/blank (miss), and a click above the body (miss).
 func TestSettingsClickAt(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.screen = screenSettings
@@ -262,7 +262,7 @@ func TestSettingsClickAt(t *testing.T) {
 // cue row toggles it.
 func TestSettingsMouseTogglesCue(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.screen = screenSettings
@@ -292,7 +292,7 @@ func TestSettingsMouseTogglesCue(t *testing.T) {
 // TestGotoScreenSizesDestination: going to the Sessions tab on a ready model
 // populates its table (resize + refresh ran).
 func TestGotoScreenSizesDestination(t *testing.T) {
-	var m tea.Model = New(twoSessionManager(), nil, "X")
+	var m tea.Model = NewModel(twoSessionManager(), nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	dst := mm.gotoScreen(screenSessions)
@@ -365,7 +365,7 @@ func TestCycleTab(t *testing.T) {
 }
 
 func TestTabKeyNavigation(t *testing.T) {
-	var m tea.Model = New(&session.SessionManager{}, nil, "X")
+	var m tea.Model = NewModel(&session.SessionManager{}, nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
@@ -391,7 +391,7 @@ func TestTabKeyNavigation(t *testing.T) {
 }
 
 func TestTabClickSwitchesScreen(t *testing.T) {
-	var m tea.Model = New(&session.SessionManager{}, nil, "X")
+	var m tea.Model = NewModel(&session.SessionManager{}, nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	sessionsTab := tabHits(100 - 2)[1] // Meter | Sessions | Tools … Settings
 	mid := (sessionsTab.x0 + sessionsTab.x1) / 2
@@ -403,7 +403,7 @@ func TestTabClickSwitchesScreen(t *testing.T) {
 
 func TestSettingsViewFitsWindow(t *testing.T) {
 	for _, w := range []int{60, 80, 120} {
-		m := Model{screen: screenSettings, ready: true, w: w, h: 30, speaker: tts.New()}
+		m := Model{screen: screenSettings, ready: true, w: w, h: 30, speaker: tts.NewEngine()}
 		for _, ln := range strings.Split(m.View(), "\n") {
 			if lipgloss.Width(ln) > w {
 				t.Errorf("w=%d: settings line exceeds width (%d): %q", w, lipgloss.Width(ln), ln)
@@ -445,7 +445,7 @@ func TestSettingsRightColumnToggle(t *testing.T) {
 func TestSettingsFlashConfirmsSave(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	sm, tr := monkScene()
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 34})
 	mm := m.(Model)
 	mm.screen = screenSettings

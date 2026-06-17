@@ -32,8 +32,8 @@ type Index struct {
 	m  map[string][]sample
 }
 
-// New builds an empty index.
-func New() *Index { return &Index{m: make(map[string][]sample)} }
+// NewIndex builds an empty index.
+func NewIndex() *Index { return &Index{m: make(map[string][]sample)} }
 
 // normalize keys a mob case-insensitively so the article-bearing damage-line name
 // ("a sand giant") matches a query consistently.

@@ -197,7 +197,7 @@ func TestDisciplineWidget(t *testing.T) {
 	tr.SetClass(eqclass.ClassWarrior)
 	tr.SetLevel(60)
 
-	var m tea.Model = New(sampleManager(), tr, "Grok")
+	var m tea.Model = NewModel(sampleManager(), tr, "Grok")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
 	mm := m.(Model)
 	mm.refresh()

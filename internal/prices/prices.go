@@ -68,8 +68,8 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// New builds a client against the public host with a sane timeout.
-func New() *Client {
+// NewClient builds a client against the public host with a sane timeout.
+func NewClient() *Client {
 	return &Client{BaseURL: DefaultBaseURL, HTTP: &http.Client{Timeout: 15 * time.Second}}
 }
 

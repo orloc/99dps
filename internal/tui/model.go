@@ -134,13 +134,13 @@ type Model struct {
 	ready bool
 }
 
-// New builds the model over a live session manager + (optional) tracker.
-func New(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
+// NewModel builds the model over a live session manager + (optional) tracker.
+func NewModel(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
-		speaker: tts.New(), announced: map[string]gamestate.Urgency{},
+		speaker: tts.NewEngine(), announced: map[string]gamestate.Urgency{},
 		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
-		pricer: prices.New(), mapLoader: eqmap.NewLoader(), mapZoom: 4,
+		pricer: prices.NewClient(), mapLoader: eqmap.NewLoader(), mapZoom: 4,
 	}
 }
 
@@ -1655,7 +1655,7 @@ type Program struct{ p *tea.Program }
 // NewProgram builds the program over the shared manager + tracker. spellInfo is
 // the data-source summary for the footer; tts enables audio cues at startup.
 func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo, eqDir string, ttsOn bool) *Program {
-	m := New(sm, tracker, character)
+	m := NewModel(sm, tracker, character)
 	m.spellInfo = spellInfo
 	m.eqDir = eqDir
 

@@ -96,7 +96,7 @@ func TestTimersGroupedByTarget(t *testing.T) {
 // hover highlight, and a left-click there dismisses that target's timers.
 func TestHoverDismiss(t *testing.T) {
 	sm, tr := casterScene()
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.refresh()
@@ -167,7 +167,7 @@ func TestTimerTimeNotClipped(t *testing.T) {
 // rendered line may exceed the panel width at any size (the previous UI clipped silently;
 // lipgloss would push past the card border).
 func TestDamageNoOverflow(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	cur := mm.sessions[mm.effectiveSel()]
@@ -194,7 +194,7 @@ func TestViewFitsWindow(t *testing.T) {
 	smv, trv := monkScene() // a populated scene (class + zone in the banner)
 	for _, sz := range sizes {
 		w, h := sz[0], sz[1]
-		var m tea.Model = New(smv, trv, "Kelkix")
+		var m tea.Model = NewModel(smv, trv, "Kelkix")
 		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 		mm := m.(Model)
 		mm.refresh()
@@ -234,7 +234,7 @@ func TestViewFitsWindow(t *testing.T) {
 	}
 
 	// a degenerate early size must not flip the model into rendering (stay "starting…")
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 0, Height: 0})
 	if mm := m.(Model); mm.ready {
 		t.Error("a 0x0 size should be ignored, not mark the model ready")
@@ -255,7 +255,7 @@ func TestResistBadgeRendered(t *testing.T) {
 // TestSwitchCharacter verifies a hot-swap message updates the banner name and
 // resets the selection (the watcher clears the shared manager/tracker).
 func TestSwitchCharacter(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	mm := m.(Model)
 	mm.selected, mm.follow = 1, false // pretend the user pinned an old fight
@@ -288,7 +288,7 @@ func mobSceneTracker() *gamestate.Tracker {
 }
 
 func TestClearSessions(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 32})
 	mm := m.(Model)
 	if len(mm.sessions) == 0 {
@@ -314,7 +314,7 @@ func TestMobTrackerSeparatorAndKiller(t *testing.T) {
 }
 
 func TestRepopEditFlow(t *testing.T) {
-	var m tea.Model = New(sampleManager(), mobSceneTracker(), "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), mobSceneTracker(), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 
@@ -375,7 +375,7 @@ func TestAvoidanceShowsRiposte(t *testing.T) {
 // TestDueAnnouncements covers the low-buff cue logic (each fires once, re-arms
 // on refresh/expiry, charm is skipped, self-buffs use the short phrase).
 func TestDueAnnouncements(t *testing.T) {
-	m := New(&session.SessionManager{}, nil, "Kelkix")
+	m := NewModel(&session.SessionManager{}, nil, "Kelkix")
 	now := int64(1000)
 	healthy := gamestate.Timer{Spell: "Clarity", Target: "Tankguy", Expiry: now + 600}
 	low := gamestate.Timer{Spell: "Clarity", Target: "Healer", Expiry: now + 8}
@@ -405,7 +405,7 @@ func TestPetRollup(t *testing.T) {
 	tr.SetCharacter("Kelkix")
 	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
 
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -443,7 +443,7 @@ func TestYouRowInclusiveOfPetAndSpells(t *testing.T) {
 	tr.SetCharacter("Kelkix")
 	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
 
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -480,7 +480,7 @@ func TestYouRowInclusiveOfPetAndSpells(t *testing.T) {
 func TestSpellsAttributedToYou(t *testing.T) {
 	sm := sampleManager()
 	sm.ApplyMagic(&combat.Magic{ActionTime: 1042, Dmg: 240_000, Target: "a sand giant"})
-	var m tea.Model = New(sm, nil, "Kelkix")
+	var m tea.Model = NewModel(sm, nil, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -540,7 +540,7 @@ func TestPetAttributedToOwner(t *testing.T) {
 	tr.SetCharacter("Kelkix")
 	tr.Observe("Zarekab says 'My leader is Sensive.'", time.Now().Unix())
 
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -579,7 +579,7 @@ func TestPetTaggedWhenOwnerAbsent(t *testing.T) {
 	tr.SetCharacter("Kelkix")
 	tr.Observe("Zarekab says 'My leader is Sensive.'", time.Now().Unix())
 
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -640,7 +640,7 @@ func mixedCaster(t *testing.T) *gamestate.Tracker {
 // TestEnemyColumnRouting: with the Enemy column shown, debuffs go to it and buffs
 // stay in the class panel — never crossed.
 func TestEnemyColumnRouting(t *testing.T) {
-	var m tea.Model = New(sampleManager(), mixedCaster(t), "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), mixedCaster(t), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 34})
 	mm := m.(Model)
 	if !mm.layout().enemy {
@@ -658,7 +658,7 @@ func TestEnemyColumnRouting(t *testing.T) {
 // TestEnemyColumnNarrowFallback: below the width threshold the Enemy column drops
 // and both buffs and debuffs fold back into the class panel.
 func TestEnemyColumnNarrowFallback(t *testing.T) {
-	var m tea.Model = New(sampleManager(), mixedCaster(t), "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), mixedCaster(t), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 58, Height: 34})
 	mm := m.(Model)
 	if mm.layout().enemy {
@@ -728,7 +728,7 @@ func TestWriteShots(t *testing.T) {
 	}
 	// caster scene with the cursor hovering a buff target, to show the ✕ affordance
 	smC, trC := casterScene()
-	var m tea.Model = New(smC, trC, "Kelkix")
+	var m tea.Model = NewModel(smC, trC, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 108, Height: 34})
 	mc := m.(Model)
 	mc.refresh()
@@ -760,7 +760,7 @@ func TestWriteShots(t *testing.T) {
 	}
 
 	// plain-text dump of just the damage panel content, to eyeball the columns
-	var dm tea.Model = New(sampleManager(), nil, "Kelkix")
+	var dm tea.Model = NewModel(sampleManager(), nil, "Kelkix")
 	dm, _ = dm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	dmm := dm.(Model)
 	if err := os.WriteFile("/tmp/tui-damage.txt", []byte(dmm.damageContent(dmm.sessions[dmm.effectiveSel()], true, 80)), 0o644); err != nil {
@@ -791,7 +791,7 @@ func TestCanniPinnedInDamagePanel(t *testing.T) {
 	tr.BeginCast("Cannibalize III", now-9)
 	tr.BeginCast("Cannibalize III", now) // second cast within the window → Active
 
-	var m tea.Model = New(sampleManager(), tr, "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	mm := m.(Model)
 
@@ -853,7 +853,7 @@ func TestCasterAppearsAndLinksPet(t *testing.T) {
 	tr.SetCharacter("Kelkix")
 	tr.Observe("Xenab says 'My leader is Kelkix.'", time.Now().Unix())
 
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	out := mm.damageContent(mm.sessions[mm.effectiveSel()], true, 80)
@@ -934,7 +934,7 @@ func monkSelfBuff(t *testing.T) *gamestate.Tracker {
 // TestMeleeBuffsColumn: a melee class gets a third "Buffs" column (not "Enemy"),
 // and self-buff timers render there via the shared timerColumn code.
 func TestMeleeBuffsColumn(t *testing.T) {
-	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), monkSelfBuff(t), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 
@@ -955,7 +955,7 @@ func TestMeleeBuffsColumn(t *testing.T) {
 // TestMeleeBuffsFoldNarrow: too narrow for a third column, the self-buffs fold
 // into the Skills panel rather than vanish.
 func TestMeleeBuffsFoldNarrow(t *testing.T) {
-	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
+	var m tea.Model = NewModel(sampleManager(), monkSelfBuff(t), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 58, Height: 40})
 	mm := m.(Model)
 	mm.layoutPrefs.DiscHidden = true // testing buff-fold, not the discipline widget
@@ -1624,7 +1624,7 @@ func TestLayoutHonorsBoxModes(t *testing.T) {
 }
 
 func TestDamageCompactDropsColumns(t *testing.T) {
-	var m tea.Model = New(sampleManager(), nil, "X")
+	var m tea.Model = NewModel(sampleManager(), nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.refresh()

@@ -116,7 +116,7 @@ func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 // there's no /loc.
 func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, floors bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
-	cv := braille.New(dotW, dotH)
+	cv := braille.NewCanvas(dotW, dotH)
 	cv.Background(mapBgR, mapBgG, mapBgB) // a light "paper" backdrop so dark lines show
 
 	worldW := math.Max(mp.MaxX-mp.MinX, 1)

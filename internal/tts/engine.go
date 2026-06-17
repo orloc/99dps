@@ -33,9 +33,9 @@ type Voice struct {
 	Desc string // human description (accent · gender · character)
 }
 
-// New builds the neural speech engine. It always returns a usable value; when
+// NewEngine builds the neural speech engine. It always returns a usable value; when
 // the voice assets aren't downloaded yet the engine reports Available()==false
 // and cues no-op until EnsureAssets (the -tts-setup flow) has run.
-func New() Engine {
+func NewEngine() Engine {
 	return newKokoro()
 }

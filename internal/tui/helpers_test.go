@@ -44,7 +44,7 @@ func renderAt(sm *session.SessionManager, themeIdx, w, h int) string {
 }
 
 func renderAtTr(sm *session.SessionManager, tr *gamestate.Tracker, themeIdx, w, h int) string {
-	var m tea.Model = New(sm, tr, "Kelkix")
+	var m tea.Model = NewModel(sm, tr, "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	mm := m.(Model)
 	mm.theme = themeIdx

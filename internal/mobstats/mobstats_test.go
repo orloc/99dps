@@ -3,7 +3,7 @@ package mobstats
 import "testing"
 
 func TestAvgAndOverall(t *testing.T) {
-	ix := New()
+	ix := NewIndex()
 	now := int64(1_000_000)
 	for _, d := range []int{40, 60, 50} {
 		ix.Record("a sand giant", d, now)
@@ -26,7 +26,7 @@ func TestAvgAndOverall(t *testing.T) {
 
 // TestWindow: hits older than the window drop out of the average.
 func TestWindow(t *testing.T) {
-	ix := New()
+	ix := NewIndex()
 	base := int64(1_000_000)
 	ix.Record("a rat", 100, base)    // big
 	ix.Record("a rat", 10, base+100) // small, both within the window
@@ -52,7 +52,7 @@ func TestGuardsAndClear(t *testing.T) {
 	}
 	nilIx.Record("x", 5, 0) // must not panic
 
-	ix := New()
+	ix := NewIndex()
 	ix.Record("a rat", 0, 1) // non-positive ignored
 	ix.Record("", 5, 1)      // empty name ignored
 	if len(ix.Seen(1)) != 0 {

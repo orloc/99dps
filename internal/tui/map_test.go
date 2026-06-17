@@ -75,7 +75,7 @@ func TestFloorScoping(t *testing.T) {
 	}
 
 	// f toggles floor-scoping on the model (default off)
-	m := New(&session.SessionManager{}, nil, "X")
+	m := NewModel(&session.SessionManager{}, nil, "X")
 	if m.mapFloors {
 		t.Error("floor-scoping should default off")
 	}
@@ -90,7 +90,7 @@ func TestFloorScoping(t *testing.T) {
 func TestMapView_States(t *testing.T) {
 	tr := gamestate.NewTracker(&gamestate.Book{})
 	tr.Observe("You have entered Sebilis.", 1)
-	m := New(&session.SessionManager{}, tr, "X")
+	m := NewModel(&session.SessionManager{}, tr, "X")
 
 	// before a map loads: header + a hint, no overflow
 	out := m.mapView(themes[0], 50, 20)
@@ -129,7 +129,7 @@ func TestMaybeLoadMapCmd(t *testing.T) {
 
 	tr := gamestate.NewTracker(&gamestate.Book{})
 	tr.Observe("You have entered Sebilis.", 1)
-	m := New(&session.SessionManager{}, tr, "X")
+	m := NewModel(&session.SessionManager{}, tr, "X")
 	m.mapLoader = &eqmap.Loader{BaseURL: srv.URL, HTTP: srv.Client()}
 
 	cmd := m.maybeLoadMapCmd()
@@ -155,7 +155,7 @@ func TestMaybeLoadMapCmd(t *testing.T) {
 // TestMapZoom: +/- adjust the zoom (clamped ≥1), and a higher zoom centered on
 // the player renders differently (zoomed in) than the whole-zone fit.
 func TestMapZoom(t *testing.T) {
-	m := New(&session.SessionManager{}, nil, "X")
+	m := NewModel(&session.SessionManager{}, nil, "X")
 	if m.mapZoom != 4 {
 		t.Fatalf("default zoom = %v, want 4", m.mapZoom)
 	}
@@ -170,7 +170,7 @@ func TestMapZoom(t *testing.T) {
 	}
 
 	// the mouse wheel zooms on the Map tab
-	mw := New(&session.SessionManager{}, nil, "X")
+	mw := NewModel(&session.SessionManager{}, nil, "X")
 	mw.screen = screenMap
 	mw.mapZoom = 4
 	var tm tea.Model = mw
@@ -197,7 +197,7 @@ func TestMapZoom(t *testing.T) {
 
 // TestMapTabReachable: the Map tab is selectable and renders.
 func TestMapTabReachable(t *testing.T) {
-	var m tea.Model = New(&session.SessionManager{}, gamestate.NewTracker(&gamestate.Book{}), "X")
+	var m tea.Model = NewModel(&session.SessionManager{}, gamestate.NewTracker(&gamestate.Book{}), "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")}) // Meter,Sessions,Tools,Map
 	if mm := m.(Model); mm.screen != screenMap {

@@ -33,8 +33,8 @@ type Canvas struct {
 	hasBg         bool
 }
 
-// New makes a canvas sized in dots; its character size rounds up (Cols/Rows).
-func New(dotW, dotH int) *Canvas {
+// NewCanvas makes a canvas sized in dots; its character size rounds up (Cols/Rows).
+func NewCanvas(dotW, dotH int) *Canvas {
 	dotW, dotH = max(dotW, 1), max(dotH, 1)
 	cols, rows := (dotW+1)/2, (dotH+3)/4
 	return &Canvas{dotW: dotW, dotH: dotH, cols: cols, rows: rows, cells: make([]cell, cols*rows)}

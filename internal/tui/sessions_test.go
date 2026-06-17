@@ -37,7 +37,7 @@ func TestSessionsTableEmpty(t *testing.T) {
 
 func TestSessionsTabFitsWindow(t *testing.T) {
 	for _, w := range []int{60, 90, 140} {
-		var m tea.Model = New(sampleManager(), nil, "X")
+		var m tea.Model = NewModel(sampleManager(), nil, "X")
 		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
 		mm := m.(Model)
 		mm.screen = screenSessions
@@ -51,7 +51,7 @@ func TestSessionsTabFitsWindow(t *testing.T) {
 }
 
 func TestSessTableAt(t *testing.T) {
-	var m tea.Model = New(twoSessionManager(), nil, "X")
+	var m tea.Model = NewModel(twoSessionManager(), nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.screen = screenSessions
@@ -77,7 +77,7 @@ func TestSessTableAt(t *testing.T) {
 // readySessions builds a ready, sized model on the Sessions tab.
 func readySessions(t *testing.T) Model {
 	t.Helper()
-	var m tea.Model = New(twoSessionManager(), nil, "X")
+	var m tea.Model = NewModel(twoSessionManager(), nil, "X")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	mm := m.(Model)
 	mm.screen = screenSessions

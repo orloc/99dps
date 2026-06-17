@@ -123,7 +123,7 @@ func (m Model) updateSetup(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setup.phase, m.setup.err = phaseError, msg.err
 			return m, nil
 		}
-		m.speaker = tts.New() // assets now present → engine becomes available
+		m.speaker = tts.NewEngine() // assets now present → engine becomes available
 		m.setup.voices = m.speaker.Voices()
 		m.setup.phase, m.setup.sel = phaseVoice, 0
 		return m, nil
