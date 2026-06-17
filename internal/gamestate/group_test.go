@@ -13,6 +13,10 @@ func TestLogoutPause(t *testing.T) {
 		key("Snare", "You"):    {Spell: "Snare", Target: "You", Start: now, Expiry: now + 60, Detrimental: true},     // incoming debuff on you
 	}
 
+	// entered the zone / joined the group 100s before the camp
+	tr.zone.enteredAt = now - 100
+	tr.groupJoinedAt = now - 100
+
 	tr.LogoutPause(300) // logged out for 5 minutes
 
 	got := tr.timers
@@ -22,6 +26,16 @@ func TestLogoutPause(t *testing.T) {
 	cl := got[key("Clarity", "You")]
 	if cl.Expiry != now+600+300 || cl.Start != now+300 {
 		t.Errorf("self-buff should shift by the 300s gap, got start=%d expiry=%d", cl.Start, cl.Expiry)
+	}
+
+	// time-in-zone/group exclude the 300s offline gap: 100s online before the
+	// camp, then resume + 50s = 150s, not 450s.
+	resume := now + 300 + 50
+	if d, ok := tr.TimeInZone(resume); !ok || d != 150 {
+		t.Errorf("time-in-zone should skip the logout gap: got (%d,%v), want (150,true)", d, ok)
+	}
+	if d, ok := tr.TimeInGroup(resume); !ok || d != 150 {
+		t.Errorf("time-in-group should skip the logout gap: got (%d,%v), want (150,true)", d, ok)
 	}
 }
 

@@ -60,6 +60,12 @@ func (t *Tracker) observeLocLocked(body string, at int64) {
 // silence we shift active SELF-BUFFS forward by the gap (freezing them over the
 // logout) and drop effects that don't survive a relog — mob debuffs, charm/mez,
 // and incoming debuffs on you. A later wear-off line self-corrects any overshoot.
+//
+// The same gap is pushed onto the zone and group "since" clocks, so time-in-zone
+// and time-in-group count only time actually logged in — an overnight camp
+// doesn't read as "18h in zone". (An explicit relog re-emits "You have entered
+// X", which resets the zone clock to the login moment anyway; this also covers a
+// long idle/AFK with no zone-in line.)
 func (t *Tracker) LogoutPause(seconds int64) {
 	if t == nil || seconds <= 0 {
 		return
@@ -74,6 +80,12 @@ func (t *Tracker) LogoutPause(seconds int64) {
 		} else {
 			delete(t.timers, k) // a mob debuff / charm / mez / incoming — gone on relog
 		}
+	}
+	if t.zone.enteredAt != 0 {
+		t.zone.enteredAt += seconds
+	}
+	if t.groupJoinedAt != 0 {
+		t.groupJoinedAt += seconds
 	}
 }
 
