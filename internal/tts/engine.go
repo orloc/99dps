@@ -2,8 +2,9 @@ package tts
 
 // Engine speaks short audio-cue phrases via the neural Kokoro backend (sherpa-
 // onnx). There is no robotic OS-voice fallback: until the voice is downloaded
-// (EnsureAssets / the -tts-setup flow) the engine is simply unavailable and cues
-// no-op. Every method is safe to call on an unavailable engine.
+// (EnsureAssets, run automatically the first time audio is enabled) the engine is
+// simply unavailable and cues no-op. Every method is safe to call on an
+// unavailable engine.
 type Engine interface {
 	// Say speaks text without blocking (normal, gentle delivery).
 	Say(text string)
@@ -35,7 +36,8 @@ type Voice struct {
 
 // NewEngine builds the neural speech engine. It always returns a usable value; when
 // the voice assets aren't downloaded yet the engine reports Available()==false
-// and cues no-op until EnsureAssets (the -tts-setup flow) has run.
+// and cues no-op until EnsureAssets (run automatically on first enabling audio)
+// has fetched them.
 func NewEngine() Engine {
 	return newKokoro()
 }

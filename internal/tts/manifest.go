@@ -12,18 +12,22 @@ import "runtime"
 //     (see kokoroVoices). English-only keeps it small and the picker describable.
 //
 // TODO(tts): pin sha256 for each artifact before release. They're left empty for
-// now (no integrity check is performed) because the checksums must be computed
-// from the real downloads on a networked machine. Integrity rests on HTTPS +
-// GitHub until then.
+// now (a content hash must be computed from the real downloads on a networked
+// machine). Until then integrity rests on HTTPS + GitHub plus the minBytes
+// size-floor below, which rejects the realistic corruption modes — a truncated
+// transfer or an HTML error page served as 200 — without being brittle to the
+// exact upstream byte count.
 const sherpaVersion = "v1.13.2"
 
 const sherpaRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" + sherpaVersion + "/"
 const modelRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
 
-// artifact is one downloadable .tar.bz2 (URL + optional sha256 integrity check).
+// artifact is one downloadable .tar.bz2 (URL + optional sha256 integrity check +
+// a minimum expected size).
 type artifact struct {
-	url    string
-	sha256 string // "" = no integrity check (HTTPS only); pin before release
+	url      string
+	sha256   string // "" = no content hash (HTTPS only); pin before release
+	minBytes int64  // reject a transfer smaller than this (0 = no floor)
 }
 
 // sherpaBinary is the prebuilt CLI package per OS — the shared build on both
@@ -32,14 +36,14 @@ type artifact struct {
 // build so no Visual C++ redistributable is required. Both include
 // sherpa-onnx-offline-tts(.exe). Download totals: ~123 MB (engine + model).
 var sherpaBinary = map[string]artifact{
-	"linux":   {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-linux-x64-shared.tar.bz2"},
-	"windows": {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-win-x64-shared-MT-Release.tar.bz2"},
+	"linux":   {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-linux-x64-shared.tar.bz2", minBytes: 10 << 20},
+	"windows": {url: sherpaRelease + "sherpa-onnx-" + sherpaVersion + "-win-x64-shared-MT-Release.tar.bz2", minBytes: 10 << 20},
 }
 
 // kokoroModel is the int8 English Kokoro package (~98 MB: model.onnx, voices.bin,
 // tokens.txt, espeak-ng-data/, lexicons). English-only (v0_19) keeps the
 // download small and the voice list describable — see kokoroVoices.
-var kokoroModel = artifact{url: modelRelease + "kokoro-int8-en-v0_19.tar.bz2"}
+var kokoroModel = artifact{url: modelRelease + "kokoro-int8-en-v0_19.tar.bz2", minBytes: 50 << 20}
 
 // kokoroVoices is the curated, described English voice catalog (Kokoro v0.19).
 // ID is the sherpa --sid index. NOTE: the sid order follows the documented v0.19

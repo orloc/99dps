@@ -75,7 +75,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.theme = (m.theme + 1) % len(themes)
 		case "a":
-			m.toggleTTS()
+			cmds = append(cmds, m.toggleTTS())
 		case "backspace":
 			m.sm.Clear()
 			m.selected, m.follow, m.hover = 0, true, ""
@@ -123,7 +123,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settingsCol = col
 					if col == 0 {
 						m.settingsSel = sel
-						m.applyLeftSetting(sel)
+						cmds = append(cmds, m.applyLeftSetting(sel))
 					} else {
 						m.cueSel = sel
 						m.toggleCue(sel)

@@ -1120,18 +1120,19 @@ func TestEditKeyMaxLength(t *testing.T) {
 	}
 }
 
-// ---- TestToggleTTSNoVoice moved from setup_more_test.go (toggleTTS in model.go) ----
-
-// TestToggleTTSNoVoice: with no available engine, toggling audio flashes guidance
-// and leaves audio off (the only branch the fake engine can't exercise).
+// TestToggleTTSNoVoice: with no downloaded voice, enabling audio drops into the
+// in-app download flow (no manual command) and leaves audio off until it finishes.
 func TestToggleTTSNoVoice(t *testing.T) {
-	m := Model{} // nil speaker
-	m.toggleTTS()
+	m := Model{} // nil speaker → assets not present
+	cmd := m.toggleTTS()
 	if m.ttsOn {
-		t.Error("audio should stay off with no engine")
+		t.Error("audio should stay off until the voice download completes")
 	}
-	if !strings.Contains(m.status, "no voice") {
-		t.Errorf("expected a no-voice hint, got %q", m.status)
+	if m.screen != screenSetup || m.setup.phase != phaseDownloading {
+		t.Errorf("enabling audio with no voice should enter the download flow, got screen=%v phase=%v", m.screen, m.setup.phase)
+	}
+	if cmd == nil {
+		t.Error("toggleTTS should return the download command")
 	}
 }
 

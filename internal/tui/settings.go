@@ -190,10 +190,9 @@ func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", " ":
 		if m.settingsCol == 0 {
-			m.applyLeftSetting(m.settingsSel)
-		} else {
-			m.toggleCue(m.cueSel)
+			return m, m.applyLeftSetting(m.settingsSel)
 		}
+		m.toggleCue(m.cueSel)
 	case "p":
 		if m.settingsCol == 0 {
 			if v, ok := voiceIndex(m.settingsVoices(), m.settingsSel-settingsFixedRows); ok {
@@ -206,12 +205,12 @@ func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // applyLeftSetting performs the left-column action for selectable row sel
-// (audio toggle, meter-box cycles, or voice select).
-func (m *Model) applyLeftSetting(sel int) {
+// (audio toggle, meter-box cycles, or voice select). Returns a command for the
+// rows that need one (audio enable may kick off the voice download), else nil.
+func (m *Model) applyLeftSetting(sel int) tea.Cmd {
 	switch sel {
 	case settingsAudioRow:
-		m.toggleTTS()
-		m.saveSettings()
+		return m.toggleTTS()
 	case settingsDamageRow:
 		m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
 		m.saveSettings()
@@ -235,6 +234,7 @@ func (m *Model) applyLeftSetting(sel int) {
 			m.flash("✓ saved · voice " + v.Name)
 		}
 	}
+	return nil
 }
 
 // toggleCue flips the cue toggle at right-column index idx and persists it.
@@ -328,7 +328,7 @@ func (m Model) leftSettingsColumn(th theme, w int) (out []string, sel []int) {
 
 	audio := "off"
 	if m.speaker == nil || !m.speaker.Available() {
-		audio = "no voice — run -tts-setup"
+		audio = "off — turn on to download the voice"
 	} else if m.ttsOn {
 		audio = "on"
 	}
@@ -420,8 +420,6 @@ func (m Model) settingsClickAt(x, y int) (col, selIdx int, ok bool) {
 	return 0, 0, false
 }
 
-// toggleTTS flips audio cues at runtime, flashing feedback (no-op without an
-// engine).
 // applyCharSettings loads a character's saved profile into the live model (layout,
 // cue toggles, audio + voice). Used on a character hot-swap so each toon shows its
 // own settings. Audio only switches on when the engine is actually available.
@@ -454,10 +452,17 @@ func (m *Model) saveSettings() {
 	_ = saveStore(m.store)
 }
 
-func (m *Model) toggleTTS() {
+// toggleTTS flips audio cues at runtime. When the neural voice hasn't been
+// downloaded yet, enabling it drops into the same in-app download flow as
+// first-run onboarding (download → pick a voice → back to the meter) instead of
+// asking the user to run anything — the asset fetch just happens. Returns the
+// download command in that case, else nil.
+func (m *Model) toggleTTS() tea.Cmd {
 	if m.speaker == nil || !m.speaker.Available() {
-		m.flash("no voice yet — run: 99dps -tts-setup")
-		return
+		m.setup = setupState{phase: phaseDownloading, ch: make(chan tea.Msg, 4)}
+		m.screen = screenSetup
+		m.flash("downloading voice…")
+		return startDownload(m.setup.ch)
 	}
 	m.ttsOn = !m.ttsOn
 	if m.ttsOn {
@@ -466,4 +471,6 @@ func (m *Model) toggleTTS() {
 	} else {
 		m.flash("audio cues off")
 	}
+	m.saveSettings()
+	return nil
 }

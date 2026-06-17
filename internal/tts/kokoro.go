@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+)
+
+// Subprocess time budgets. The worker plays cues serially, so a single wedged
+// sherpa or audio player would otherwise block every later cue forever; these
+// bound the damage to one skipped cue.
+const (
+	synthTimeout = 60 * time.Second // sherpa CLI synthesizing one short clip
+	playTimeout  = 30 * time.Second // playing one short WAV cue
 )
 
 // kokoroEngine is the neural backend. It drives the bundled sherpa-onnx offline
@@ -208,7 +218,9 @@ func (k *kokoroEngine) synth(text string, sid int, scale, out string) error {
 		"--output-filename="+out,
 		text, // positional: the text to speak, must come last
 	)
-	cmd := exec.Command(k.cli, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), synthTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, k.cli, args...)
 	hideWindow(cmd) // no-op except on Windows
 	return cmd.Run()
 }
@@ -244,26 +256,6 @@ func labeled(fn func(string, int64), label string) func(int64) {
 		return nil
 	}
 	return func(done int64) { fn(label, done) }
-}
-
-// Setup downloads the neural assets (if missing), synthesizes a test phrase, and
-// plays it — the one-shot way to verify the whole runtime path (download → synth
-// → audio) on a real machine. Returns the path of the test WAV. Blocking; intended
-// for a `-tts-setup` CLI flow, not the UI.
-func Setup(progress func(label string, done int64)) (string, error) {
-	if err := EnsureAssets(progress); err != nil {
-		return "", err
-	}
-	k := newKokoro()
-	if k == nil {
-		return "", errors.New("assets missing after download (unexpected)")
-	}
-	out := filepath.Join(os.TempDir(), "99dps-tts-test.wav")
-	if err := k.synth("Audio cues are ready.", k.sid, kokoroLengthScale, out); err != nil {
-		return "", fmt.Errorf("synthesis failed: %w", err)
-	}
-	playWav(out)
-	return out, nil
 }
 
 // --- path helpers ---

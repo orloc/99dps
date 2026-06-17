@@ -14,16 +14,21 @@ import (
 	"time"
 )
 
-// fetchArtifact downloads a .tar.bz2 to a temp file, verifies its sha256 when
-// one is pinned (HTTPS-only otherwise), and extracts it into destDir. progress, if non-
-// nil, is called with bytes-downloaded as the transfer proceeds. It is a no-op
-// (returns nil) when destDir already looks populated, so first-run downloads are
-// idempotent.
+// fetchArtifact downloads a .tar.bz2 to a temp file, verifies its size/sha256,
+// and extracts it into destDir. progress, if non-nil, is called with
+// bytes-downloaded as the transfer proceeds. It is a no-op (returns nil) when
+// destDir already looks populated, so first-run downloads are idempotent.
+//
+// Extraction is atomic: the archive is unpacked into a sibling staging dir and
+// renamed into place only on success, so an interrupted or failed extract never
+// leaves a half-populated destDir that the dirPopulated check would later
+// mistake for a complete install.
 func fetchArtifact(a artifact, destDir string, progress func(done int64)) error {
 	if dirPopulated(destDir) {
 		return nil
 	}
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	parent := filepath.Dir(destDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
 	}
 
@@ -40,13 +45,38 @@ func fetchArtifact(a artifact, destDir string, progress func(done int64)) error 
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	if err := extractTar(bzip2.NewReader(tmp), destDir); err != nil {
-		return fmt.Errorf("extract %s: %w", a.url, err)
+	if err := installTar(bzip2.NewReader(tmp), destDir); err != nil {
+		return fmt.Errorf("install %s: %w", a.url, err)
 	}
 	return nil
 }
 
-// download streams a.url into w, verifying sha256 when a.sha256 is set.
+// installTar extracts a (decompressed) tar stream into destDir atomically: it
+// unpacks into a sibling staging dir on the same filesystem and renames it into
+// place only on success. A failed or interrupted extract therefore never leaves
+// a half-populated destDir that dirPopulated would later mistake for a complete
+// install. destDir's parent must already exist.
+func installTar(r io.Reader, destDir string) error {
+	parent := filepath.Dir(destDir)
+	stage, err := os.MkdirTemp(parent, filepath.Base(destDir)+".staging-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage) // no-op once the stage has been renamed away
+
+	if err := extractTar(r, stage); err != nil {
+		return err
+	}
+	// Clear any stale partial dir from an earlier crashed run, then swap in the
+	// fully-extracted stage.
+	if err := os.RemoveAll(destDir); err != nil {
+		return err
+	}
+	return os.Rename(stage, destDir)
+}
+
+// download streams a.url into w, verifying its size floor and (when pinned) its
+// sha256.
 func download(a artifact, w io.Writer, progress func(done int64)) error {
 	client := &http.Client{Timeout: 30 * time.Minute}
 	resp, err := client.Get(a.url)
@@ -63,12 +93,19 @@ func download(a artifact, w io.Writer, progress func(done int64)) error {
 	if progress != nil {
 		src = io.TeeReader(src, &progressWriter{fn: progress})
 	}
-	if _, err := io.Copy(w, src); err != nil {
+	n, err := io.Copy(w, src)
+	if err != nil {
 		return err
 	}
 
+	// Size floor first: a truncated transfer or an HTML error page served as 200
+	// is the realistic corruption mode, and it's cheaper to catch than a hash.
+	if n < a.minBytes {
+		return fmt.Errorf("download too small: got %d bytes, want >= %d (truncated or error page?)", n, a.minBytes)
+	}
 	if a.sha256 == "" {
-		// integrity rests on HTTPS until checksums are pinned (see manifest.go).
+		// content integrity rests on HTTPS + the size floor until a hash is
+		// pinned (see manifest.go).
 		return nil
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, a.sha256) {
