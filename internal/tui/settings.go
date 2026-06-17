@@ -418,3 +418,51 @@ func (m Model) settingsClickAt(x, y int) (col, selIdx int, ok bool) {
 	}
 	return 0, 0, false
 }
+
+// toggleTTS flips audio cues at runtime, flashing feedback (no-op without an
+// engine).
+// applyCharSettings loads a character's saved profile into the live model (layout,
+// cue toggles, audio + voice). Used on a character hot-swap so each toon shows its
+// own settings. Audio only switches on when the engine is actually available.
+func (m *Model) applyCharSettings(cs charSettings) {
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
+	m.cues = cuePrefs{Overrides: cs.Cues}
+	if cs.Voice != "" && m.speaker != nil {
+		m.speaker.SetVoice(cs.Voice)
+	}
+	m.ttsOn = cs.AudioOn && m.speaker != nil && m.speaker.Available()
+}
+
+// saveSettings persists the current character's live settings into the
+// consolidated store. Called after every settings change so each toon's choices
+// stick across restarts and character switches.
+func (m *Model) saveSettings() {
+	voice := ""
+	if m.speaker != nil && m.speaker.Available() {
+		voice = m.speaker.Voice()
+	}
+	m.store.setChar(m.character, charSettings{
+		AudioOn:    m.ttsOn,
+		Voice:      voice,
+		Damage:     m.layoutPrefs.Damage,
+		OffDef:     m.layoutPrefs.OffDef,
+		ClassBox:   m.layoutPrefs.ClassBox,
+		DiscHidden: m.layoutPrefs.DiscHidden,
+		Cues:       m.cues.Overrides,
+	})
+	_ = saveStore(m.store)
+}
+
+func (m *Model) toggleTTS() {
+	if m.speaker == nil || !m.speaker.Available() {
+		m.flash("no voice yet — run: 99dps -tts-setup")
+		return
+	}
+	m.ttsOn = !m.ttsOn
+	if m.ttsOn {
+		m.speaker.Say("audio cues on")
+		m.flash("♪ audio cues on")
+	} else {
+		m.flash("audio cues off")
+	}
+}
