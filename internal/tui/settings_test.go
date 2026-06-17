@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"99dps/internal/cues"
 	"99dps/internal/eqclass"
 	"99dps/internal/session"
 	"99dps/internal/tts"
@@ -72,11 +73,11 @@ func TestSettingsColWidthsNarrowClamp(t *testing.T) {
 
 // TestToggleCueOutOfRange: an out-of-range index is a no-op (no panic, no flash).
 func TestToggleCueOutOfRange(t *testing.T) {
-	m := &Model{cues: cuePrefs{Overrides: map[string]bool{}}}
+	m := &Model{cuePrefs: cues.Prefs{Overrides: map[string]bool{}}}
 	m.toggleCue(-1)
 	m.toggleCue(9999)
-	if len(m.cues.Overrides) != 0 || m.status != "" {
-		t.Errorf("out-of-range toggle should not change anything (overrides=%v status=%q)", m.cues.Overrides, m.status)
+	if len(m.cuePrefs.Overrides) != 0 || m.status != "" {
+		t.Errorf("out-of-range toggle should not change anything (overrides=%v status=%q)", m.cuePrefs.Overrides, m.status)
 	}
 }
 
@@ -119,7 +120,7 @@ func TestSettingsNavClampsBothColumns(t *testing.T) {
 
 	// right column: drive past the end, it clamps at the last cue toggle
 	send("right")
-	last := len(cueToggles(cueRows(eqclass.ClassUnknown))) - 1
+	last := len(cues.Toggles(cues.Rows(eqclass.ClassUnknown))) - 1
 	for i := 0; i < last+5; i++ {
 		send("down")
 	}
@@ -177,9 +178,9 @@ func TestUpdateSettingsEnterTogglesCue(t *testing.T) {
 	m := Model{screen: screenSettings, settingsCol: 1, cueSel: 0}
 	tm, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
 	m = tm.(Model)
-	first := cueToggles(cueRows(eqclass.ClassUnknown))[0]
-	if m.cues.enabled(first.id, first.def) {
-		t.Errorf("enter on the cue column should toggle %s off", first.id)
+	first := cues.Toggles(cues.Rows(eqclass.ClassUnknown))[0]
+	if m.cuePrefs.Enabled(first.ID, first.Def) {
+		t.Errorf("enter on the cue column should toggle %s off", first.ID)
 	}
 }
 
@@ -283,9 +284,9 @@ func TestSettingsMouseTogglesCue(t *testing.T) {
 	rx := gridX + leftW + settingsGapW
 	m2, _ := mm.Update(tea.MouseMsg{X: rx, Y: gridTop + line, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	mm2 := m2.(Model)
-	row := cueToggles(cueRows(eqclass.ClassUnknown))[wantSel]
-	if mm2.cues.enabled(row.id, row.def) {
-		t.Errorf("a left-click on cue row %d should toggle %s off", wantSel, row.id)
+	row := cues.Toggles(cues.Rows(eqclass.ClassUnknown))[wantSel]
+	if mm2.cuePrefs.Enabled(row.ID, row.Def) {
+		t.Errorf("a left-click on cue row %d should toggle %s off", wantSel, row.ID)
 	}
 }
 
@@ -430,12 +431,12 @@ func TestSettingsRightColumnToggle(t *testing.T) {
 	}
 	send(tea.KeyMsg{Type: tea.KeyEnter}) // toggle the first cue (Mend ready, default on → off)
 
-	first := cueToggles(cueRows(eqclass.ClassUnknown))[0]
-	if m.cues.enabled(first.id, first.def) {
-		t.Errorf("first cue (%s) should now be off", first.id)
+	first := cues.Toggles(cues.Rows(eqclass.ClassUnknown))[0]
+	if m.cuePrefs.Enabled(first.ID, first.Def) {
+		t.Errorf("first cue (%s) should now be off", first.ID)
 	}
-	saved := cuePrefs{Overrides: loadStore().forChar(m.character).Cues}
-	if saved.enabled(first.id, first.def) {
+	saved := cues.Prefs{Overrides: loadStore().forChar(m.character).Cues}
+	if saved.Enabled(first.ID, first.Def) {
 		t.Errorf("the cue toggle should persist to the settings store")
 	}
 }

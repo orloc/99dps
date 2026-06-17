@@ -3,6 +3,7 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
+	"99dps/internal/cues"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 )
@@ -21,7 +22,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 	m.store = loadStore()
 	cs := m.store.forChar(character) // this character's saved profile (or the Default)
 	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
-	m.cues = cuePrefs{Overrides: cs.Cues}
+	m.cuePrefs = cues.Prefs{Overrides: cs.Cues}
 	m.screen = initialScreen(m.store.Configured)
 	if m.screen == screenSetup {
 		m.setup = newSetupState()

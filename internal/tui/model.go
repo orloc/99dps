@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"99dps/internal/cues"
 	"99dps/internal/eqmap"
 	"99dps/internal/gamestate"
 	"99dps/internal/prices"
@@ -64,25 +65,14 @@ type Model struct {
 	enemyTargets map[int]string
 	hover        string
 
-	// TTS audio cues for buff/debuff timers. announced records the loudest urgency
-	// already spoken per spell\x00target, so a buff cues once on entering "low"
-	// (gold) and again on "fading" (red), re-arming when refreshed/expired.
+	// TTS audio cues for buff/debuff timers. The cue engine (internal/cues) holds
+	// the across-tick dedup state + phrasing; the model owns the speaker, the
+	// on/off flag, and the persisted prefs the engine reads each tick.
 	speaker   tts.Engine
 	ttsOn     bool
-	announced map[string]gamestate.Urgency
-
-	// urgent combat-cue dedup (fire once per event, re-arm when it clears) and a
-	// rotating sequence for natural phrasing variety.
-	charmAnnounced     bool
-	resistAnnounced    string
-	feignFailAnnounced bool
-	cdReady            map[string]bool // cooldown name → was-ready last tick
-	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
-	spawnAnnounced     map[string]bool // repop expiry-key → "spawn soon" cue already spoken
-	lastSlainClears    int             // tracker.SlainClearCount() last seen → flush queued cues on a kill
-	cues               cuePrefs        // which cues fire (per-skill / per-category toggles)
-	store              store           // consolidated per-character settings (settings.json)
-	cueSeq             int
+	cueEngine *cues.Engine // decides + speaks this tick's cues (see internal/cues)
+	cuePrefs  cues.Prefs   // which cues fire (per-skill / per-category toggles)
+	store     store        // consolidated per-character settings (settings.json)
 
 	// transient status banner (character switch, action feedback, edit prompt),
 	// shown in the footer for a few seconds.
@@ -131,10 +121,19 @@ type Model struct {
 func NewModel(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
-		speaker: tts.NewEngine(), announced: map[string]gamestate.Urgency{},
-		cdReady: map[string]bool{}, cdHalf: map[string]bool{},
+		speaker: tts.NewEngine(), cueEngine: cues.NewEngine(),
 		pricer: prices.NewClient(), mapLoader: eqmap.NewLoader(), mapZoom: 4,
 	}
+}
+
+// announceCues speaks this tick's audio cues via the cue engine, reading live
+// state from the tracker and gating on the player's cue prefs. No-op when audio
+// is off.
+func (m *Model) announceCues() {
+	if !m.ttsOn {
+		return
+	}
+	m.cueEngine.Announce(m.speaker, m.tracker, m.cuePrefs, time.Now().Unix())
 }
 
 func (m Model) Init() tea.Cmd { return tick() }

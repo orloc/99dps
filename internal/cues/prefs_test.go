@@ -1,4 +1,4 @@
-package tui
+package cues
 
 import (
 	"testing"
@@ -7,18 +7,18 @@ import (
 )
 
 func TestCuePrefsDefaultAndOverride(t *testing.T) {
-	var c cuePrefs // zero value: everything at its default
+	var c Prefs // zero value: everything at its default
 
-	if !c.enabled("cc.mez", true) {
+	if !c.Enabled("cc.mez", true) {
 		t.Error("unset cue should take its default (true)")
 	}
-	if c.enabled("cd.ready.Kick", false) {
+	if c.Enabled("cd.ready.Kick", false) {
 		t.Error("unset cue should take its default (false)")
 	}
 
 	// toggling a default-on cue stores an explicit off
-	c.toggle("cc.mez", true)
-	if c.enabled("cc.mez", true) {
+	c.Toggle("cc.mez", true)
+	if c.Enabled("cc.mez", true) {
 		t.Error("toggled cue should now be off")
 	}
 	if v, ok := c.Overrides["cc.mez"]; !ok || v {
@@ -26,8 +26,8 @@ func TestCuePrefsDefaultAndOverride(t *testing.T) {
 	}
 
 	// toggling it back to its default drops the override entirely (minimal file)
-	c.toggle("cc.mez", true)
-	if !c.enabled("cc.mez", true) {
+	c.Toggle("cc.mez", true)
+	if !c.Enabled("cc.mez", true) {
 		t.Error("toggled back should restore the default (on)")
 	}
 	if _, ok := c.Overrides["cc.mez"]; ok {
@@ -40,8 +40,8 @@ func TestCuePrefsDefaultAndOverride(t *testing.T) {
 // present. Adding a skill to the registry should surface here automatically.
 func TestCueRowsCoverCatalog(t *testing.T) {
 	ids := map[string]bool{}
-	for _, r := range cueToggles(cueRows(eqclass.ClassUnknown)) {
-		ids[r.id] = true
+	for _, r := range Toggles(Rows(eqclass.ClassUnknown)) {
+		ids[r.ID] = true
 	}
 	for _, want := range []string{
 		cueCDReady("Mend"), cueCDHalf("Mend"),
@@ -57,8 +57,8 @@ func TestCueRowsCoverCatalog(t *testing.T) {
 // TestCueRowsByClass: the matrix shows only what a class can produce.
 func TestCueRowsByClass(t *testing.T) {
 	has := func(class eqclass.Class, id string) bool {
-		for _, r := range cueToggles(cueRows(class)) {
-			if r.id == id {
+		for _, r := range Toggles(Rows(class)) {
+			if r.ID == id {
 				return true
 			}
 		}
@@ -95,8 +95,8 @@ func TestCueRowsByClass(t *testing.T) {
 		t.Error("Bard should have mez + charm, not pacify")
 	}
 	// Warrior: no spells → only the universal spawn cue.
-	wt := cueToggles(cueRows(eqclass.ClassWarrior))
-	if len(wt) != 1 || wt[0].id != cueSpawnSoon {
+	wt := Toggles(Rows(eqclass.ClassWarrior))
+	if len(wt) != 1 || wt[0].ID != cueSpawnSoon {
 		t.Errorf("Warrior should have only the spawn cue, got %+v", wt)
 	}
 	// the spawn cue is universal.

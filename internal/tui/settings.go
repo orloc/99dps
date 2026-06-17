@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"99dps/internal/cues"
 	"99dps/internal/tts"
 )
 
@@ -184,7 +185,7 @@ func (m Model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if last := settingsFixedRows + len(m.settingsVoices()) - 1; m.settingsSel < last {
 				m.settingsSel++
 			}
-		} else if last := len(cueToggles(cueRows(m.tracker.Class()))) - 1; m.cueSel < last {
+		} else if last := len(cues.Toggles(cues.Rows(m.tracker.Class()))) - 1; m.cueSel < last {
 			m.cueSel++
 		}
 	case "enter", " ":
@@ -238,18 +239,18 @@ func (m *Model) applyLeftSetting(sel int) {
 
 // toggleCue flips the cue toggle at right-column index idx and persists it.
 func (m *Model) toggleCue(idx int) {
-	toggles := cueToggles(cueRows(m.tracker.Class()))
+	toggles := cues.Toggles(cues.Rows(m.tracker.Class()))
 	if idx < 0 || idx >= len(toggles) {
 		return
 	}
 	r := toggles[idx]
-	m.cues.toggle(r.id, r.def)
+	m.cuePrefs.Toggle(r.ID, r.Def)
 	m.saveSettings()
 	state := "off"
-	if m.cues.enabled(r.id, r.def) {
+	if m.cuePrefs.Enabled(r.ID, r.Def) {
 		state = "on"
 	}
-	m.flash("✓ saved · " + r.label + " " + state)
+	m.flash("✓ saved · " + r.Label + " " + state)
 }
 
 // onOff renders a bool toggle's state for the settings labels.
@@ -383,16 +384,16 @@ func (m Model) rightSettingsColumn(th theme, w int) (out []string, sel []int) {
 	add(paint(th, th.accent, "Cue settings", w), -1)
 	add("", -1)
 	idx := 0
-	for _, r := range cueRows(m.tracker.Class()) {
-		if r.header {
-			add(paint(th, th.dim, r.label, w), -1)
+	for _, r := range cues.Rows(m.tracker.Class()) {
+		if r.Header {
+			add(paint(th, th.dim, r.Label, w), -1)
 			continue
 		}
 		box := "[ ] "
-		if m.cues.enabled(r.id, r.def) {
+		if m.cuePrefs.Enabled(r.ID, r.Def) {
 			box = "[x] "
 		}
-		add(menuRow(th, focused && idx == m.cueSel, box+r.label, w), idx)
+		add(menuRow(th, focused && idx == m.cueSel, box+r.Label, w), idx)
 		idx++
 	}
 	return
@@ -426,7 +427,7 @@ func (m Model) settingsClickAt(x, y int) (col, selIdx int, ok bool) {
 // own settings. Audio only switches on when the engine is actually available.
 func (m *Model) applyCharSettings(cs charSettings) {
 	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
-	m.cues = cuePrefs{Overrides: cs.Cues}
+	m.cuePrefs = cues.Prefs{Overrides: cs.Cues}
 	if cs.Voice != "" && m.speaker != nil {
 		m.speaker.SetVoice(cs.Voice)
 	}
@@ -448,7 +449,7 @@ func (m *Model) saveSettings() {
 		OffDef:     m.layoutPrefs.OffDef,
 		ClassBox:   m.layoutPrefs.ClassBox,
 		DiscHidden: m.layoutPrefs.DiscHidden,
-		Cues:       m.cues.Overrides,
+		Cues:       m.cuePrefs.Overrides,
 	})
 	_ = saveStore(m.store)
 }

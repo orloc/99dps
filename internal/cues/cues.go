@@ -1,110 +1,153 @@
-package tui
+// Package cues is the audio-cue engine: given the live game state (a
+// gamestate.Tracker snapshot), it decides what short phrases to speak this tick,
+// dedups them so each event fires once, and phrases them naturally. It is pure
+// logic — no rendering — so it lives apart from the tui presentation layer and is
+// unit-tested on its own. The tui's model owns an *Engine and calls Announce on
+// each tick; a small Speaker interface keeps the tts engine at arm's length.
+package cues
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"99dps/internal/gamestate"
 )
 
-// announceCues speaks this tick's audio cues. Urgent combat alerts (charm break,
-// resist) use SayUrgent — a snappier voice that jumps the playback queue — and
-// each fires once per event. Buff/debuff fades are gentler, combined into one
-// varied sentence so simultaneous fades don't overlap. No-op when audio is off.
-func (m *Model) announceCues() { m.announceCuesAt(time.Now().Unix()) }
+// Speaker is the minimal speech sink the engine needs — the tts engine satisfies
+// it. SayUrgent jumps the queue for time-critical alerts; Flush drops queued
+// (not-yet-spoken) normal cues when a mob dies so stale fades don't play on.
+type Speaker interface {
+	Say(text string)
+	SayUrgent(text string)
+	Flush()
+}
 
-// announceCuesAt is the testable core (now is injected). Urgent alerts use
-// SayUrgent (snappier, jump the queue); informational ones use Say.
-func (m *Model) announceCuesAt(now int64) {
-	if !m.ttsOn || m.tracker == nil || m.speaker == nil {
+// Engine holds the transient "what have we already announced" state across ticks
+// (so each event cues once and re-arms when it clears) plus a rotating sequence
+// for phrasing variety. The cue prefs are passed in per call (the model owns
+// them, for settings + persistence), keeping the engine free of config state.
+type Engine struct {
+	// announced records the loudest urgency already spoken per spell\x00target, so
+	// a buff cues once on entering "low" (gold) and again on "fading" (red),
+	// re-arming when refreshed/expired.
+	announced map[string]gamestate.Urgency
+
+	// urgent combat-cue dedup (fire once per event, re-arm when it clears).
+	charmAnnounced     bool
+	resistAnnounced    string
+	feignFailAnnounced bool
+	cdReady            map[string]bool // cooldown name → was-ready last tick
+	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
+	spawnAnnounced     map[string]bool // repop expiry-key → "spawn soon" cue already spoken
+	lastSlainClears    int             // tracker.SlainClearCount() last seen → flush queued cues on a kill
+
+	seq int // rotates phrasing for natural variety
+}
+
+// NewEngine builds a ready cue engine with its transition maps initialized.
+func NewEngine() *Engine {
+	return &Engine{
+		announced:      map[string]gamestate.Urgency{},
+		cdReady:        map[string]bool{},
+		cdHalf:         map[string]bool{},
+		spawnAnnounced: map[string]bool{},
+	}
+}
+
+// Announce speaks this tick's audio cues into sp, reading live state from tr and
+// gating each cue on prefs. Urgent combat alerts (charm break, resist, failed
+// feign) use SayUrgent — a snappier voice that jumps the playback queue — and
+// each fires once per event. Buff/debuff fades are gentler, combined into one
+// varied sentence so simultaneous fades don't overlap. No-op when sp or tr is nil.
+func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now int64) {
+	if sp == nil || tr == nil {
 		return
 	}
-	// lazily ensure the transition-tracking maps exist (a directly-constructed
-	// Model in tests, or a future field, won't have run New's init).
-	if m.cdReady == nil {
-		m.cdReady = map[string]bool{}
+	// lazily ensure the transition-tracking maps exist (a zero-value Engine{}, or
+	// a future field, won't have run NewEngine's init).
+	if e.cdReady == nil {
+		e.cdReady = map[string]bool{}
 	}
-	if m.cdHalf == nil {
-		m.cdHalf = map[string]bool{}
+	if e.cdHalf == nil {
+		e.cdHalf = map[string]bool{}
 	}
-	if m.announced == nil {
-		m.announced = map[string]gamestate.Urgency{}
+	if e.announced == nil {
+		e.announced = map[string]gamestate.Urgency{}
 	}
-	if m.spawnAnnounced == nil {
-		m.spawnAnnounced = map[string]bool{}
+	if e.spawnAnnounced == nil {
+		e.spawnAnnounced = map[string]bool{}
 	}
 
 	// a mob died (a slain line or an inferred xp-only kill) → drop any queued fade
 	// cues about its now-gone debuffs, so they don't spam after the kill.
-	if n := m.tracker.SlainClearCount(); n != m.lastSlainClears {
-		m.lastSlainClears = n
-		m.speaker.Flush()
+	if n := tr.SlainClearCount(); n != e.lastSlainClears {
+		e.lastSlainClears = n
+		sp.Flush()
 	}
 
 	// charm break — scary and time-critical.
-	if m.tracker.CharmBroke(now) {
-		if !m.charmAnnounced {
-			m.charmAnnounced = true
-			if m.cues.enabled(cueCharm, true) {
-				m.speaker.SayUrgent(charmBreakPhrase(m.cueSeq))
-				m.cueSeq++
+	if tr.CharmBroke(now) {
+		if !e.charmAnnounced {
+			e.charmAnnounced = true
+			if prefs.Enabled(cueCharm, true) {
+				sp.SayUrgent(charmBreakPhrase(e.seq))
+				e.seq++
 			}
 		}
 	} else {
-		m.charmAnnounced = false
+		e.charmAnnounced = false
 	}
 
 	// a failed feign death — you're still being attacked. urgent.
-	if m.tracker.FeignStatus(now) == gamestate.FeignFailed {
-		if !m.feignFailAnnounced {
-			m.feignFailAnnounced = true
-			if m.cues.enabled(cueFeignFail, true) {
-				m.speaker.SayUrgent(feignFailPhrase(m.cueSeq))
-				m.cueSeq++
+	if tr.FeignStatus(now) == gamestate.FeignFailed {
+		if !e.feignFailAnnounced {
+			e.feignFailAnnounced = true
+			if prefs.Enabled(cueFeignFail, true) {
+				sp.SayUrgent(feignFailPhrase(e.seq))
+				e.seq++
 			}
 		}
 	} else {
-		m.feignFailAnnounced = false
+		e.feignFailAnnounced = false
 	}
 
 	// a cast that didn't land — alert so you re-cast.
-	if spell, ok := m.tracker.Resisted(now); ok {
-		if spell != m.resistAnnounced {
-			m.resistAnnounced = spell
-			if m.cues.enabled(cueResist, true) {
-				m.speaker.SayUrgent(resistPhrase(spell, m.cueSeq))
-				m.cueSeq++
+	if spell, ok := tr.Resisted(now); ok {
+		if spell != e.resistAnnounced {
+			e.resistAnnounced = spell
+			if prefs.Enabled(cueResist, true) {
+				sp.SayUrgent(resistPhrase(spell, e.seq))
+				e.seq++
 			}
 		}
 	} else {
-		m.resistAnnounced = ""
+		e.resistAnnounced = ""
 	}
 
 	// cooldowns recovering. Each skill's "ready" and "halfway" cues toggle
 	// independently; long reuses (Mend) default on, short ones (Kick/Feign) default
 	// off so they aren't chatter — but the user can flip any of them per skill.
-	for _, cd := range m.tracker.Cooldowns(now) {
+	for _, cd := range tr.Cooldowns(now) {
 		def := cd.Total >= longCooldownSec
 		ready := cd.Remaining <= 0
-		if was, seen := m.cdReady[cd.Name]; seen && !was && ready {
-			if m.cues.enabled(cueCDReady(cd.Name), def) {
-				m.speaker.Say(cd.Name + " ready.")
-				m.cueSeq++
+		if was, seen := e.cdReady[cd.Name]; seen && !was && ready {
+			if prefs.Enabled(cueCDReady(cd.Name), def) {
+				sp.Say(cd.Name + " ready.")
+				e.seq++
 			}
 		}
-		m.cdReady[cd.Name] = ready // first sight just records; only false→true speaks
+		e.cdReady[cd.Name] = ready // first sight just records; only false→true speaks
 
 		// halfway recovered: fires once as remaining crosses below half the reuse.
 		half := cd.Total > 0 && !ready && cd.Remaining <= cd.Total/2
-		if was, seen := m.cdHalf[cd.Name]; seen && !was && half {
-			if m.cues.enabled(cueCDHalf(cd.Name), def) {
-				m.speaker.Say(halfCooldownPhrase(cd.Name))
-				m.cueSeq++
+		if was, seen := e.cdHalf[cd.Name]; seen && !was && half {
+			if prefs.Enabled(cueCDHalf(cd.Name), def) {
+				sp.Say(halfCooldownPhrase(cd.Name))
+				e.seq++
 			}
 		}
-		m.cdHalf[cd.Name] = half
+		e.cdHalf[cd.Name] = half
 	}
 
 	// buff/debuff timers crossing into the gold (low) or red (fading) zones — the
@@ -112,7 +155,7 @@ func (m *Model) announceCuesAt(now int64) {
 	// "Low" and "fading" get distinct verbiage; simultaneous subjects in a zone are
 	// combined into one utterance.
 	var low, fading []gamestate.Timer
-	for _, d := range m.dueAnnouncements(m.tracker.Active(now), now) {
+	for _, d := range e.dueAnnouncements(tr.Active(now), prefs, now) {
 		if d.fading {
 			fading = append(fading, d.Timer)
 		} else {
@@ -120,35 +163,35 @@ func (m *Model) announceCuesAt(now int64) {
 		}
 	}
 	if len(low) > 0 {
-		m.speaker.Say(composeCue(low, false, now, m.cueSeq))
-		m.cueSeq++
+		sp.Say(composeCue(low, false, now, e.seq))
+		e.seq++
 	}
 	if len(fading) > 0 {
-		m.speaker.Say(composeCue(fading, true, now, m.cueSeq))
-		m.cueSeq++
+		sp.Say(composeCue(fading, true, now, e.seq))
+		e.seq++
 	}
 
 	// tracked mobs about to repop (~spawnLeadSec out) — fires once per spawn, keyed
 	// by its stable expiry (now+Remaining), re-arming when the spawn pops/purges.
-	if m.cues.enabled(cueSpawnSoon, true) {
+	if prefs.Enabled(cueSpawnSoon, true) {
 		var soon []string
 		liveSpawn := map[string]bool{}
-		for _, r := range m.tracker.Respawns(now) {
+		for _, r := range tr.Respawns(now) {
 			key := r.Mob + "\x00" + strconv.FormatInt(now+r.Remaining, 10)
 			liveSpawn[key] = true
-			if r.Remaining > 0 && r.Remaining <= spawnLeadSec && !m.spawnAnnounced[key] {
-				m.spawnAnnounced[key] = true
+			if r.Remaining > 0 && r.Remaining <= spawnLeadSec && !e.spawnAnnounced[key] {
+				e.spawnAnnounced[key] = true
 				soon = append(soon, r.Mob)
 			}
 		}
-		for k := range m.spawnAnnounced {
+		for k := range e.spawnAnnounced {
 			if !liveSpawn[k] {
-				delete(m.spawnAnnounced, k) // spawn popped / purged → re-arm for next kill
+				delete(e.spawnAnnounced, k) // spawn popped / purged → re-arm for next kill
 			}
 		}
 		if len(soon) > 0 {
-			m.speaker.Say(spawnPhrase(soon, m.cueSeq))
-			m.cueSeq++
+			sp.Say(spawnPhrase(soon, e.seq))
+			e.seq++
 		}
 	}
 }
@@ -193,7 +236,7 @@ type cueDue struct {
 // (it breaks before its cap, so a countdown would cry wolf); estimated incoming
 // "~" ON-YOU debuffs are skipped too (their duration is a deliberate over-estimate,
 // and a debuff ending on you is good news).
-func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []cueDue {
+func (e *Engine) dueAnnouncements(active []gamestate.Timer, prefs Prefs, now int64) []cueDue {
 	var due []cueDue
 	live := make(map[string]bool, len(active))
 	for _, tm := range active {
@@ -203,22 +246,22 @@ func (m *Model) dueAnnouncements(active []gamestate.Timer, now int64) []cueDue {
 		k := tm.Spell + "\x00" + tm.Target
 		live[k] = true
 		u := gamestate.TimerUrgency(tm.Expiry-now, tm.Expiry-tm.Start)
-		prev := m.announced[k]
+		prev := e.announced[k]
 		switch {
 		case u > prev:
 			// a debuff on a mob announces only its first escalation (once per mob); a
 			// buff announces each new zone it enters (low, then fading).
-			if !(tm.Detrimental && prev > gamestate.Fresh) && m.cues.enabled(cueIDForTimer(tm), true) {
+			if !(tm.Detrimental && prev > gamestate.Fresh) && prefs.Enabled(cueIDForTimer(tm), true) {
 				due = append(due, cueDue{Timer: tm, fading: u == gamestate.Expiring})
 			}
-			m.announced[k] = u
+			e.announced[k] = u
 		case u < prev && !tm.Detrimental:
-			m.announced[k] = u // a buff refreshed back to a calmer zone → re-arm
+			e.announced[k] = u // a buff refreshed back to a calmer zone → re-arm
 		}
 	}
-	for k := range m.announced {
+	for k := range e.announced {
 		if !live[k] {
-			delete(m.announced, k) // timer gone (expired / mob died) → re-arm
+			delete(e.announced, k) // timer gone (expired / mob died) → re-arm
 		}
 	}
 	return due

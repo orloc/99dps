@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"99dps/internal/cues"
 	"99dps/internal/tts"
 )
 
@@ -76,7 +77,7 @@ func loadStore() store {
 func migrateLegacy() store {
 	p := tts.LoadPrefs()
 	lp := loadLayoutPrefs()
-	cp := loadCuePrefs()
+	cp := cues.LoadPrefs()
 	return store{
 		Configured: p.Configured,
 		Default: charSettings{

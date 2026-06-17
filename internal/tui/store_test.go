@@ -23,7 +23,7 @@ func TestSwitchReloadsCharacterSettings(t *testing.T) {
 	if got.layoutPrefs.Damage != panelOff || got.layoutPrefs.OffDef != panelCompact {
 		t.Errorf("switch should load Iznoa's layout, got %+v", got.layoutPrefs)
 	}
-	if got.cues.enabled("cc.mez", true) {
+	if got.cuePrefs.Enabled("cc.mez", true) {
 		t.Error("switch should load Iznoa's cue overrides (mez off)")
 	}
 }
