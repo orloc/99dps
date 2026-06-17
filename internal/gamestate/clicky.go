@@ -24,7 +24,7 @@ type Clicky struct {
 // definition (the log-line matchers; the declarative facts live in
 // eqclass.Profile) — keyed by class because, unlike cooldownRegistry, a clicky
 // requires an already-known class (it never infers one), so a map[Class] lookup
-// fits. ADD YOUR ITEMS HERE (or at runtime with RegisterClicky).
+// fits. ADD YOUR ITEMS HERE.
 //
 // The match is GATED ON THE DETECTED CLASS: only entries under the player's
 // current class are considered, so an ambiguous emote can resolve to a
@@ -61,15 +61,6 @@ var clickyRegistry = map[eqclass.Class][]Clicky{
 		{Item: "White Lotus Pants", Effect: "Spirit of Ox", Message: "You feel the spirit of ox enter you."},
 		{Item: "White Lotus Slippers", Effect: "Firefist", Message: "Your fist bursts into flame."},
 	},
-}
-
-// RegisterClicky adds (or appends) a clicky for a class at runtime — handy for
-// tests and for wiring a user config later without editing the literal above.
-// It mutates the package-level registry without synchronization, so call it
-// only during startup (before the parser goroutine begins Observe-ing); a call
-// after that races the matcher reads.
-func RegisterClicky(class eqclass.Class, c Clicky) {
-	clickyRegistry[class] = append(clickyRegistry[class], c)
 }
 
 // matchClickyLocked starts a self-buff timer when a registered clicky's message

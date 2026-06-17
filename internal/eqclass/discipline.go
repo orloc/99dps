@@ -19,7 +19,7 @@ const mn = 60
 
 // disciplines lists every class's disciplines, lowest level first. Only melee
 // and hybrid classes appear; casters (and Beastlord, a Luclin class outside
-// P99's era) have none — HasDisciplines is false for them, so the widget hides.
+// P99's era) have none — DisciplinesFor returns nil for them, hiding the widget.
 var disciplines = map[Class][]Discipline{
 	ClassWarrior: {
 		{"Resistant", 30, 1 * mn, 60 * mn},
@@ -83,9 +83,6 @@ var disciplines = map[Class][]Discipline{
 }
 
 // DisciplinesFor returns a class's disciplines lowest-level first (nil for a
-// class with none). The slice aliases the canonical table — READ-ONLY.
+// class with none — the widget's gate). The slice aliases the canonical table —
+// READ-ONLY.
 func DisciplinesFor(c Class) []Discipline { return disciplines[c] }
-
-// HasDisciplines reports whether the class has any disciplines — the gate for
-// showing the discipline widget at all.
-func HasDisciplines(c Class) bool { return len(disciplines[c]) > 0 }

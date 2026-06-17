@@ -14,11 +14,17 @@ func withClickyRegistry(t *testing.T, entries map[eqclass.Class][]Clicky) {
 	t.Cleanup(func() { clickyRegistry = saved })
 }
 
+// registerClicky appends a clicky to the (test-swapped) registry — setup for the
+// matcher tests. Production seeds clickyRegistry from its literal only.
+func registerClicky(class eqclass.Class, c Clicky) {
+	clickyRegistry[class] = append(clickyRegistry[class], c)
+}
+
 // TestClicky_BookDuration: a registered clicky whose Effect is a real spell
 // times for the book duration at the player's level.
 func TestClicky_BookDuration(t *testing.T) {
 	withClickyRegistry(t, map[eqclass.Class][]Clicky{})
-	RegisterClicky(eqclass.ClassRanger, Clicky{
+	registerClicky(eqclass.ClassRanger, Clicky{
 		Item: "Test Boots", Effect: "Envenomed Bolt", Message: "You feel a test buff.",
 	})
 
@@ -40,7 +46,7 @@ func TestClicky_BookDuration(t *testing.T) {
 // explicit Seconds fallback.
 func TestClicky_SecondsFallback(t *testing.T) {
 	withClickyRegistry(t, map[eqclass.Class][]Clicky{})
-	RegisterClicky(eqclass.ClassShadowKnight, Clicky{
+	registerClicky(eqclass.ClassShadowKnight, Clicky{
 		Item: "Custom Item", Effect: "Custom Haste", Message: "The item surges.", Seconds: 90,
 	})
 
@@ -61,7 +67,7 @@ func TestClicky_SecondsFallback(t *testing.T) {
 // TestClicky_NoMatch: an unrelated line starts nothing.
 func TestClicky_NoMatch(t *testing.T) {
 	withClickyRegistry(t, map[eqclass.Class][]Clicky{})
-	RegisterClicky(eqclass.ClassRanger, Clicky{Effect: "Envenomed Bolt", Message: "You feel a test buff."})
+	registerClicky(eqclass.ClassRanger, Clicky{Effect: "Envenomed Bolt", Message: "You feel a test buff."})
 	tr := NewTracker(loadBook(t, envenomedBolt()))
 	tr.SetLevel(43)
 	tr.SetClass(eqclass.ClassRanger)
@@ -76,7 +82,7 @@ func TestClicky_NoMatch(t *testing.T) {
 // disambiguate which item produced an ambiguous emote.
 func TestClicky_ClassGated(t *testing.T) {
 	withClickyRegistry(t, map[eqclass.Class][]Clicky{})
-	RegisterClicky(eqclass.ClassRanger, Clicky{Item: "Ranger Item", Effect: "Envenomed Bolt", Message: "A shared emote."})
+	registerClicky(eqclass.ClassRanger, Clicky{Item: "Ranger Item", Effect: "Envenomed Bolt", Message: "A shared emote."})
 
 	// wrong class → no timer
 	other := NewTracker(loadBook(t, envenomedBolt()))
@@ -100,7 +106,7 @@ func TestClicky_ClassGated(t *testing.T) {
 // TestClicky_Universal: a ClassUnknown entry fires for any detected class.
 func TestClicky_Universal(t *testing.T) {
 	withClickyRegistry(t, map[eqclass.Class][]Clicky{})
-	RegisterClicky(eqclass.ClassUnknown, Clicky{Item: "Anyone's Boots", Effect: "Envenomed Bolt", Message: "Universal click."})
+	registerClicky(eqclass.ClassUnknown, Clicky{Item: "Anyone's Boots", Effect: "Envenomed Bolt", Message: "Universal click."})
 	tr := NewTracker(loadBook(t, envenomedBolt()))
 	tr.SetLevel(43)
 	tr.SetClass(eqclass.ClassWarrior) // not the registered key, but universal

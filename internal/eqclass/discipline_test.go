@@ -2,17 +2,17 @@ package eqclass
 
 import "testing"
 
-// TestHasDisciplines: every melee/hybrid class has disciplines; casters and
-// Beastlord have none (so the widget hides for them).
-func TestHasDisciplines(t *testing.T) {
+// TestDisciplineCoverage: every melee/hybrid class has disciplines; casters and
+// Beastlord have none (so DisciplinesFor returns nil and the widget hides).
+func TestDisciplineCoverage(t *testing.T) {
 	for _, c := range classList {
 		want := false
 		switch ProfileOf(c).Category {
 		case CatMelee, CatHybrid:
 			want = c != ClassBeastlord // Beastlord is a Luclin class — no P99 discs
 		}
-		if got := HasDisciplines(c); got != want {
-			t.Errorf("HasDisciplines(%s) = %v, want %v", c, got, want)
+		if got := len(DisciplinesFor(c)) > 0; got != want {
+			t.Errorf("DisciplinesFor(%s) present=%v, want %v", c, got, want)
 		}
 	}
 }

@@ -44,10 +44,6 @@ func NewCanvas(dotW, dotH int) *Canvas {
 func (c *Canvas) Cols() int { return c.cols }
 func (c *Canvas) Rows() int { return c.rows }
 
-// DotW and DotH are the canvas size in dots.
-func (c *Canvas) DotW() int { return c.dotW }
-func (c *Canvas) DotH() int { return c.dotH }
-
 // Background fills every cell (lit or empty) with a color, so dark lines stay
 // visible against it instead of the terminal's background.
 func (c *Canvas) Background(r, g, b uint8) { c.bgR, c.bgG, c.bgB, c.hasBg = r, g, b, true }
