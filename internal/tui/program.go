@@ -14,10 +14,14 @@ type Program struct{ p *tea.Program }
 
 // NewProgram builds the program over the shared manager + tracker. spellInfo is
 // the data-source summary for the footer; tts enables audio cues at startup.
-func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo, eqDir string, ttsOn bool) *Program {
+// mapSrc/priceSrc are the network-bearing map/price capabilities, constructed and
+// adapted by the caller (the composition root) so the UI never imports them.
+func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, character, spellInfo, eqDir string, ttsOn bool, mapSrc MapSource, priceSrc PriceSource) *Program {
 	m := NewModel(sm, tracker, character)
 	m.spellInfo = spellInfo
 	m.eqDir = eqDir
+	m.mapSrc = mapSrc
+	m.pricer = priceSrc
 
 	m.store = loadStore()
 	cs := m.store.forChar(character) // this character's saved profile (or the Default)

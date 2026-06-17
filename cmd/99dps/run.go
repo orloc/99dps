@@ -1,9 +1,11 @@
 package main
 
 import (
+	"99dps/internal/eqmap"
 	"99dps/internal/gamestate"
 	"99dps/internal/loader"
 	"99dps/internal/parser"
+	"99dps/internal/prices"
 	"99dps/internal/session"
 	"99dps/internal/tui"
 	"fmt"
@@ -62,7 +64,8 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 
 	// the /outputfile inventory dump lands in the EQ folder — the parent of the
 	// logs dir, where spells_us.txt also lives.
-	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, filepath.Dir(logDir), tts)
+	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, filepath.Dir(logDir), tts,
+		mapAdapter{l: eqmap.NewLoader()}, priceAdapter{c: prices.NewClient()})
 	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker, crash: make(chan string, 4)}
 	ctrl.startParse(src)
 

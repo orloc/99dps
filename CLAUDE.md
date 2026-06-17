@@ -22,9 +22,9 @@ Go 1.25. Tests live next to the code; run `go test ./...`.
 - **`eqmap`** — loads/caches EQ zone-map vector files (MQ2/Brewall format); fetches over the network once per zone. No internal deps.
 - **`inventory`** — reads the Titanium `/outputfile inventory` dump. No deps.
 - **`prices`** — client for the pigparse P99 tunnel-price API (on-demand HTTP). No internal deps.
-- **`tui`** — the Bubble Tea UI; the fan-in hub (imports `braille`, `combat`, `cues`, `eqclass`, `eqmap`, `gamestate`, `inventory`, `prices`, `session`, `tts`). Reads lock-free session/tracker snapshots and **never imports the parser**.
+- **`tui`** — the Bubble Tea UI; the fan-in hub (imports `braille`, `combat`, `cues`, `eqclass`, `gamestate`, `inventory`, `session`, `tts`). Reads lock-free session/tracker snapshots and **never imports the parser**. It also **never imports the network-bearing `eqmap`/`prices`**: it consumes them through the `MapSource`/`PriceSource` interfaces (`tui/deps.go`), and `cmd/99dps` constructs the concrete clients + adapters (`cmd/99dps/deps.go`) and injects them via `NewProgram`.
 
-The internal dependency graph is acyclic; `cmd/99dps` wires `gamestate`/`loader`/`parser`/`session`/`tui` together. Note `eqmap` and `prices` are the two packages that reach the network (always on demand, off the render loop via a `tea.Cmd`); `tts` also downloads its ~120MB model on first enable.
+The internal dependency graph is acyclic; `cmd/99dps` is the composition root — it wires `gamestate`/`loader`/`parser`/`session`/`tui` together and owns the network-bearing `eqmap`/`prices` (injected into `tui` as interfaces, never imported by it). `eqmap` and `prices` reach the network on demand, off the render loop via a `tea.Cmd`; `tts` also downloads its ~120MB model on first enable.
 
 ## Commands
 

@@ -10,14 +10,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/gamestate"
-	"99dps/internal/prices"
 	"99dps/internal/session"
 )
 
 // fakePricer returns canned tunnel prices without touching the network.
-type fakePricer struct{ m map[string]prices.Price }
+type fakePricer struct{ m map[string]ItemPrice }
 
-func (f fakePricer) Lookup(server int, names []string) (map[string]prices.Price, error) {
+func (f fakePricer) Lookup(names []string) (map[string]ItemPrice, error) {
 	return f.m, nil
 }
 
@@ -91,8 +90,8 @@ func TestLoadInventory(t *testing.T) {
 	}
 	m := NewModel(&session.SessionManager{}, nil, "Iznoa")
 	m.eqDir = dir
-	m.pricer = fakePricer{m: map[string]prices.Price{
-		"black sapphire electrum earring": {Name: "Black Sapphire Electrum Earring", Avg: 615, Count: 1367},
+	m.pricer = fakePricer{m: map[string]ItemPrice{
+		"black sapphire electrum earring": {Avg: 615, Count: 1367},
 	}}
 	m.screen = screenTools
 

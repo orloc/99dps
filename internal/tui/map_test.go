@@ -1,24 +1,31 @@
 package tui
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"99dps/internal/eqmap"
 	"99dps/internal/gamestate"
 	"99dps/internal/session"
 )
 
+// fakeMapSource is a MapSource that serves a canned map without any network.
+type fakeMapSource struct {
+	short string
+	data  *MapData
+	err   error
+}
+
+func (f fakeMapSource) ShortName(string) string       { return f.short }
+func (f fakeMapSource) Load(string) (*MapData, error) { return f.data, f.err }
+
 // TestRenderMapCanvas: a map renders to exactly hCells lines, none wider than
 // wCells, and the player marker is drawn.
 func TestRenderMapCanvas(t *testing.T) {
-	mp := &eqmap.Map{
-		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
+	mp := &MapData{
+		Segments: []MapSegment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
 	out := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10)
@@ -50,8 +57,8 @@ func TestOnFloor(t *testing.T) {
 // TestFloorScoping: with two floors 50 apart, only the player's floor renders —
 // the other is hidden entirely, so a multi-level zone doesn't overlay everything.
 func TestFloorScoping(t *testing.T) {
-	mp := &eqmap.Map{
-		Segments: []eqmap.Segment{
+	mp := &MapData{
+		Segments: []MapSegment{
 			{X1: -50, Y1: -50, X2: 50, Y2: 50, Z: 0, R: 200, G: 200, B: 200},  // ground
 			{X1: -50, Y1: 50, X2: 50, Y2: -50, Z: 50, R: 200, G: 200, B: 200}, // upper floor
 		},
@@ -100,8 +107,8 @@ func TestMapView_States(t *testing.T) {
 
 	// with a /loc and a loaded map
 	tr.Observe("Your Location is 50.0, -25.0, 3.0", 2) // EQ order Y,X,Z → worldX=-25, worldY=50
-	m.curMap = &eqmap.Map{
-		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
+	m.curMap = &MapData{
+		Segments: []MapSegment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
 	out = m.mapView(themes[0], 50, 20)
@@ -115,22 +122,16 @@ func TestMapView_States(t *testing.T) {
 	}
 }
 
-// TestMaybeLoadMapCmd: fetches the zone's map (via an injected loader) and the
-// resulting message lands it on the model; an unknown zone reports a status.
+// TestMaybeLoadMapCmd: fetches the zone's map (via an injected source) and the
+// resulting message lands it on the model; a same-zone reload is a no-op.
 func TestMaybeLoadMapCmd(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "sebilis.txt") {
-			w.Write([]byte("L -10,-10,0, 10,10,0, 1,2,3\n"))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
 	tr := gamestate.NewTracker(&gamestate.Book{})
 	tr.Observe("You have entered Sebilis.", 1)
 	m := NewModel(&session.SessionManager{}, tr, "X")
-	m.mapLoader = &eqmap.Loader{BaseURL: srv.URL, HTTP: srv.Client()}
+	m.mapSrc = fakeMapSource{
+		short: "sebilis",
+		data:  &MapData{Segments: []MapSegment{{X1: -10, Y1: -10, X2: 10, Y2: 10, R: 1, G: 2, B: 3}}},
+	}
 
 	cmd := m.maybeLoadMapCmd()
 	if cmd == nil || m.mapShort != "sebilis" {
@@ -184,8 +185,8 @@ func TestMapZoom(t *testing.T) {
 		t.Errorf("wheel down should zoom out, got %v", z)
 	}
 
-	mp := &eqmap.Map{
-		Segments: []eqmap.Segment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
+	mp := &MapData{
+		Segments: []MapSegment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
 	near := renderMapCanvas(mp, 20, 20, 0, true, 8, false, 30, 15) // zoomed in on the player

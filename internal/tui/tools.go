@@ -12,7 +12,6 @@ import (
 
 	"99dps/internal/gamestate"
 	"99dps/internal/inventory"
-	"99dps/internal/prices"
 )
 
 // The Tools tab is a 3-column home for little helper widgets — quick utilities
@@ -20,11 +19,6 @@ import (
 //   - 🎲 Rolls: a /random loot-roll tracker (live board + winners log).
 //   - 🎒 Inventory: indexes your "/outputfile inventory" dump and shows each item
 //     as a clickable wiki link with its tunnel (pigparse) price and location.
-
-// priceLookup is the tunnel-price source (pigparse), injectable for tests.
-type priceLookup interface {
-	Lookup(server int, names []string) (map[string]prices.Price, error)
-}
 
 // invRow is one priced inventory line for the widget.
 type invRow struct {
@@ -86,9 +80,9 @@ func (m Model) loadInventoryCmd() tea.Cmd {
 		if len(items) == 0 {
 			return invLoadedMsg{status: "the inventory dump is empty"}
 		}
-		priced := map[string]prices.Price{}
+		priced := map[string]ItemPrice{}
 		if pricer != nil {
-			priced, _ = pricer.Lookup(prices.ServerGreen, inventory.Names(items)) // best-effort
+			priced, _ = pricer.Lookup(inventory.Names(items)) // best-effort
 		}
 		rows := make([]invRow, 0, len(items))
 		for _, it := range items {

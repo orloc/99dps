@@ -10,9 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"99dps/internal/cues"
-	"99dps/internal/eqmap"
 	"99dps/internal/gamestate"
-	"99dps/internal/prices"
 	"99dps/internal/session"
 	"99dps/internal/tts"
 )
@@ -90,16 +88,16 @@ type Model struct {
 	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
 
 	// Tools-tab inventory widget: the EQ folder (where /outputfile writes), a
-	// price-lookup client (injectable for tests), and the last indexed result.
+	// price-lookup source (injected; nil-safe), and the last indexed result.
 	eqDir     string
-	pricer    priceLookup
+	pricer    PriceSource
 	invRows   []invRow
 	invStatus string
 
-	// Map tab: a loader (fetch+cache zone maps), the currently-shown map, and the
-	// zoom level (centered on the player when a /loc is known).
-	mapLoader *eqmap.Loader
-	curMap    *eqmap.Map
+	// Map tab: a map source (fetch+cache zone maps), the currently-shown map, and
+	// the zoom level (centered on the player when a /loc is known).
+	mapSrc    MapSource
+	curMap    *MapData
 	mapShort  string // short name of the loaded/requested zone (dedup fetches)
 	mapStatus string
 	mapZoom   float64
@@ -118,11 +116,13 @@ type Model struct {
 }
 
 // NewModel builds the model over a live session manager + (optional) tracker.
+// The network-bearing map/price sources are injected later (via NewProgram); a
+// nil source just means that widget shows no data, so tests can skip them.
 func NewModel(sm *session.SessionManager, tracker *gamestate.Tracker, character string) Model {
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
 		speaker: tts.NewEngine(), cueEngine: cues.NewEngine(),
-		pricer: prices.NewClient(), mapLoader: eqmap.NewLoader(), mapZoom: 4,
+		mapZoom: 4,
 	}
 }
 

@@ -7,23 +7,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"99dps/internal/braille"
-	"99dps/internal/eqmap"
 )
 
 // mapLoadedMsg delivers a fetched zone map (or the failure) back to Update.
 type mapLoadedMsg struct {
 	short  string
-	m      *eqmap.Map
+	m      *MapData
 	status string // non-empty = a message instead of a map (loading failed / no map)
 }
 
 // maybeLoadMapCmd issues a fetch when the current zone's map isn't the one we
 // already have (or are already fetching). Returns nil when nothing's needed.
 func (m *Model) maybeLoadMapCmd() tea.Cmd {
-	if m.tracker == nil || m.mapLoader == nil {
+	if m.tracker == nil || m.mapSrc == nil {
 		return nil
 	}
-	short := eqmap.ShortName(m.tracker.Zone())
+	short := m.mapSrc.ShortName(m.tracker.Zone())
 	if short == "" {
 		m.mapStatus = "zone unknown — zone in to load a map"
 		return nil
@@ -34,9 +33,9 @@ func (m *Model) maybeLoadMapCmd() tea.Cmd {
 	m.mapShort = short
 	m.curMap = nil
 	m.mapStatus = "loading " + short + "…"
-	loader := m.mapLoader
+	src := m.mapSrc
 	return func() tea.Msg {
-		mp, err := loader.Get(short)
+		mp, err := src.Load(short)
 		if err != nil {
 			return mapLoadedMsg{short: short, status: "no map for " + short}
 		}
@@ -71,7 +70,7 @@ func (m Model) mapView(th theme, w, h int) string {
 		"\n" + paint(th, th.dim, truncate(loc, w), w)
 
 	bodyH := max(h-2, 1) // header is two lines
-	if m.curMap == nil || m.curMap.Empty() {
+	if m.curMap.empty() {
 		msg := m.mapStatus
 		if msg == "" {
 			msg = "press the Map tab while in a zone to load it"
@@ -114,7 +113,7 @@ func (m Model) updateMap(msg tea.Msg) (tea.Model, tea.Cmd) {
 // levels of a multi-level zone (HighKeep) are hidden entirely, not overlaid. The
 // reference height is the player's /loc Z, or the zone's lowest floor when
 // there's no /loc.
-func renderMapCanvas(mp *eqmap.Map, px, py, pz float64, havePlayer bool, zoom float64, floors bool, wCells, hCells int) string {
+func renderMapCanvas(mp *MapData, px, py, pz float64, havePlayer bool, zoom float64, floors bool, wCells, hCells int) string {
 	dotW, dotH := max(wCells, 1)*2, max(hCells, 1)*4
 	cv := braille.NewCanvas(dotW, dotH)
 	cv.Background(mapBgR, mapBgG, mapBgB) // a light "paper" backdrop so dark lines show
