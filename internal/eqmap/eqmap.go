@@ -8,6 +8,7 @@ package eqmap
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -249,6 +250,10 @@ func NewLoader() *Loader {
 	}
 }
 
+// errMapMissing marks a clean "this file does not exist" (HTTP 404) as opposed
+// to a transport/server error — only the former is safe to negatively cache.
+var errMapMissing = errors.New("map file not found")
+
 // Get returns the parsed map for a zone short name (e.g. "sebilis"), fetching +
 // caching on first use. Reads the base file plus its _1.._3 layers.
 func (l *Loader) Get(short string) (*Map, error) {
@@ -256,13 +261,55 @@ func (l *Loader) Get(short string) (*Map, error) {
 	if short == "" {
 		return nil, fmt.Errorf("empty zone")
 	}
+	if strings.ContainsAny(short, `/\`) || strings.Contains(short, "..") {
+		return nil, fmt.Errorf("invalid zone %q", short) // never reaches the filesystem
+	}
+
+	// Fast path under the lock: a cached map, or a cached miss (a nil entry).
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.mem == nil {
 		l.mem = map[string]*Map{}
 	}
 	if m, ok := l.mem[short]; ok {
-		return m, nil
+		l.mu.Unlock()
+		return mapOrMiss(short, m)
+	}
+	l.mu.Unlock()
+
+	// Fetch off the lock so a slow/hung download never blocks other callers.
+	// Concurrent misses for the same zone may each fetch — harmless: the result
+	// is identical and the store below is idempotent.
+	m, cacheable := l.load(short)
+	if m != nil || cacheable {
+		l.mu.Lock()
+		l.mem[short] = m // nil = negatively cached "this zone has no map"
+		l.mu.Unlock()
+	}
+	return mapOrMiss(short, m)
+}
+
+func mapOrMiss(short string, m *Map) (*Map, error) {
+	if m == nil {
+		return nil, fmt.Errorf("no map data for %q", short)
+	}
+	return m, nil
+}
+
+// load fetches and parses a zone's map without holding the lock. It returns the
+// map (nil when the zone has no map data) and whether the result is cacheable —
+// false only when a transport/server error (not a clean 404) means a retry might
+// later succeed, so the miss should not be cached.
+func (l *Loader) load(short string) (m *Map, cacheable bool) {
+	m = &Map{Zone: short}
+	transient := false
+	consider := func(name string) {
+		raw, err := l.fetch(name)
+		switch {
+		case err == nil && len(raw) > 0:
+			Parse(bytes.NewReader(raw), m)
+		case err != nil && !errors.Is(err, errMapMissing):
+			transient = true // couldn't reach the file — don't cache the miss
+		}
 	}
 	// Prefer the base layer alone: the _1.._3 detail layers overlay extra strokes
 	// that read as thick/"bold" walls at braille resolution, and the base usually
@@ -270,26 +317,22 @@ func (l *Loader) Get(short string) (*Map, error) {
 	// the real geometry in a numbered layer (e.g. Skyfire: skyfire.txt is empty,
 	// skyfire_1.txt is the whole map) — so fall back to the layers when the base
 	// has nothing.
-	m := &Map{Zone: short}
-	if raw, err := l.fetch(short + ".txt"); err == nil && len(raw) > 0 {
-		Parse(bytes.NewReader(raw), m)
-	}
+	consider(short + ".txt")
 	if m.Empty() {
 		for _, suffix := range []string{"_1", "_2", "_3"} {
-			if raw, err := l.fetch(short + suffix + ".txt"); err == nil && len(raw) > 0 {
-				Parse(bytes.NewReader(raw), m)
-			}
+			consider(short + suffix + ".txt")
 		}
 	}
 	if m.Empty() {
-		return nil, fmt.Errorf("no map data for %q", short)
+		return nil, !transient
 	}
 	ComputeBounds(m)
-	l.mem[short] = m
-	return m, nil
+	return m, true
 }
 
 // fetch reads a file from the disk cache, else the network (caching the result).
+// A clean 404 is reported as errMapMissing so callers can tell "no such map"
+// from "couldn't reach it".
 func (l *Loader) fetch(name string) ([]byte, error) {
 	if l.dir != "" {
 		if b, err := os.ReadFile(filepath.Join(l.dir, name)); err == nil {
@@ -301,6 +344,9 @@ func (l *Loader) fetch(name string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errMapMissing
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
@@ -309,7 +355,31 @@ func (l *Loader) fetch(name string) ([]byte, error) {
 		return nil, err
 	}
 	if l.dir != "" && len(b) > 0 {
-		_ = os.WriteFile(filepath.Join(l.dir, name), b, 0o644)
+		writeFileAtomic(filepath.Join(l.dir, name), b)
 	}
 	return b, nil
+}
+
+// writeFileAtomic writes b to path via a temp file + rename so a crash or a
+// concurrent writer can't leave a truncated cache file that a later read would
+// treat as valid. Best-effort: the disk cache is only an optimization, so a
+// failure just means the file is re-fetched next time.
+func writeFileAtomic(path string, b []byte) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+	}
 }

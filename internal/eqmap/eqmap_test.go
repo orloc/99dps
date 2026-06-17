@@ -3,6 +3,8 @@ package eqmap
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -95,6 +97,82 @@ func TestLoaderFetchCacheLayers(t *testing.T) {
 	if _, err := l.Get("nowhere"); err == nil {
 		t.Error("a zone with no map data should error")
 	}
+	missHits := hits
+	if _, err := l.Get("nowhere"); err == nil { // negatively cached
+		t.Error("a zone with no map data should error")
+	}
+	if hits != missHits {
+		t.Errorf("a repeated miss should be negatively cached, made %d new requests", hits-missHits)
+	}
+}
+
+// A transport/server error (not a clean 404) must NOT be negatively cached, so a
+// later call can retry and succeed.
+func TestLoaderTransientErrorNotCached(t *testing.T) {
+	var hits int
+	fail := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if fail {
+			w.WriteHeader(http.StatusServiceUnavailable) // transient
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "sebilis.txt") {
+			w.Write([]byte("L 0,0,0, 10,10,0, 1,2,3\n"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	l := &Loader{BaseURL: srv.URL, HTTP: srv.Client(), mem: map[string]*Map{}}
+	if _, err := l.Get("sebilis"); err == nil {
+		t.Fatal("expected an error while the server is failing")
+	}
+	hitsAfterFail := hits
+	fail = false // server recovers
+	m, err := l.Get("sebilis")
+	if err != nil || m == nil || len(m.Segments) != 1 {
+		t.Fatalf("retry after recovery should succeed; got %v, err %v", m, err)
+	}
+	if hits == hitsAfterFail {
+		t.Error("a transient failure should not be cached — the retry must hit the network")
+	}
+}
+
+// The disk cache is written atomically on first fetch and read back offline:
+// a second loader pointed at the same dir serves the zone with the server down.
+func TestLoaderDiskCacheRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "sebilis.txt") {
+			w.Write([]byte("L 0,0,0, 10,10,0, 1,2,3\n"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	l1 := &Loader{BaseURL: srv.URL, HTTP: srv.Client(), dir: dir, mem: map[string]*Map{}}
+	if _, err := l1.Get("sebilis"); err != nil {
+		t.Fatalf("first Get: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sebilis.txt")); err != nil {
+		t.Fatalf("base file should be cached on disk: %v", err)
+	}
+	srv.Close() // network is now gone
+
+	l2 := &Loader{BaseURL: srv.URL, HTTP: srv.Client(), dir: dir, mem: map[string]*Map{}}
+	m, err := l2.Get("sebilis")
+	if err != nil || m == nil || len(m.Segments) != 1 {
+		t.Fatalf("offline read from disk cache failed: %d segs, err %v", len(segsOf(m)), err)
+	}
+}
+
+func segsOf(m *Map) []Segment {
+	if m == nil {
+		return nil
+	}
+	return m.Segments
 }
 
 // TestLoaderEmptyBaseFallsBackToLayers: some zones (e.g. Skyfire) have an empty
