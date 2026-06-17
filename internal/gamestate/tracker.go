@@ -105,7 +105,7 @@ func NewTracker(book *Book) *Tracker {
 	return &Tracker{
 		book:   book,
 		timers: make(map[string]Timer),
-		cool:   cooldownTracker{cooldowns: make(map[string]cdState)},
+		cool:   cooldownTracker{cooldowns: make(map[string]cdState), discAt: make(map[string]int64)},
 	}
 }
 

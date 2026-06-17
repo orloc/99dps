@@ -118,6 +118,7 @@ const (
 // methods are caller-locked.
 type cooldownTracker struct {
 	cooldowns      map[string]cdState // ability name -> live reuse state
+	discAt         map[string]int64   // discipline name -> log time last activated (see discipline.go)
 	feignAttemptAt int64              // log time of the last feign attempt (macro)
 	feignFailAt    int64              // log time of the last failed feign (0 = none)
 	bindStartAt    int64              // log time bandaging began
@@ -134,6 +135,7 @@ type cdState struct {
 
 func (c *cooldownTracker) clear() {
 	c.cooldowns = make(map[string]cdState)
+	c.discAt = make(map[string]int64)
 	c.feignAttemptAt, c.feignFailAt = 0, 0
 	c.bindStartAt, c.bindDoneAt = 0, 0
 }
