@@ -3,6 +3,9 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"99dps/internal/combat"
 	"99dps/internal/eqclass"
@@ -183,5 +186,37 @@ func TestPlayerStatAndAvoidance(t *testing.T) {
 	}
 	if a, f := playerAvoidance(other.Current()); a != 0 || f != 0 {
 		t.Errorf("playerAvoidance with no You row should be zero, got (%d,%d)", a, f)
+	}
+}
+
+// TestDisciplineWidget: a warrior's discipline widget renders (default on), an
+// activated discipline shows its live state, and the toggle hides it.
+func TestDisciplineWidget(t *testing.T) {
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.SetClass(eqclass.ClassWarrior)
+	tr.SetLevel(60)
+
+	var m tea.Model = New(sampleManager(), tr, "Grok")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+	mm := m.(Model)
+	mm.refresh()
+	if v := mm.vpClass.View(); !strings.Contains(v, "DISCIPLINES") || !strings.Contains(v, "Defensive") {
+		t.Errorf("discipline widget should render for a warrior;\n%s", v)
+	}
+
+	// an activated discipline shows as active/cooling, not ready.
+	tr.DisciplineUsed("Defensive", time.Now().Unix())
+	mm.refresh()
+	body, _ := mm.classPanel(nil, 40, "", true)
+	if !strings.Contains(body, "Defensive") {
+		t.Fatal("Defensive missing after activation")
+	}
+
+	// toggling the widget off hides it.
+	mm.layoutPrefs.DiscHidden = true
+	body2, _ := mm.classPanel(nil, 40, "", true)
+	if strings.Contains(body2, "DISCIPLINES") {
+		t.Error("DiscHidden should hide the discipline widget")
 	}
 }

@@ -35,6 +35,9 @@ type layoutPrefs struct {
 	Damage   panelMode `json:"damage"`
 	OffDef   panelMode `json:"offDef"`
 	ClassBox bool      `json:"classBox"` // small class-specific box under the Mob Tracker
+	// DiscHidden hides the discipline widget (melee/hybrid only). Inverted so the
+	// zero value shows it — disc classes get the widget by default.
+	DiscHidden bool `json:"discHidden"`
 }
 
 func layoutPrefsPath() (string, error) {

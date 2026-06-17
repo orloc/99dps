@@ -1107,7 +1107,7 @@ func (m *Model) editKey(msg tea.KeyMsg) {
 // cue toggles, audio + voice). Used on a character hot-swap so each toon shows its
 // own settings. Audio only switches on when the engine is actually available.
 func (m *Model) applyCharSettings(cs charSettings) {
-	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox}
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
 	m.cues = cuePrefs{Overrides: cs.Cues}
 	if cs.Voice != "" && m.speaker != nil {
 		m.speaker.SetVoice(cs.Voice)
@@ -1124,12 +1124,13 @@ func (m *Model) saveSettings() {
 		voice = m.speaker.Voice()
 	}
 	m.store.setChar(m.character, charSettings{
-		AudioOn:  m.ttsOn,
-		Voice:    voice,
-		Damage:   m.layoutPrefs.Damage,
-		OffDef:   m.layoutPrefs.OffDef,
-		ClassBox: m.layoutPrefs.ClassBox,
-		Cues:     m.cues.Overrides,
+		AudioOn:    m.ttsOn,
+		Voice:      voice,
+		Damage:     m.layoutPrefs.Damage,
+		OffDef:     m.layoutPrefs.OffDef,
+		ClassBox:   m.layoutPrefs.ClassBox,
+		DiscHidden: m.layoutPrefs.DiscHidden,
+		Cues:       m.cues.Overrides,
 	})
 	_ = saveStore(m.store)
 }
@@ -1660,7 +1661,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 
 	m.store = loadStore()
 	cs := m.store.forChar(character) // this character's saved profile (or the Default)
-	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox}
+	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
 	m.cues = cuePrefs{Overrides: cs.Cues}
 	m.screen = initialScreen(m.store.Configured)
 	if m.screen == screenSetup {

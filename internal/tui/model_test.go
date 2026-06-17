@@ -958,6 +958,8 @@ func TestMeleeBuffsFoldNarrow(t *testing.T) {
 	var m tea.Model = New(sampleManager(), monkSelfBuff(t), "Kelkix")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 58, Height: 40})
 	mm := m.(Model)
+	mm.layoutPrefs.DiscHidden = true // testing buff-fold, not the discipline widget
+	mm.refresh()
 	if mm.layout().enemy {
 		t.Fatal("expected no middle column at this narrow width")
 	}

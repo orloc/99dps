@@ -48,6 +48,7 @@ func renderAtTr(sm *session.SessionManager, tr *gamestate.Tracker, themeIdx, w, 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	mm := m.(Model)
 	mm.theme = themeIdx
+	mm.layoutPrefs.DiscHidden = true // the discipline widget has its own tests; keep layout tests focused
 	mm.refresh()
 	return mm.View()
 }

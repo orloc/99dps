@@ -154,7 +154,8 @@ const (
 	settingsDamageRow   = 1 // Damage meter: Full/Compact/Off
 	settingsOffDefRow   = 2 // Offense·Defense: Full/Compact/Off
 	settingsClassBoxRow = 3 // Class box: On/Off (small box under the Mob Tracker)
-	settingsFixedRows   = 4 // rows before the voice list
+	settingsDiscRow     = 4 // Disciplines widget: On/Off (melee/hybrid only)
+	settingsFixedRows   = 5 // rows before the voice list
 )
 
 // updateSettings handles input while the Settings tab is focused (tab-navigation
@@ -222,6 +223,10 @@ func (m *Model) applyLeftSetting(sel int) {
 		m.layoutPrefs.ClassBox = !m.layoutPrefs.ClassBox
 		m.saveSettings()
 		m.flash("✓ saved · Class box " + onOff(m.layoutPrefs.ClassBox))
+	case settingsDiscRow:
+		m.layoutPrefs.DiscHidden = !m.layoutPrefs.DiscHidden
+		m.saveSettings()
+		m.flash("✓ saved · Disciplines " + onOff(!m.layoutPrefs.DiscHidden))
 	default:
 		if v, ok := voiceIndex(m.settingsVoices(), sel-settingsFixedRows); ok {
 			m.speaker.SetVoice(v.ID)
@@ -336,6 +341,7 @@ func (m Model) leftSettingsColumn(th theme, w int) (out []string, sel []int) {
 	add(menuRow(th, focused && m.settingsSel == settingsDamageRow, "Damage meter: "+m.layoutPrefs.Damage.String(), w), settingsDamageRow)
 	add(menuRow(th, focused && m.settingsSel == settingsOffDefRow, "Offense · Defense: "+m.layoutPrefs.OffDef.String(), w), settingsOffDefRow)
 	add(menuRow(th, focused && m.settingsSel == settingsClassBoxRow, "Class box: "+onOff(m.layoutPrefs.ClassBox), w), settingsClassBoxRow)
+	add(menuRow(th, focused && m.settingsSel == settingsDiscRow, "Disciplines: "+onOff(!m.layoutPrefs.DiscHidden), w), settingsDiscRow)
 	add("", -1)
 	add(paint(th, th.accent, "Voice", w), -1)
 

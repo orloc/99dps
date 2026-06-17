@@ -168,6 +168,13 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 		}
 		sections = append(sections, cooldownRows(th, cds, w))
 	}
+	// the discipline widget — only melee/hybrid classes have any (tr.Disciplines
+	// returns nil otherwise), and it's toggleable (default on).
+	if !m.layoutPrefs.DiscHidden {
+		if ds := tr.Disciplines(now); len(ds) > 0 {
+			sections = append(sections, disciplineRows(th, ds, w))
+		}
+	}
 
 	// when the Enemy column is split out, the class panel shows only BUFFS;
 	// otherwise it carries the full CC + DEBUFFS + BUFFS stack.
@@ -301,6 +308,84 @@ func cooldownRows(th theme, cds []gamestate.CooldownTimer, w int) string {
 			th.fg(th.dim).Render(fmt.Sprintf("%*s", timeW, mmss(cd.Remaining))))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// disciplineRows renders the discipline widget: every discipline the player's
+// level has earned, the live ones (active / cooling down) first, then the ready
+// ones. Active shows the effect's time left (gold), cooling shows the reuse
+// countdown as a charge box that fills toward ready (blue), ready is a green box.
+// State only becomes live once the parser detects a discipline activation; until
+// then it's a class cheat-sheet (everything Ready).
+func disciplineRows(th theme, ds []gamestate.DisciplineTimer, w int) string {
+	sort.SliceStable(ds, func(i, j int) bool {
+		oi, oj := discOrder(ds[i].Phase), discOrder(ds[j].Phase)
+		if oi != oj {
+			return oi < oj // active, then cooling, then ready
+		}
+		if ds[i].Phase == gamestate.DiscCooling && ds[i].Remaining != ds[j].Remaining {
+			return ds[i].Remaining < ds[j].Remaining // soonest-ready cooling first
+		}
+		return ds[i].Level < ds[j].Level
+	})
+
+	lines := []string{th.fg(th.accent).Bold(true).Render("DISCIPLINES")}
+	const (
+		nameW  = 14 // fits "Mighty Strike" / "Sanctification"
+		timeW  = 5
+		active = "#d4af37"
+		charge = "#5aa9e6"
+		ready  = "#5fd37a"
+	)
+	boxW := min(w-2-nameW-1-1-timeW, 12)
+	for _, d := range ds {
+		name := fmt.Sprintf("%-*s", nameW, truncate(d.Name, nameW))
+		if boxW < 4 { // too narrow for a box — plain text
+			switch d.Phase {
+			case gamestate.DiscActive:
+				lines = append(lines, "  "+th.fg(active).Render(name)+" "+th.fg(active).Render(mmss(d.Remaining)))
+			case gamestate.DiscCooling:
+				lines = append(lines, "  "+th.fg(th.text).Render(name)+" "+th.fg(th.dim).Render(mmss(d.Remaining)))
+			default:
+				lines = append(lines, "  "+th.fg(ready).Render(name)+" "+th.fg(ready).Render("ready"))
+			}
+			continue
+		}
+		switch d.Phase {
+		case gamestate.DiscActive: // effect running — a gold bar draining with the duration
+			frac := 0.0
+			if d.DurSec > 0 {
+				frac = float64(d.Remaining) / float64(d.DurSec)
+			}
+			lines = append(lines, "  "+th.fg(active).Render(name)+" "+
+				gradientBar(frac, boxW, active, active, th.track)+" "+
+				th.fg(active).Render(fmt.Sprintf("%*s", timeW, mmss(d.Remaining))))
+		case gamestate.DiscCooling: // reuse counting down — fills toward ready
+			frac := 0.0
+			if d.ReuseSec > 0 {
+				frac = float64(d.ReuseSec-d.Remaining) / float64(d.ReuseSec)
+			}
+			lines = append(lines, "  "+th.fg(th.text).Render(name)+" "+
+				gradientBar(frac, boxW, charge, charge, th.track)+" "+
+				th.fg(th.dim).Render(fmt.Sprintf("%*s", timeW, mmss(d.Remaining))))
+		default: // ready
+			lines = append(lines, "  "+th.fg(ready).Render(name)+" "+
+				gradientBar(1, boxW, ready, ready, th.track)+" "+th.fg(ready).Render("ready"))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// discOrder sorts discipline phases: active first (most urgent), then cooling,
+// then ready.
+func discOrder(p gamestate.DiscPhase) int {
+	switch p {
+	case gamestate.DiscActive:
+		return 0
+	case gamestate.DiscCooling:
+		return 1
+	default:
+		return 2
+	}
 }
 
 // skillsBody is the pure-melee panel: the player's activated-skill breakdown
