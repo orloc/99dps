@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -188,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case invLoadedMsg:
-		m.invRows, m.invStatus = msg.rows, msg.status
+		m.invRows, m.invStatus, m.invGen = msg.rows, msg.status, msg.gen
 		m.refreshInventory()
 	case mapLoadedMsg:
 		if msg.short == m.mapShort { // ignore a stale load if the zone changed
@@ -198,8 +199,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
 		m.editing, m.editMob = false, ""
-		m.invRows, m.invStatus = nil, ""                    // a new toon has its own inventory
-		m.applyCharSettings(m.store.forChar(msg.character)) // load the new toon's saved settings
+		m.invRows, m.invStatus, m.invGen = nil, "", time.Time{} // a new toon has its own inventory
+		m.applyCharSettings(m.store.forChar(msg.character))     // load the new toon's saved settings
 		if m.ready {
 			m.resizeViewports() // a layout change (Off/Compact/Full) needs re-sizing
 		}
@@ -267,7 +268,7 @@ func (m *Model) resizeViewports() {
 // refreshInventory re-renders the inventory list into its viewport (after an
 // index, a resize, or a theme change).
 func (m *Model) refreshInventory() {
-	m.vpInv.SetContent(inventoryBoard(themes[m.theme], m.invRows, m.invStatus, max(m.vpInv.Width, 1)))
+	m.vpInv.SetContent(inventoryBoard(themes[m.theme], m.invRows, m.invStatus, m.invGen, time.Now(), max(m.vpInv.Width, 1)))
 }
 
 // panelAt returns the viewport whose card contains screen cell (x,y), or nil.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -32,6 +33,49 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s%60)
 	}
 	return fmt.Sprintf("%d:%02d", m, s%60)
+}
+
+// wrap word-wraps s into lines no wider than w display cells, breaking on spaces
+// (a word longer than w is hard-split so it still fits). Used for help/hint text
+// that must not be clipped in a narrow panel. Always returns at least one line.
+func wrap(s string, w int) []string {
+	if w < 1 {
+		w = 1
+	}
+	var out []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		for lipgloss.Width(word) > w { // hard-split an over-long word
+			head := truncate(word, w)
+			if head == "" {
+				head = string([]rune(word)[:1]) // guarantee progress
+			}
+			if line != "" {
+				out = append(out, line)
+				line = ""
+			}
+			out = append(out, head)
+			word = word[len(head):]
+		}
+		switch {
+		case word == "":
+			// fully consumed by the hard-split above
+		case line == "":
+			line = word
+		case lipgloss.Width(line)+1+lipgloss.Width(word) <= w:
+			line += " " + word
+		default:
+			out = append(out, line)
+			line = word
+		}
+	}
+	if line != "" {
+		out = append(out, line)
+	}
+	if len(out) == 0 {
+		out = append(out, "")
+	}
+	return out
 }
 
 // truncate clips s to w display cells (rune-aware via lipgloss width).

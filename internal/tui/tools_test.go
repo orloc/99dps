@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,8 +36,14 @@ func TestInventoryBoard(t *testing.T) {
 		{name: "Insidious Halo", location: "General1-Slot2", count: 1, price: 0, priceN: 0},            // INV, no data
 		{name: "Cloudy Stone", location: "Bank3", count: 1, price: 50, priceN: 10},                     // BANK, 50
 	}
-	out := inventoryBoard(th, rows, "", 60)
+	out := inventoryBoard(th, rows, "", time.Unix(1000, 0), time.Unix(8200, 0), 60) // dump 2h old
 
+	if !strings.Contains(out, "generated 2h00m ago") {
+		t.Errorf("loaded board should show the dump's age:\n%s", out)
+	}
+	if !strings.Contains(out, "/outputfile inventory") {
+		t.Errorf("loaded board should always show the regen command:\n%s", out)
+	}
 	for _, want := range []string{"4 items", "WORN", "INVENTORY", "BANK", "Black Sapphire", "Cloudy Stone"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("board missing %q in:\n%s", want, out)
@@ -61,9 +68,22 @@ func TestInventoryBoard(t *testing.T) {
 			t.Errorf("inventory line exceeds width %d: %q", lipgloss.Width(ln), ln)
 		}
 	}
-	// the empty board prompts for indexing
-	if got := inventoryBoard(th, nil, "", 60); !strings.Contains(got, "press i to index") {
-		t.Errorf("empty board hint = %q", got)
+	// the empty board prompts for indexing and always shows the regen command
+	got := inventoryBoard(th, nil, "", time.Time{}, time.Now(), 60)
+	if !strings.Contains(got, "press i to index") || !strings.Contains(got, "/outputfile inventory") {
+		t.Errorf("empty board should show the hint + command:\n%s", got)
+	}
+
+	// a long status fits a narrow column by wrapping (≥2 lines, none over width)
+	narrow := inventoryBoard(th, nil, "no inventory dump found", time.Time{}, time.Now(), 18)
+	wlines := strings.Split(strings.TrimRight(narrow, "\n"), "\n")
+	if len(wlines) < 2 {
+		t.Errorf("help should wrap to multiple lines in a narrow column:\n%s", narrow)
+	}
+	for _, ln := range wlines {
+		if lipgloss.Width(ln) > 18 {
+			t.Errorf("wrapped help line exceeds width 18 (%d): %q", lipgloss.Width(ln), ln)
+		}
 	}
 }
 
@@ -109,6 +129,9 @@ func TestLoadInventory(t *testing.T) {
 	if len(msg.rows) != 3 {
 		t.Fatalf("want 3 rows, got %d (%+v)", len(msg.rows), msg.rows)
 	}
+	if msg.gen.IsZero() {
+		t.Error("loaded message should carry the dump file's generation time")
+	}
 	// the priced earring carries the fake price; the halo stays unpriced
 	var earring, halo invRow
 	for _, r := range msg.rows {
@@ -139,7 +162,7 @@ func TestLoadInventoryNoDump(t *testing.T) {
 	m.eqDir = t.TempDir() // exists, but no dump for "Ghost"
 	_, cmd := m.updateTools(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
 	msg := cmd().(invLoadedMsg)
-	if len(msg.rows) != 0 || !strings.Contains(msg.status, "/outputfile inventory") {
+	if len(msg.rows) != 0 || !strings.Contains(msg.status, "no inventory dump") {
 		t.Errorf("missing dump should yield a help status, got %+v", msg)
 	}
 }

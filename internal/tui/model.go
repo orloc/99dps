@@ -93,6 +93,7 @@ type Model struct {
 	pricer    PriceSource
 	invRows   []invRow
 	invStatus string
+	invGen    time.Time // when the loaded dump file was written (for staleness)
 
 	// Map tab: a map source (fetch+cache zone maps), the currently-shown map, and
 	// the zoom level (centered on the player when a /loc is known).

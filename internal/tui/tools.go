@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -30,7 +31,8 @@ type invRow struct {
 // invLoadedMsg carries the result of indexing the inventory dump back to Update.
 type invLoadedMsg struct {
 	rows   []invRow
-	status string // non-empty = a message to show instead of rows (no dump, error…)
+	status string    // non-empty = a message to show instead of rows (no dump, error…)
+	gen    time.Time // when the dump file was written (zero = unknown)
 }
 
 // updateTools handles input while the Tools tab is focused. (Tab/number nav is
@@ -75,10 +77,14 @@ func (m Model) loadInventoryCmd() tea.Cmd {
 		}
 		items, err := inventory.Load(eqDir, character)
 		if err != nil {
-			return invLoadedMsg{status: "no dump — run /outputfile inventory in-game"}
+			return invLoadedMsg{status: "no inventory dump found"}
 		}
 		if len(items) == 0 {
 			return invLoadedMsg{status: "the inventory dump is empty"}
+		}
+		var gen time.Time // the dump file's write time, for the staleness hint
+		if fi, err := os.Stat(inventory.Locate(eqDir, character)); err == nil {
+			gen = fi.ModTime()
 		}
 		priced := map[string]ItemPrice{}
 		if pricer != nil {
@@ -89,7 +95,7 @@ func (m Model) loadInventoryCmd() tea.Cmd {
 			p := priced[strings.ToLower(it.Name)]
 			rows = append(rows, invRow{name: it.Name, location: it.Location, count: it.Count, price: p.Avg, priceN: p.Count})
 		}
-		return invLoadedMsg{rows: rows}
+		return invLoadedMsg{rows: rows, gen: gen}
 	}
 }
 
@@ -144,14 +150,26 @@ func invValue(r invRow) int { return r.price * stack(r.count) }
 
 // inventoryBoard renders the indexed inventory to width w, split into WORN /
 // INVENTORY / BANK sections (each high-value-first, unpriced items dim at the
-// bottom), under a grand-total header. Empty until you press i.
-func inventoryBoard(th theme, rows []invRow, status string, w int) string {
+// bottom), under a grand-total + generated-time header. Empty until you press i.
+// gen is the dump's write time (zero = unknown); now is used to age it.
+func inventoryBoard(th theme, rows []invRow, status string, gen, now time.Time, w int) string {
+	dim := func(ls []string) string {
+		for i, l := range ls {
+			ls[i] = th.fg(th.dim).Render(l)
+		}
+		return lines(ls...)
+	}
+
 	if len(rows) == 0 {
 		hint := status
 		if hint == "" {
 			hint = "press i to index your inventory"
 		}
-		return th.fg(th.dim).Render(truncate(hint, w))
+		// The dump is generated in-game, so always show the command + how to load
+		// it, word-wrapped so a narrow column never clips it.
+		usage := wrap("in EQ type  /outputfile inventory  — then press i to index", w)
+		help := append(wrap(hint, w), "")
+		return dim(append(help, usage...))
 	}
 
 	var groups [3][]invRow
@@ -184,8 +202,22 @@ func inventoryBoard(th theme, rows []invRow, status string, w int) string {
 		}
 	}
 
-	head := th.fg(th.dim).Render(truncate(fmt.Sprintf("%d items · ~%sp total · i re-index", len(rows), humanize(grand)), w))
-	return lines(append([]string{head, ""}, body...)...)
+	header := append([]string{fmt.Sprintf("%d items · ~%sp total", len(rows), humanize(grand))}, wrap(genLine(gen, now), w)...)
+	return lines(append([]string{dim(header), ""}, body...)...)
+}
+
+// genLine is the loaded inventory's header hint: how stale the dump is plus the
+// command to regenerate it. gen is the dump's write time (zero = unknown).
+func genLine(gen, now time.Time) string {
+	tail := "re-run /outputfile inventory if stale, then press i"
+	if gen.IsZero() {
+		return tail
+	}
+	when := "generated " + compactDur(int64(now.Sub(gen).Seconds())) + " ago"
+	if now.Sub(gen) < time.Minute {
+		when = "generated just now"
+	}
+	return when + " · " + tail
 }
 
 // invLine renders one item: a clickable wiki link (the item name) and its price
