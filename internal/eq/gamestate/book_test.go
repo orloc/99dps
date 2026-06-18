@@ -151,10 +151,19 @@ func TestDurationSeconds_AllFormulas(t *testing.T) {
 // capped Calm 180s, capped Pacify 210s honoring a low-level cap, and uncapped
 // Wake of Tranquility (the formula-8 level+10 base). No +1 cast-tick.
 func TestPacifyDurationSeconds_AllCases(t *testing.T) {
+	soothe := Spell{DurCap: 25} // Soothe
 	calm := Spell{DurCap: 30}   // Calm
 	pacify := Spell{DurCap: 35} // Pacify
 	wake := Spell{DurCap: 0}    // Wake of Tranquility (uncapped)
 
+	// Soothe (cap 25): level+10 ticks up to the cap — matches the wiki's
+	// "1.8 min @L8 to 2.5 min @L15".
+	if got := soothe.PacifyDurationSeconds(8); got != 108 {
+		t.Errorf("Soothe @8 = %d, want 108 (18 ticks)", got)
+	}
+	if got := soothe.PacifyDurationSeconds(15); got != 150 {
+		t.Errorf("Soothe @15 = %d, want 150 (25 ticks, capped)", got)
+	}
 	if got := calm.PacifyDurationSeconds(60); got != 180 {
 		t.Errorf("Calm @60 = %d, want 180 (30 ticks)", got)
 	}

@@ -577,3 +577,32 @@ func TestPacify_TracksAndBreaks(t *testing.T) {
 		t.Errorf("damage should break pacify, got %d", len(act))
 	}
 }
+
+// TestSetLevel_KeepsPacifyDuration: a level update (e.g. a /who revealing the
+// real level) must recompute a live pacify timer with the cap-based
+// PacifyDurationSeconds, NOT the buff formula — which adds a cast-tick and would
+// stretch Calm from 180s to 186s. Regression for the SetLevel clobber.
+func TestSetLevel_KeepsPacifyDuration(t *testing.T) {
+	tr := NewTracker(loadBook(t, calmSpell()))
+	tr.SetLevel(60)
+	tr.BeginCast("Calm", 1000)
+	tr.Observe("a sand giant looks less aggressive.", 1003)
+
+	calmDur := func() int64 {
+		t.Helper()
+		for _, tm := range tr.Active(1005) {
+			if tm.Spell == "Calm" {
+				return tm.Expiry - tm.Start
+			}
+		}
+		t.Fatal("Calm timer not found")
+		return 0
+	}
+	if d := calmDur(); d != 180 {
+		t.Fatalf("Calm on landing = %ds, want 180", d)
+	}
+	tr.SetLevel(59) // a later /who reveals a different level
+	if d := calmDur(); d != 180 {
+		t.Errorf("Calm after level update = %ds, want 180 (must not be clobbered to 186)", d)
+	}
+}

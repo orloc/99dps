@@ -145,7 +145,11 @@ func (t *Tracker) SetLevel(level int) {
 		if !ok {
 			continue
 		}
-		if dur := s.DurationSeconds(level); dur > 0 {
+		dur := s.DurationSeconds(level)
+		if tm.Pacify {
+			dur = s.PacifyDurationSeconds(level) // pacify uses the cap, no cast-tick (matches the landing path)
+		}
+		if dur > 0 {
 			tm.Expiry = tm.Start + int64(dur)
 			t.timers[k] = tm
 		}
