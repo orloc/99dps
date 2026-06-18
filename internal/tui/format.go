@@ -109,6 +109,35 @@ func compactDur(sec int64) string {
 	return fmt.Sprintf("%dm", sec/60)
 }
 
+// agoShort renders an elapsed seconds count compactly: "3s", "2m", "1h".
+func agoShort(sec int64) string {
+	if sec < 0 {
+		sec = 0
+	}
+	switch {
+	case sec < 60:
+		return fmt.Sprintf("%ds", sec)
+	case sec < 3600:
+		return fmt.Sprintf("%dm", sec/60)
+	default:
+		return fmt.Sprintf("%dh", sec/3600)
+	}
+}
+
+// recastBar renders a fixed-width "▓/░" bar showing how far an ability has
+// recovered since last use toward its (measured) reuse window — full = ready.
+// window<=0 or cells<=0 yields "". Plain text (style applied by the caller).
+func recastBar(since, window int64, cells int) string {
+	if window <= 0 || cells <= 0 {
+		return ""
+	}
+	n := int(float64(since)/float64(window)*float64(cells) + 0.5)
+	if n > cells {
+		n = cells
+	}
+	return strings.Repeat("▓", n) + strings.Repeat("░", cells-n)
+}
+
 // displayName renders the player's normalized "YOU" token as "You" for the UI.
 func displayName(name string) string {
 	if name == "YOU" {

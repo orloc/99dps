@@ -144,21 +144,28 @@ func TestSkillsBodyShowsMaxHit(t *testing.T) {
 		sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: h.dmg, Target: "a rat", Verb: h.verb})
 	}
 
-	out := skillsBody(themes[0], sm.Current(), eqclass.ClassMonk, 60, 60)
+	out := skillsBody(themes[0], sm.Current(), eqclass.ClassMonk, 60, 100, 60)
 	if !strings.Contains(out, "Max hit") || !strings.Contains(out, "200") {
 		t.Errorf("skills body should show the overall max hit (200):\n%s", out)
 	}
 	if !strings.Contains(out, "max 120") {
-		t.Errorf("skills body should show the per-skill max (Kick 120):\n%s", out)
+		t.Errorf("skills body should show the per-skill max (Kick 120) in its sub-line:\n%s", out)
 	}
+}
 
-	// a narrow panel drops the per-skill max column but keeps the overall line.
-	narrow := skillsBody(themes[0], sm.Current(), eqclass.ClassMonk, 60, 30)
-	if strings.Contains(narrow, "max 120") {
-		t.Errorf("narrow panel should drop the per-skill max column:\n%s", narrow)
-	}
-	if !strings.Contains(narrow, "Max hit") {
-		t.Errorf("narrow panel should still show the overall max hit line:\n%s", narrow)
+// TestSkillsBodyBackstab: a rogue's Backstab row shows landed/attempts + connect%
+// (from the hit + miss tally) and a cadence sub-line (landed/min, time-since).
+func TestSkillsBodyBackstab(t *testing.T) {
+	sm := &session.SessionManager{}
+	sm.Apply(&combat.DamageSet{ActionTime: 100, Dealer: "You", Dmg: 300, Target: "a rat", Verb: "backstab"})
+	sm.Apply(&combat.DamageSet{ActionTime: 105, Dealer: "You", Dmg: 200, Target: "a rat", Verb: "backstab"})
+	sm.ApplySwing(&combat.Swing{ActionTime: 110, Attacker: "You", Defender: "a rat", Verb: "backstab", Outcome: combat.OutcomeMiss})
+
+	out := skillsBody(themes[0], sm.Current(), eqclass.ClassRogue, 60, 115, 60)
+	for _, want := range []string{"Backstab", "2/3", "66%", "12/min"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("backstab row should contain %q:\n%s", want, out)
+		}
 	}
 }
 

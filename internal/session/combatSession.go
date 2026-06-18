@@ -136,17 +136,50 @@ func (cs *CombatSession) adjustDamageLocked(set *combat.DamageSet) {
 	// the player's own skill breakdown feeds the skills panel
 	if strings.EqualFold(set.Dealer, "You") {
 		if sk := playerSkill(set.Verb); sk != "" {
-			if cs.skills == nil {
-				cs.skills = make(map[string]combat.SkillStat)
-			}
+			cs.recordSkillAttemptLocked(sk, set.ActionTime) // a landed hit is also an attempt
 			s := cs.skills[sk]
 			s.Total += set.Dmg
 			s.Hits++
 			s.Max = max(s.Max, set.Dmg)
+			if s.First == 0 {
+				s.First = set.ActionTime
+			}
+			s.Last = set.ActionTime
 			cs.skills[sk] = s
 		}
 	}
 	cs.aggressors[indxRef] = val
+}
+
+// skill reuse measurement bounds (seconds). Backstab's base reuse is ~10s,
+// reduced by haste down to a ~4s floor (per P99); kick is similar. A gap shorter
+// than minReuseSec is a double-attack second swing in the same round (1s log
+// resolution blurs it), and one longer than maxReuseSec is a lull between
+// pulls/med breaks. Only gaps in between estimate the true (haste-scaled) reuse.
+const (
+	minReuseSec = 4
+	maxReuseSec = 12
+)
+
+// recordSkillAttemptLocked notes one player skill attempt (hit OR miss) and
+// refines the skill's effective reuse: the fastest plausible gap between attempts
+// seen so far. EQ logs no cooldown message and the real reuse scales with the
+// player's (unknown) haste, so we infer it from how fast they actually re-fire,
+// ignoring double-attack pairs and lulls. Caller holds the write lock.
+func (cs *CombatSession) recordSkillAttemptLocked(sk string, t int64) {
+	if cs.skills == nil {
+		cs.skills = make(map[string]combat.SkillStat)
+	}
+	s := cs.skills[sk]
+	if s.LastAttempt != 0 {
+		if gap := t - s.LastAttempt; gap >= minReuseSec && gap <= maxReuseSec {
+			if s.Reuse == 0 || gap < s.Reuse {
+				s.Reuse = gap
+			}
+		}
+	}
+	s.LastAttempt = t
+	cs.skills[sk] = s
 }
 
 // specialKind maps a verb to its canonical activated-skill kind
@@ -304,6 +337,12 @@ func (cs *CombatSession) applySwingLocked(sw *combat.Swing) {
 	if sw.Outcome == combat.OutcomeMiss && sw.Attacker != "" {
 		if kind := specialKind(sw.Verb); kind != "" {
 			cs.addSpecialLocked(sw.Attacker, kind, func(s *combat.SpecialStat) { s.Misses++ })
+		}
+	}
+	// a missed player skill is still an attempt — it consumes/measures the reuse.
+	if strings.EqualFold(sw.Attacker, "You") {
+		if sk := playerSkill(sw.Verb); sk != "" {
+			cs.recordSkillAttemptLocked(sk, sw.ActionTime)
 		}
 	}
 }

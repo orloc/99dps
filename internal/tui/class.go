@@ -183,7 +183,7 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 	var bodyMap map[int]string
 	switch tr.Category() {
 	case eqclass.CatMelee:
-		body = skillsBody(th, cur, class, level, w)
+		body = skillsBody(th, cur, class, level, now, w)
 		if !enemySplit { // no separate Buffs column (narrow) — fold self-buffs below skills
 			if bf, bft := timerColumn(th, tr, w, hover, false, false, true); len(bft) > 0 {
 				body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + bf
@@ -390,37 +390,51 @@ func discOrder(p gamestate.DiscPhase) int {
 
 // skillsBody is the pure-melee panel: the player's activated-skill breakdown
 // (class/level-labelled) plus accuracy.
-func skillsBody(th theme, cur *session.CombatSession, class eqclass.Class, level, w int) string {
+func skillsBody(th theme, cur *session.CombatSession, class eqclass.Class, level int, now int64, w int) string {
 	if cur == nil {
 		return th.fg(th.dim).Render("No fight selected.")
 	}
 	lines := []string{th.fg(th.accent).Bold(true).Render("SKILLS · THIS FIGHT")}
+	specials := cur.SpecialsFor("You") // per-kind hit/miss for the connect-rate
 	type row struct {
-		name string
-		s    combat.SkillStat
+		bucket, name string
+		s            combat.SkillStat
 	}
 	var rows []row
 	for n, s := range cur.Skills() {
 		if eqclass.SkillRelevant(class, n) {
-			rows = append(rows, row{eqclass.SkillName(class, n, level), s})
+			rows = append(rows, row{n, eqclass.SkillName(class, n, level), s})
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].s.Total > rows[j].s.Total })
 	if len(rows) == 0 {
 		lines = append(lines, th.fg(th.dim).Render("  no skill attacks yet"))
 	}
-	showMax := w >= 44 // the per-skill "max" column only fits a roomy panel
 	for _, r := range rows {
-		line := fmt.Sprintf("  %-12s %6s  %d hits", truncate(r.name, 12), humanize(r.s.Total), r.s.Hits)
-		if showMax && r.s.Max > 0 {
-			line += fmt.Sprintf("  max %s", humanize(r.s.Max))
+		// main line: name · damage · landed/attempts + connect% (or just hits when
+		// the skill carries no accuracy, e.g. a monk hand-strike).
+		main := fmt.Sprintf("  %-10s %6s", truncate(r.name, 10), humanize(r.s.Total))
+		if sp := specials[r.bucket]; sp.HitRate() >= 0 {
+			main += fmt.Sprintf("  %d/%d %d%%", sp.Hits, sp.Hits+sp.Misses, sp.HitRate())
+		} else {
+			main += fmt.Sprintf("  %d hits", r.s.Hits)
 		}
-		lines = append(lines, th.fg(th.text).Render(truncate(line, w)))
+		lines = append(lines, th.fg(th.text).Render(truncate(main, w)))
+		// sub line: a recovery bar toward the skill's measured effective cooldown
+		// (full = ready/overdue — for backstab a positioning nudge), the landed
+		// rate, time since last, and biggest hit.
+		if sub, due := skillRecast(r.s, now); sub != "" {
+			style := th.dim
+			if due {
+				style = th.accent
+			}
+			lines = append(lines, th.fg(style).Render(truncate(sub, w)))
+		}
 	}
-	// the biggest single melee hit overall (auto-attack + specials) — a short line,
-	// shown even before any skill has landed.
+	// the biggest single melee hit overall (auto-attack + specials), shown even
+	// before any skill has landed.
 	if you := playerStat(cur); you.Max > 0 {
-		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-12s %6s", "Max hit", humanize(you.Max)), w)))
+		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("  %-10s %6s", "Max hit", humanize(you.Max)), w)))
 	}
 	lines = append(lines, "", th.fg(th.accent).Bold(true).Render("ACCURACY"))
 	if hr := cur.OffenseFor("You").HitRate(); hr >= 0 {
@@ -435,6 +449,36 @@ func skillsBody(th theme, cur *session.CombatSession, class eqclass.Class, level
 		lines = append(lines, th.fg(th.dim).Render(fmt.Sprintf("  Avoided    %3d%%", av*100/faced)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// skillRecast builds a skill's cadence sub-line: a recovery bar toward the
+// measured effective cooldown (full = ready/overdue), the landed/min rate, the
+// time since the last attempt, and the biggest hit. The bool is true when overdue
+// (past the reuse) so the caller can highlight it — for backstab that flags "you
+// should have backstabbed by now" (out of position / facing the mob). The bar
+// appears once a reuse has been measured (after the second well-spaced attempt).
+// now is unix seconds.
+func skillRecast(s combat.SkillStat, now int64) (string, bool) {
+	if s.Hits == 0 || s.LastAttempt == 0 {
+		return "", false
+	}
+	since := now - s.LastAttempt
+	var parts []string
+	due := false
+	if s.Reuse > 0 { // measured effective cooldown → a recovery bar toward "ready"
+		if bar := recastBar(since, s.Reuse, 5); bar != "" {
+			parts = append(parts, bar)
+		}
+		due = since >= s.Reuse
+	}
+	if span := s.Last - s.First; span > 0 && s.Hits > 1 { // landed rate over the fight
+		parts = append(parts, fmt.Sprintf("%d/min", int64(s.Hits-1)*60/span))
+	}
+	parts = append(parts, "last "+agoShort(since))
+	if s.Max > 0 {
+		parts = append(parts, "max "+humanize(s.Max))
+	}
+	return "  " + strings.Join(parts, " · "), due
 }
 
 // skillsSummaryLine is the one-line skill digest for the hybrid panel.

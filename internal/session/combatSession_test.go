@@ -337,6 +337,36 @@ func TestSpecialsBreakdown(t *testing.T) {
 	}
 }
 
+// TestSkillReuseMeasurement: the effective reuse is the fastest plausible gap
+// between attempts — excluding double-attack same-round pairs (<4s) and lulls
+// (>12s), and counting misses as attempts.
+func TestSkillReuseMeasurement(t *testing.T) {
+	sm := &SessionManager{}
+	bs := func(at int64) {
+		sm.Apply(&combat.DamageSet{ActionTime: at, Dealer: "You", Dmg: 200, Target: "a rat", Verb: "backstab"})
+	}
+	miss := func(at int64) {
+		sm.ApplySwing(&combat.Swing{ActionTime: at, Attacker: "You", Defender: "a rat", Verb: "backstab", Outcome: combat.OutcomeMiss})
+	}
+	bs(100)
+	bs(100)   // double-attack same second (gap 0) — ignored
+	miss(106) // gap 6 → reuse candidate
+	bs(111)   // gap 5 → faster candidate
+	bs(160)   // gap 49 (med-break lull) — ignored
+	bs(165)   // gap 5
+
+	s := sm.Current().Skills()["Backstab"]
+	if s.Reuse != 5 {
+		t.Errorf("measured reuse = %ds, want 5 (min valid gap; DA 0s and 49s lull excluded)", s.Reuse)
+	}
+	if s.LastAttempt != 165 {
+		t.Errorf("last attempt = %d, want 165", s.LastAttempt)
+	}
+	if s.Hits != 5 { // five landed (the DA pair both land); the miss is an attempt, not a hit
+		t.Errorf("hits = %d, want 5", s.Hits)
+	}
+}
+
 // dealerStat returns the aggregate row for the named dealer (zero value if
 // absent).
 func dealerStat(cs *CombatSession, dealer string) combat.DamageStat {

@@ -39,12 +39,19 @@ type CritStat struct {
 	Damage int
 }
 
-// SkillStat tallies one activated melee skill (backstab/bash/kick): how much
-// damage it dealt, how many times it landed, and its biggest single hit.
+// SkillStat tallies one activated melee skill (backstab/bash/kick): damage, how
+// often it landed, its biggest hit, and timing for cadence + an effective-reuse
+// estimate. EQ logs no cooldown message and the true reuse scales with (unknown)
+// haste, so Reuse is measured: the fastest real gap between attempts, excluding
+// double-attack same-round pairs and lulls — see recordSkillAttemptLocked.
 type SkillStat struct {
-	Total int
-	Hits  int
-	Max   int
+	Total       int
+	Hits        int
+	Max         int
+	First       int64 // action time of the first landed hit (0 = none yet)
+	Last        int64 // action time of the most recent landed hit
+	LastAttempt int64 // action time of the most recent attempt (hit OR miss)
+	Reuse       int64 // measured effective cooldown in seconds (0 = not yet known)
 }
 
 // SpecialStat tallies one dealer's use of one special-attack kind
