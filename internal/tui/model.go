@@ -103,6 +103,7 @@ type Model struct {
 	mapStatus string
 	mapZoom   float64
 	mapFloors bool // floor-scope (hide other levels) — off by default; on for stacked zones
+	mapSel    int  // selected POI index in the Map side panel (↑/↓), drops a pin
 
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen

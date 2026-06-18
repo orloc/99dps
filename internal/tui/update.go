@@ -193,7 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshInventory()
 	case mapLoadedMsg:
 		if msg.short == m.mapShort { // ignore a stale load if the zone changed
-			m.curMap, m.mapStatus = msg.m, msg.status
+			m.curMap, m.mapStatus, m.mapSel = msg.m, msg.status, 0
 		}
 	case switchMsg:
 		m.character = msg.character

@@ -86,27 +86,45 @@ func (c *Canvas) Line(x0, y0, x1, y1 int, r, g, b uint8) {
 	}
 }
 
-// String renders the canvas to 24-bit-color ANSI, one text line per cell row.
-// Empty cells render as a space.
-func (c *Canvas) String() string { return c.render(-1, -1, "") }
-
-// StringWithMarker renders like String but draws marker (a double-width glyph,
-// e.g. an emoji) at cell (markCol, markRow), consuming that cell and the next so
-// the line keeps its width. Out-of-range coords render no marker.
-func (c *Canvas) StringWithMarker(markCol, markRow int, marker string) string {
-	return c.render(markCol, markRow, marker)
+// Marker is a double-width glyph (e.g. an emoji pin) drawn over the canvas at a
+// cell position, consuming that cell and the next so the line keeps its width.
+type Marker struct {
+	Col, Row int
+	Glyph    string
 }
 
-func (c *Canvas) render(markCol, markRow int, marker string) string {
+// String renders the canvas to 24-bit-color ANSI, one text line per cell row.
+// Empty cells render as a space.
+func (c *Canvas) String() string { return c.render(nil) }
+
+// StringWithMarker renders like String but draws one marker glyph at a cell.
+// Out-of-range coords render no marker.
+func (c *Canvas) StringWithMarker(markCol, markRow int, marker string) string {
+	return c.render([]Marker{{Col: markCol, Row: markRow, Glyph: marker}})
+}
+
+// StringWithMarkers renders like String but overlays several markers (e.g. the
+// player pin plus a selected POI pin). Earlier markers win a shared cell.
+func (c *Canvas) StringWithMarkers(markers []Marker) string { return c.render(markers) }
+
+func (c *Canvas) render(markers []Marker) string {
 	bg := ""
 	if c.hasBg {
 		bg = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.bgR, c.bgG, c.bgB)
 	}
+	markerAt := func(col, row int) string {
+		for _, m := range markers {
+			if m.Glyph != "" && m.Col == col && m.Row == row {
+				return m.Glyph
+			}
+		}
+		return ""
+	}
 	var sb strings.Builder
 	for row := 0; row < c.rows; row++ {
 		for col := 0; col < c.cols; col++ {
-			if marker != "" && row == markRow && col == markCol {
-				sb.WriteString(bg + marker + "\x1b[0m")
+			if g := markerAt(col, row); g != "" {
+				sb.WriteString(bg + g + "\x1b[0m")
 				col++ // the marker is double-width — also consume the next cell's column
 				continue
 			}

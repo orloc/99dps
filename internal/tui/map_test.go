@@ -28,22 +28,46 @@ func TestCompass8(t *testing.T) {
 	}
 }
 
-// TestPoiLegend: the nearest zone line leads (even when a non-zone spot is
-// closer), entries carry a distance + arrow, and the line fits the width.
-func TestPoiLegend(t *testing.T) {
+// TestClassifyPOI: labels bucket into zone lines / NPCs / points.
+func TestClassifyPOI(t *testing.T) {
+	cases := map[string]poiKind{
+		"to Chardok":       poiZone,
+		"Zone In":          poiZone,
+		"Acet (Merchant)":  poiNPC,
+		"Beek (GM_Cleric)": poiNPC,
+		"Ancient Totem":    poiPoint,
+		"brew barrel":      poiPoint,
+	}
+	for label, want := range cases {
+		if got := classifyPOI(label); got != want {
+			t.Errorf("classifyPOI(%q) = %d, want %d", label, got, want)
+		}
+	}
+}
+
+// TestOrderedPOIsAndPanel: POIs sort by kind then distance; the panel groups them
+// under headers, marks the selection, and fits the width.
+func TestOrderedPOIsAndPanel(t *testing.T) {
 	pts := []MapPoint{
-		{X: 0, Y: -80, Label: "Bridge"},    // nearest (dist ~71)
-		{X: -90, Y: -90, Label: "Zone In"}, // farther (~113) but a zone line
+		{X: 0, Y: -80, Label: "Ancient Totem"}, // point, near
+		{X: -90, Y: -90, Label: "to Chardok"},  // zone line, far
+		{X: 5, Y: 5, Label: "Acet (Merchant)"}, // npc, nearest
 	}
-	leg := poiLegend(themes[0], pts, 10, 10, 80) // player at map (-10,-10)
-	if !strings.Contains(leg, "Zone In") || !strings.Contains(leg, "Bridge") {
-		t.Fatalf("legend missing entries:\n%s", leg)
+	es := orderedPOIs(pts, 10, 10) // player at map (-10,-10)
+	// kind order: zone, npc, point — regardless of distance
+	if es[0].kind != poiZone || es[1].kind != poiNPC || es[2].kind != poiPoint {
+		t.Fatalf("order = %v, want zone,npc,point", []poiKind{es[0].kind, es[1].kind, es[2].kind})
 	}
-	if strings.Index(leg, "Zone In") > strings.Index(leg, "Bridge") {
-		t.Errorf("the nearest zone line should lead the legend:\n%s", leg)
+	panel := poiPanel(themes[0], es, 1, 28, 20) // select the NPC
+	for _, want := range []string{"POIs (3)", "ZONE LINES", "NPCS", "POINTS", "to Chardok", "Acet (Merchant)", "▸"} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("panel missing %q:\n%s", want, panel)
+		}
 	}
-	if lipgloss.Width(leg) > 80 {
-		t.Errorf("legend exceeds width 80: %d", lipgloss.Width(leg))
+	for _, ln := range strings.Split(panel, "\n") {
+		if lipgloss.Width(ln) > 28 {
+			t.Errorf("panel line exceeds width 28 (%d): %q", lipgloss.Width(ln), ln)
+		}
 	}
 }
 
@@ -54,8 +78,8 @@ func TestRenderMapCanvasPOI(t *testing.T) {
 		Segments: []MapSegment{{X1: -100, Y1: 0, X2: 100, Y2: 0, R: 80, G: 80, B: 80}},
 		Points:   []MapPoint{{X: 0, Y: 0, Label: "Zone In"}},
 	}
-	out := renderMapCanvas(md, 0, 0, 0, true, 1, false, 30, 14)
-	r, g, b := poiRGB(MapPoint{Label: "Zone In"})
+	out := renderMapCanvas(md, 0, 0, 0, true, 1, false, 30, 14, nil)
+	r, g, b := poiRGB("Zone In")
 	if !strings.Contains(out, fmt.Sprintf("38;2;%d;%d;%d", r, g, b)) {
 		t.Errorf("canvas should contain the zone POI marker color (%d,%d,%d)", r, g, b)
 	}
@@ -78,7 +102,7 @@ func TestRenderMapCanvas(t *testing.T) {
 		Segments: []MapSegment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 64, G: 64, B: 64}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	out := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10)
+	out := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10, nil)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 10 {
 		t.Fatalf("want 10 cell rows, got %d", len(lines))
@@ -114,19 +138,19 @@ func TestFloorScoping(t *testing.T) {
 		},
 		MinX: -50, MinY: -50, MaxX: 50, MaxY: 50, MinZ: 0,
 	}
-	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, true, 20, 10) // floor-scope on, on the ground floor
-	if !strings.Contains(ground, "110;110;110") {                 // 200 darkened by inkDarken (0.55)
+	ground := renderMapCanvas(mp, 0, 0, 0, true, 1, true, 20, 10, nil) // floor-scope on, on the ground floor
+	if !strings.Contains(ground, "110;110;110") {                      // 200 darkened by inkDarken (0.55)
 		t.Error("the player's own floor should render (as darkened ink)")
 	}
 	// the upper floor (Z=50) is a floor away → hidden when scoped to the ground;
 	// standing on the upper floor renders different geometry.
-	upper := renderMapCanvas(mp, 0, 0, 50, true, 1, true, 20, 10) // floor-scope on, on the upper floor
+	upper := renderMapCanvas(mp, 0, 0, 50, true, 1, true, 20, 10, nil) // floor-scope on, on the upper floor
 	if ground == upper {
 		t.Error("standing on different floors should render different geometry")
 	}
 
 	// with floor-scoping OFF (the default), both floors render — more than scoped.
-	all := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10)
+	all := renderMapCanvas(mp, 0, 0, 0, true, 1, false, 20, 10, nil)
 	if all == ground {
 		t.Error("floor-scoping off should show more geometry than scoped")
 	}
@@ -169,6 +193,40 @@ func TestMapView_States(t *testing.T) {
 		if lipgloss.Width(ln) > 50 {
 			t.Errorf("map view line exceeds width 50: %d", lipgloss.Width(ln))
 		}
+	}
+}
+
+// TestMapView_SidePanel: a wide map with POIs + a /loc shows the selectable side
+// panel and a selection pin (distinct from the player), and never overflows.
+func TestMapView_SidePanel(t *testing.T) {
+	tr := gamestate.NewTracker(&gamestate.Book{})
+	tr.Observe("You have entered Chardok.", 1)
+	tr.Observe("Your Location is 10.0, 10.0, 0.0", 2)
+	m := NewModel(&session.SessionManager{}, tr, "X")
+	m.mapZoom = 1
+	m.curMap = &MapData{
+		MinX: -120, MinY: -120, MaxX: 120, MaxY: 120,
+		Segments: []MapSegment{{X1: -120, Y1: -120, X2: 120, Y2: 120, R: 90, G: 90, B: 90}},
+		Points: []MapPoint{
+			{X: 100, Y: -100, Label: "to Burning Wood"},
+			{X: 50, Y: 50, Label: "Acet (Merchant)"},
+		},
+	}
+	out := m.mapView(themes[0], 90, 18)
+	for _, want := range []string{"POIs (2)", "ZONE LINES", "to Burning Wood", poiPin, playerMarker} {
+		if !strings.Contains(out, want) {
+			t.Errorf("paneled map view missing %q", want)
+		}
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > 90 {
+			t.Errorf("paneled map line exceeds width 90 (%d)", lipgloss.Width(ln))
+		}
+	}
+	// ↓ moves the selection (and thus the pin)
+	moved, _ := m.updateMap(tea.KeyMsg{Type: tea.KeyDown})
+	if moved.(Model).mapSel != 1 {
+		t.Errorf("down should advance the POI selection, got %d", moved.(Model).mapSel)
 	}
 }
 
@@ -239,8 +297,8 @@ func TestMapZoom(t *testing.T) {
 		Segments: []MapSegment{{X1: -100, Y1: -100, X2: 100, Y2: 100, R: 80, G: 80, B: 80}},
 		MinX:     -100, MinY: -100, MaxX: 100, MaxY: 100,
 	}
-	near := renderMapCanvas(mp, 20, 20, 0, true, 8, false, 30, 15) // zoomed in on the player
-	far := renderMapCanvas(mp, 20, 20, 0, true, 1, false, 30, 15)  // whole-zone fit
+	near := renderMapCanvas(mp, 20, 20, 0, true, 8, false, 30, 15, nil) // zoomed in on the player
+	far := renderMapCanvas(mp, 20, 20, 0, true, 1, false, 30, 15, nil)  // whole-zone fit
 	if near == far {
 		t.Error("zooming in should change the rendered map")
 	}
