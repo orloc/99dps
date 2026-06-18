@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,6 +11,55 @@ import (
 	"99dps/internal/eq/gamestate"
 	"99dps/internal/session"
 )
+
+// TestCompass8: a screen-space delta (dx right, dy down) maps to the matching arrow.
+func TestCompass8(t *testing.T) {
+	cases := []struct {
+		dx, dy float64
+		want   string
+	}{
+		{10, 0, "→"}, {0, 10, "↓"}, {-10, 0, "←"}, {0, -10, "↑"},
+		{10, 10, "↘"}, {-10, -10, "↖"}, {-10, 10, "↙"}, {10, -10, "↗"},
+	}
+	for _, c := range cases {
+		if got := compass8(c.dx, c.dy); got != c.want {
+			t.Errorf("compass8(%v,%v) = %q, want %q", c.dx, c.dy, got, c.want)
+		}
+	}
+}
+
+// TestPoiLegend: the nearest zone line leads (even when a non-zone spot is
+// closer), entries carry a distance + arrow, and the line fits the width.
+func TestPoiLegend(t *testing.T) {
+	pts := []MapPoint{
+		{X: 0, Y: -80, Label: "Bridge"},    // nearest (dist ~71)
+		{X: -90, Y: -90, Label: "Zone In"}, // farther (~113) but a zone line
+	}
+	leg := poiLegend(themes[0], pts, 10, 10, 80) // player at map (-10,-10)
+	if !strings.Contains(leg, "Zone In") || !strings.Contains(leg, "Bridge") {
+		t.Fatalf("legend missing entries:\n%s", leg)
+	}
+	if strings.Index(leg, "Zone In") > strings.Index(leg, "Bridge") {
+		t.Errorf("the nearest zone line should lead the legend:\n%s", leg)
+	}
+	if lipgloss.Width(leg) > 80 {
+		t.Errorf("legend exceeds width 80: %d", lipgloss.Width(leg))
+	}
+}
+
+// TestRenderMapCanvasPOI: a POI is drawn as a colored marker on the canvas.
+func TestRenderMapCanvasPOI(t *testing.T) {
+	md := &MapData{
+		MinX: -100, MinY: -100, MaxX: 100, MaxY: 100,
+		Segments: []MapSegment{{X1: -100, Y1: 0, X2: 100, Y2: 0, R: 80, G: 80, B: 80}},
+		Points:   []MapPoint{{X: 0, Y: 0, Label: "Zone In"}},
+	}
+	out := renderMapCanvas(md, 0, 0, 0, true, 1, false, 30, 14)
+	r, g, b := poiRGB(MapPoint{Label: "Zone In"})
+	if !strings.Contains(out, fmt.Sprintf("38;2;%d;%d;%d", r, g, b)) {
+		t.Errorf("canvas should contain the zone POI marker color (%d,%d,%d)", r, g, b)
+	}
+}
 
 // fakeMapSource is a MapSource that serves a canned map without any network.
 type fakeMapSource struct {

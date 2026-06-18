@@ -3,8 +3,11 @@ package tui
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/braille"
 )
@@ -77,7 +80,21 @@ func (m Model) mapView(th theme, w, h int) string {
 		}
 		return header + "\n" + paint(th, th.dim, truncate(msg, w), w)
 	}
-	return header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, m.mapFloors, w, bodyH)
+	// a one-line legend of the nearest POIs (nearest zone line first) when we know
+	// where the player is; it costs the canvas one row.
+	legend := ""
+	if haveLoc && len(m.curMap.Points) > 0 {
+		legend = poiLegend(th, m.curMap.Points, px, py, w)
+	}
+	canvasH := bodyH
+	if legend != "" {
+		canvasH = max(bodyH-1, 1)
+	}
+	out := header + "\n" + renderMapCanvas(m.curMap, px, py, pz, haveLoc, m.mapZoom, m.mapFloors, w, canvasH)
+	if legend != "" {
+		out += "\n" + legend
+	}
+	return out
 }
 
 // zoomIn / zoomOut step the map zoom (clamped to [1, 32]), shared by the +/-
@@ -147,6 +164,16 @@ func renderMapCanvas(mp *MapData, px, py, pz float64, havePlayer bool, zoom floa
 		x1, y1 := project(seg.X2, seg.Y2)
 		cv.Line(x0, y0, x1, y1, ink(seg.R), ink(seg.G), ink(seg.B)) // darker ink on the paper bg
 	}
+	// POI markers on top of the geometry — bright (not darkened like walls) so
+	// labeled spots pop; the legend (mapView) names them. Floor-scoped like walls.
+	for _, p := range mp.Points {
+		if floors && havePlayer && !onFloor(p.Z, refZ) {
+			continue
+		}
+		mx, my := project(p.X, p.Y)
+		r, g, b := poiRGB(p)
+		drawMarker(cv, mx, my, r, g, b)
+	}
 	if havePlayer {
 		// mark the player with an emoji pin (double-width) instead of a colored dot.
 		dx, dy := project(-px, -py) // orient(): map coords are negated vs /loc
@@ -184,3 +211,87 @@ const zFloorBand = 30.0
 
 // onFloor reports whether a segment at height z belongs to the reference floor.
 func onFloor(z, ref float64) bool { return math.Abs(z-ref) <= zFloorBand }
+
+// POI marker colors (kept bright — not darkened like walls — so they pop on the
+// parchment): zone connections vs other labeled spots. The canvas markers and the
+// legend share these so the two read as the same thing.
+const (
+	poiZoneHex = "#2b6cff" // zone lines / connections
+	poiSpotHex = "#e8730c" // camps, named mobs, other points
+)
+
+// isZoneLine guesses whether a POI label marks a zone connection (the most
+// navigationally useful kind), so it gets the distinct zone color.
+func isZoneLine(label string) bool { return strings.Contains(strings.ToLower(label), "zone") }
+
+func poiHex(p MapPoint) string {
+	if isZoneLine(p.Label) {
+		return poiZoneHex
+	}
+	return poiSpotHex
+}
+
+func poiRGB(p MapPoint) (uint8, uint8, uint8) {
+	r, g, b := hexRGB(poiHex(p))
+	return uint8(r), uint8(g), uint8(b)
+}
+
+// drawMarker stamps a small "+" (centre + 4 neighbours) so a POI stands out from
+// thin wall lines. Off-canvas dots are clipped by Set.
+func drawMarker(cv *braille.Canvas, x, y int, r, g, b uint8) {
+	cv.Set(x, y, r, g, b)
+	cv.Set(x-1, y, r, g, b)
+	cv.Set(x+1, y, r, g, b)
+	cv.Set(x, y-1, r, g, b)
+	cv.Set(x, y+1, r, g, b)
+}
+
+// poiArrows are the 8 screen-relative compass arrows, indexed by 45° sector from
+// +x going clockwise (screen +y is down).
+var poiArrows = [8]string{"→", "↘", "↓", "↙", "←", "↖", "↑", "↗"}
+
+// compass8 maps a screen-space delta (dx right, dy down) to an 8-way arrow that
+// matches where the POI sits on the rendered map.
+func compass8(dx, dy float64) string {
+	return poiArrows[(int(math.Round(math.Atan2(dy, dx)/(math.Pi/4)))+8)%8]
+}
+
+// poiLegend renders one width-bounded line of the nearest points of interest —
+// the nearest zone line(s) first (most useful for navigation), then the nearest
+// other spots — each a colored marker, label, distance and an arrow toward it.
+// px,py are the player's /loc world coords (the map negates them, so the player
+// sits at (-px,-py) in map space). Greedily packs entries until the width runs
+// out, so the line never overflows.
+func poiLegend(th theme, pts []MapPoint, px, py float64, w int) string {
+	type scored struct {
+		p      MapPoint
+		d      float64
+		dx, dy float64
+	}
+	var zones, spots []scored
+	for _, p := range pts {
+		dx, dy := p.X+px, p.Y+py
+		e := scored{p, math.Hypot(dx, dy), dx, dy}
+		if isZoneLine(p.Label) {
+			zones = append(zones, e)
+		} else {
+			spots = append(spots, e)
+		}
+	}
+	byDist := func(s []scored) { sort.Slice(s, func(i, j int) bool { return s[i].d < s[j].d }) }
+	byDist(zones)
+	byDist(spots)
+
+	var segs []string
+	used := 0
+	for _, e := range append(zones, spots...) {
+		seg := fmt.Sprintf("◆ %s %.0f%s", truncate(e.p.Label, 12), e.d, compass8(e.dx, e.dy))
+		sw := lipgloss.Width(seg)
+		if len(segs) > 0 && used+2+sw > w {
+			break
+		}
+		used += 2 + sw
+		segs = append(segs, th.fg(poiHex(e.p)).Render(seg))
+	}
+	return strings.Join(segs, "  ")
+}

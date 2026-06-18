@@ -28,6 +28,10 @@ func (a mapAdapter) Load(short string) (*tui.MapData, error) {
 	for i, s := range m.Segments {
 		out.Segments[i] = tui.MapSegment{X1: s.X1, Y1: s.Y1, X2: s.X2, Y2: s.Y2, Z: s.Z, R: s.R, G: s.G, B: s.B}
 	}
+	out.Points = make([]tui.MapPoint, len(m.Points))
+	for i, p := range m.Points {
+		out.Points[i] = tui.MapPoint{X: p.X, Y: p.Y, Z: p.Z, R: p.R, G: p.G, B: p.B, Label: p.Label}
+	}
 	return out, nil
 }
 

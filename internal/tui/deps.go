@@ -20,6 +20,7 @@ type MapSource interface {
 type MapData struct {
 	MinX, MinY, MinZ, MaxX, MaxY float64
 	Segments                     []MapSegment
+	Points                       []MapPoint // labeled points of interest (zone lines, camps)
 }
 
 // MapSegment is one map line: its endpoints, mid-height (Z, for floor-scoping),
@@ -27,6 +28,14 @@ type MapData struct {
 type MapSegment struct {
 	X1, Y1, X2, Y2, Z float64
 	R, G, B           uint8
+}
+
+// MapPoint is a labeled point of interest from the map's "P" lines: a position,
+// its file color, and a human label ("Zone In", a camp/mob name).
+type MapPoint struct {
+	X, Y, Z float64
+	R, G, B uint8
+	Label   string
 }
 
 // empty reports whether the map has no drawable geometry (nil-safe).
