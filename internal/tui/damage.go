@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"99dps/internal/combat"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/combat"
+	"99dps/internal/eq/gamestate"
 	"99dps/internal/session"
 )
 

@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"99dps/internal/eqclass"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/eqclass"
+	"99dps/internal/eq/gamestate"
 )
 
 // Prefs is the persisted "which audio cues fire" choice. It stores only

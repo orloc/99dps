@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"99dps/internal/combat"
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/combat"
+	"99dps/internal/eq/eqclass"
 	"bufio"
 	"fmt"
 	"os"

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/gamestate"
 )
 
 // Speaker is the minimal speech sink the engine needs — the tts engine satisfies

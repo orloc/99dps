@@ -3,7 +3,7 @@ package gamestate
 import (
 	"testing"
 
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 )
 
 // TestDisciplinesGatedByClass: a class with no disciplines (caster) returns nil;

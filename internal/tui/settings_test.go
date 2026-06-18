@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"99dps/internal/cues"
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 	"99dps/internal/session"
 	"99dps/internal/tts"
 )

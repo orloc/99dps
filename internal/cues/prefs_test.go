@@ -3,7 +3,7 @@ package cues
 import (
 	"testing"
 
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 )
 
 func TestCuePrefsDefaultAndOverride(t *testing.T) {

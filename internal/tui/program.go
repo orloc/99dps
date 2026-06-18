@@ -4,7 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"99dps/internal/cues"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/gamestate"
 	"99dps/internal/session"
 )
 

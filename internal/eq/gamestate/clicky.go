@@ -1,6 +1,6 @@
 package gamestate
 
-import "99dps/internal/eqclass"
+import "99dps/internal/eq/eqclass"
 
 // Clicky is an instant-cast clicky item whose buff lands with NO "You begin
 // casting X" line — so the normal pending-cast → landing-emote path never fires.

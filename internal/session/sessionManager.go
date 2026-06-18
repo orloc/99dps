@@ -1,8 +1,8 @@
 package session
 
 import (
-	"99dps/internal/combat"
-	"99dps/internal/mobstats"
+	"99dps/internal/eq/combat"
+	"99dps/internal/eq/mobstats"
 	"strings"
 	"sync"
 	"time"

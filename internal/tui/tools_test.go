@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/gamestate"
 	"99dps/internal/session"
 )
 

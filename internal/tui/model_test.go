@@ -12,9 +12,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"99dps/internal/combat"
-	"99dps/internal/eqclass"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/combat"
+	"99dps/internal/eq/eqclass"
+	"99dps/internal/eq/gamestate"
 	"99dps/internal/session"
 )
 

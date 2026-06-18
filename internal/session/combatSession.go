@@ -1,7 +1,7 @@
 package session
 
 import (
-	"99dps/internal/combat"
+	"99dps/internal/eq/combat"
 	"maps"
 	"sort"
 	"strings"

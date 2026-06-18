@@ -21,7 +21,7 @@ that owns geometry (the race becomes structurally impossible).
 ## What stays vs. what changes
 
 **Untouched — the entire data core** (this is the payoff of the earlier refactor):
-`internal/combat`, `internal/eqclass`, `internal/gamestate`, `internal/loader`,
+`internal/eq/combat`, `internal/eq/eqclass`, `internal/eq/gamestate`, `internal/loader`,
 `internal/parser`, `internal/session`. The UI only *reads* their snapshots and
 getters. Zero changes, zero risk to parsing/correctness.
 

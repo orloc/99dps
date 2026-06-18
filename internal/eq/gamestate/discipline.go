@@ -1,6 +1,6 @@
 package gamestate
 
-import "99dps/internal/eqclass"
+import "99dps/internal/eq/eqclass"
 
 // DiscPhase is where a discipline is in its use cycle.
 type DiscPhase int

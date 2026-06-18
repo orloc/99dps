@@ -1,7 +1,7 @@
 package gamestate
 
 import (
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 	"testing"
 )
 

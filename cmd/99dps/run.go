@@ -1,8 +1,8 @@
 package main
 
 import (
+	"99dps/internal/eq/gamestate"
 	"99dps/internal/eqmap"
-	"99dps/internal/gamestate"
 	"99dps/internal/loader"
 	"99dps/internal/parser"
 	"99dps/internal/prices"

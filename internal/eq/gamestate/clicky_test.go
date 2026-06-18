@@ -3,7 +3,7 @@ package gamestate
 import (
 	"testing"
 
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 )
 
 // withClickyRegistry swaps in an isolated registry for the test and restores it.

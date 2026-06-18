@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"99dps/internal/combat"
+	"99dps/internal/eq/combat"
 )
 
 // Name picks the heaviest enemy *target* (the thing being fought), not the

@@ -1,6 +1,6 @@
 package tui
 
-import "99dps/internal/eqclass"
+import "99dps/internal/eq/eqclass"
 
 // layout holds the computed panel rectangles for the current window size. The
 // bottom row gets a dedicated "Enemy" column (CC + debuffs) for caster/hybrid

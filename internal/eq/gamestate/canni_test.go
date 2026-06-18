@@ -3,7 +3,7 @@ package gamestate
 import (
 	"testing"
 
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 )
 
 // TestCanni_PersistsAfterLapse: once a dance lapses, CanniStats stays present as

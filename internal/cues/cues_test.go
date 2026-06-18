@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"99dps/internal/eqclass"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/eqclass"
+	"99dps/internal/eq/gamestate"
 )
 
 // fakeSpeaker records what the engine spoke, for assertions.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"99dps/internal/combat"
+	"99dps/internal/eq/combat"
 )
 
 // --- Segmentation (sequential state-machine tests) ---------------------------

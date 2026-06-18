@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"99dps/internal/combat"
-	"99dps/internal/eqclass"
-	"99dps/internal/gamestate"
+	"99dps/internal/eq/combat"
+	"99dps/internal/eq/eqclass"
+	"99dps/internal/eq/gamestate"
 )
 
 // mezRow builds a 217-field mez spell line: a detrimental spell whose

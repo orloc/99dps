@@ -3,7 +3,7 @@ package gamestate
 import (
 	"testing"
 
-	"99dps/internal/eqclass"
+	"99dps/internal/eq/eqclass"
 )
 
 func TestTracker_LandThenExpireOnSlain(t *testing.T) {
