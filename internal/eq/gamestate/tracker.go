@@ -490,6 +490,13 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 // Target stays the plain name, so grouping/break/slay/dismiss are unaffected).
 // This mirrors the Mob Tracker, which keeps one repop entry per kill. Caller
 // holds the lock.
+// reapplyWindowSec is how close to expiry a mob-landed spell's existing same-named
+// timer must be for a re-cast to refresh it (treated as re-applying to the same
+// mob about to break) rather than spawn a separate instance for a different
+// same-named mob. Pacify/calm and mez run long, so a fresh cast well before this
+// window is almost always a second mob.
+const reapplyWindowSec = 30
+
 func (t *Tracker) addOrRefreshTimerLocked(tm Timer, at int64) {
 	soonestKey, soonestExp := "", int64(0)
 	for k, ex := range t.timers {
@@ -500,13 +507,19 @@ func (t *Tracker) addOrRefreshTimerLocked(tm Timer, at int64) {
 		}
 	}
 	if soonestKey != "" {
-		ex := t.timers[soonestKey]
-		if !tm.Detrimental || TimerUrgency(ex.Expiry-at, ex.Expiry-ex.Start) == Expiring {
-			t.timers[soonestKey] = tm // a buff (unique target) or a stale (red) debuff → refresh
+		// A buff lands on a unique target (you / a named ally), so a re-cast always
+		// refreshes. A spell that lands on a MOB — a debuff, or CC (pacify/mez), even
+		// though P99 flags pacify "beneficial" — can hit a *second* same-named mob, so
+		// only refresh when the existing copy is within reapplyWindowSec of expiring
+		// (you're re-applying to the same mob as it wakes); cast earlier, it's a
+		// different same-named mob and gets its own instance.
+		landsOnMob := tm.Detrimental || tm.Pacify || tm.Mez
+		if !landsOnMob || soonestExp-at < reapplyWindowSec {
+			t.timers[soonestKey] = tm
 			return
 		}
 	}
-	t.timers[t.uniqueKeyLocked(tm.Spell, tm.Target)] = tm // fresh copy still up → a different same-named mob
+	t.timers[t.uniqueKeyLocked(tm.Spell, tm.Target)] = tm // a same-named copy still up → a different mob
 }
 
 // uniqueKeyLocked returns key(spell,target), suffixed with an instance number

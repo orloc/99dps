@@ -606,3 +606,26 @@ func TestSetLevel_KeepsPacifyDuration(t *testing.T) {
 		t.Errorf("Calm after level update = %ds, want 180 (must not be clobbered to 186)", d)
 	}
 }
+
+// TestPacify_SameNamedMobsInstance: pacify lands on mobs (which can be same-named),
+// so a second cast while the first is still up gets its OWN timer — even though
+// P99 flags pacify "beneficial" (the old code therefore overwrote it). A re-cast
+// within reapplyWindowSec of expiry refreshes instead of adding a third.
+func TestPacify_SameNamedMobsInstance(t *testing.T) {
+	tr := NewTracker(loadBook(t, calmSpell()))
+	tr.SetLevel(60)
+	land := func(at int64) { // calm lands ~3s after the cast begins, 180s duration
+		tr.BeginCast("Calm", at)
+		tr.Observe("a sand giant looks less aggressive.", at+3)
+	}
+	land(1000) // lands 1003, expiry 1183
+	land(1010) // second same-named mob; first still has ~170s left → a new instance
+	if act := tr.Active(1020); len(act) != 2 {
+		t.Fatalf("two pacified same-named mobs should hold two timers, got %d", len(act))
+	}
+	// re-applying near the soonest expiry (1183) refreshes that copy, not a third.
+	land(1167) // lands 1170; soonest expiry 1183 → 13s left (< 30) → refresh
+	if act := tr.Active(1171); len(act) != 2 {
+		t.Errorf("re-applying within 30s of expiry should refresh, not add a third; got %d", len(act))
+	}
+}
