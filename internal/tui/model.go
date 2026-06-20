@@ -47,6 +47,7 @@ type Model struct {
 	vpMob    viewport.Model
 	vpEnemy  viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
 	vpInv    viewport.Model // Tools tab: scrollable inventory price list
+	vpLog    viewport.Model // Live Log tab: merged raw-line + fired-cue sheet
 
 	// Sessions tab: a wide scrollable stats table + a DPS breakdown of the
 	// highlighted session. sessHeader is the sticky column header (rendered above
@@ -79,10 +80,18 @@ type Model struct {
 
 	// repop respawn editing: click a Mob Tracker row (mobTargets maps a content
 	// line → mob) to open an inline editor that writes a per-(zone,mob) override.
+	// A double-click on empty space in the panel opens the same editor in "add"
+	// mode (editAdd), where the buffer holds a free-text "name [m:ss]" for a
+	// live-only manual timer. lastClick* tracks the prior left-press for the
+	// double-click test (Bubble Tea reports no double-click natively).
 	mobTargets map[int]string
 	editing    bool
+	editAdd    bool
 	editBuf    string
 	editMob    string
+	lastClick  time.Time
+	lastClickX int
+	lastClickY int
 
 	spellInfo  string // data-source summary for the footer
 	canniBlock string // pre-rendered canni dance meter, pinned under the Damage panel
@@ -105,6 +114,11 @@ type Model struct {
 	mapFloors bool // floor-scope (hide other levels) — off by default; on for stacked zones
 	mapSel    int  // selected POI index in the Map side panel (↑/↓), drops a pin
 
+	// Live Log tab: a thread-safe ring fed by the parser (raw lines) + the cue
+	// recorder (fired cues); logFollow auto-tails to the newest row.
+	logTail   *LogTail
+	logFollow bool
+
 	// screen selects the active view (meter / settings tab / first-run setup).
 	screen      screen
 	setup       setupState
@@ -124,7 +138,7 @@ func NewModel(sm *session.SessionManager, tracker *gamestate.Tracker, character 
 	return Model{
 		sm: sm, tracker: tracker, character: character, follow: true,
 		speaker: tts.NewEngine(), cueEngine: cues.NewEngine(),
-		mapZoom: 4,
+		mapZoom: 4, logTail: NewLogTail(), logFollow: true,
 	}
 }
 
@@ -135,7 +149,10 @@ func (m *Model) announceCues() {
 	if !m.ttsOn {
 		return
 	}
-	m.cueEngine.Announce(m.speaker, m.tracker, m.cuePrefs, time.Now().Unix())
+	// route through the recorder so every fired cue is also captured for the Live
+	// Log tab (it still speaks via the wrapped engine).
+	now := time.Now().Unix()
+	m.cueEngine.Announce(cueRecorder{out: m.speaker, lt: m.logTail, at: now}, m.tracker, m.cuePrefs, now)
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
@@ -203,6 +220,12 @@ func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 	th := themes[m.theme]
 	enemy := m.layout().enemy
 	classStr, classT := m.classPanel(cur, m.vpClass.Width, m.hover, enemy)
+	// flag any active spell the P99 wiki doesn't confirm for this class (the
+	// spells_us superset can resolve a cast to a wrong/non-existent spell). Appended
+	// here so the timer renderers stay untouched.
+	if warn := m.spellWarning(m.vpClass.Width); warn != "" {
+		classStr += "\n" + warn
+	}
 	m.vpClass.SetContent(classStr)
 	m.classTargets = classT
 	if enemy {

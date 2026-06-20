@@ -10,7 +10,14 @@ import (
 
 // Program wraps the Bubble Tea program so the host can push in a character
 // switch (detected by the log watcher) while the UI is running.
-type Program struct{ p *tea.Program }
+type Program struct {
+	p  *tea.Program
+	lt *LogTail // the live-log ring, shared with the host's parser tap
+}
+
+// LogTail returns the program's live-log ring so the host can feed the parser's
+// raw lines into it (the model already renders from the same ring).
+func (pr *Program) LogTail() *LogTail { return pr.lt }
 
 // NewProgram builds the program over the shared manager + tracker. spellInfo is
 // the data-source summary for the footer; tts enables audio cues at startup.
@@ -36,7 +43,7 @@ func NewProgram(sm *session.SessionManager, tracker *gamestate.Tracker, characte
 	// saved choice drives cues once configured; the -tts flag is a manual force-on.
 	m.ttsOn = (cs.AudioOn || ttsOn) && m.speaker.Available()
 
-	return &Program{p: tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())}
+	return &Program{p: tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()), lt: m.logTail}
 }
 
 // Run launches the UI; blocks until the user quits.

@@ -66,7 +66,7 @@ func runTUI(src *loader.LogSource, logDir, spellsPath string, tts, watchSwitch b
 	// logs dir, where spells_us.txt also lives.
 	prog := tui.NewProgram(sm, tracker, src.Character, spellInfo, filepath.Dir(logDir), tts,
 		mapAdapter{l: eqmap.NewLoader()}, priceAdapter{c: prices.NewClient()})
-	ctrl := &logController{dir: logDir, sm: sm, tui: prog, cur: src, tracker: tracker, crash: make(chan string, 4)}
+	ctrl := &logController{dir: logDir, sm: sm, tui: prog, tracker: tracker, logTail: prog.LogTail(), cur: src, crash: make(chan string, 4)}
 	ctrl.startParse(src)
 
 	stop := make(chan struct{})
@@ -103,6 +103,7 @@ type logController struct {
 	sm      *session.SessionManager
 	tui     *tui.Program
 	tracker *gamestate.Tracker
+	logTail *tui.LogTail // raw-line feed for the live-log tab
 
 	mu      sync.Mutex
 	cur     *loader.LogSource
@@ -144,7 +145,7 @@ func (c *logController) startParse(src *loader.LogSource) {
 	go func() {
 		defer c.parseWG.Done()
 		defer c.recoverTerminal() // a parse panic must not leave the terminal wedged
-		parser.DoParse(src.Tail, c.sm, src.Character, c.observer())
+		parser.DoParse(src.Tail, c.sm, src.Character, c.observer(), c.logTail.Tap())
 	}()
 }
 

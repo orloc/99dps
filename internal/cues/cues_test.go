@@ -134,6 +134,69 @@ func TestDebuffCueFiresOncePerMob(t *testing.T) {
 	}
 }
 
+// TestSameNamedInstancesNoRepeat reproduces the audio-spam bug: several
+// same-named mobs under the same CC (pacify on multiple "a sand giant") share the
+// (spell, target) cue key. The most-urgent instance must announce its fade ONCE,
+// not re-fire every tick — the old per-instance loop reset the announced urgency
+// to the least-urgent instance each tick, re-spamming the fading cue.
+func TestSameNamedInstancesNoRepeat(t *testing.T) {
+	e := NewEngine()
+	now := int64(1000)
+	// pacify is beneficial-flagged (not Detrimental), the case that flip-flopped.
+	pac := func(exp int64) gamestate.Timer {
+		return gamestate.Timer{Spell: "Lull", Target: "a sand giant", Start: now - 100, Expiry: exp, Pacify: true}
+	}
+	// one giant fading (5s), one fresh (300s), one mid (120s) — all the same key.
+	active := []gamestate.Timer{pac(now + 5), pac(now + 300), pac(now + 120)}
+
+	got := e.dueAnnouncements(active, Prefs{}, now)
+	if len(got) != 1 || !got[0].fading {
+		t.Fatalf("first tick: want one fading cue, got %+v", got)
+	}
+	// subsequent ticks with the SAME set must stay silent — no per-tick repeat.
+	for i := 0; i < 5; i++ {
+		if got := e.dueAnnouncements(active, Prefs{}, now); len(got) != 0 {
+			t.Fatalf("tick %d: same-key instances must not re-announce, got %+v", i, got)
+		}
+	}
+}
+
+// TestSameNamedPacifyNoTickSpam simulates the real scenario over time: several
+// same-named pacified mobs ("a sand giant") with staggered expiries, ticked once
+// per second as they count down and expire. They all share the (spell, target)
+// cue key, so the group must announce a bounded number of times (≤ one per mob) —
+// NOT once per tick. Before the fix this fired the fading cue every tick while any
+// instance sat in the red zone, producing dozens of repeats.
+func TestSameNamedPacifyNoTickSpam(t *testing.T) {
+	e := NewEngine()
+	start := int64(1000)
+	exps := []int64{start + 10, start + 25, start + 40} // three giants, staggered
+	pac := func(exp int64) gamestate.Timer {
+		// pacify: beneficial-flagged (not Detrimental) — the case that flip-flopped.
+		return gamestate.Timer{Spell: "Lull", Target: "a sand giant", Start: start - 100, Expiry: exp, Pacify: true}
+	}
+
+	var spoken int
+	for now := start; now <= start+45; now++ {
+		var active []gamestate.Timer
+		for _, exp := range exps {
+			if exp > now { // still up
+				active = append(active, pac(exp))
+			}
+		}
+		spoken += len(e.dueAnnouncements(active, Prefs{}, now))
+	}
+
+	// the whole same-named group is one speech subject, so over its entire lifetime
+	// it should speak at most a couple of times — never the per-tick storm (~30+).
+	if spoken == 0 {
+		t.Error("expected at least one cue over the lifetime")
+	}
+	if spoken > len(exps) {
+		t.Errorf("group spoke %d times over its lifetime, want ≤ %d (no per-tick spam)", spoken, len(exps))
+	}
+}
+
 func TestComposeCue(t *testing.T) {
 	you := func(s string) gamestate.Timer { return gamestate.Timer{Spell: s, Target: "You"} }
 	cases := []struct {
@@ -261,6 +324,43 @@ func TestAnnounceResistIsUrgent(t *testing.T) {
 	}
 }
 
+// TestResistAlternatingNoSpam reproduces the resist-macro spam: a 2-spell macro
+// on a high-resist mob alternates resisted spells, so the resist signal never
+// goes quiet. The old single-slot dedup keyed on spell name and re-fired on every
+// alternation; the per-spell time gate must cap it to once per spell per window.
+func TestResistAlternatingNoSpam(t *testing.T) {
+	fe := &fakeSpeaker{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	e := NewEngine()
+	now := time.Now().Unix()
+
+	// Snare/Tashan/Snare/Tashan… resisted every 2s for 12s (within the grace window
+	// throughout, so the signal stays "active" — the alternation is the only change).
+	spells := []string{"Snare", "Tashan"}
+	for i := 0; i <= 6; i++ {
+		at := now + int64(i*2)
+		tr.Observe("Your target resisted the "+spells[i%2]+" spell.", at)
+		e.Announce(fe, tr, Prefs{}, at)
+	}
+	// each spell announces at most once inside one resistRepeatSec window — so two
+	// spells over 12s give a small bounded count, not one urgent cue per cast (~7).
+	if len(fe.urgent) > len(spells) {
+		t.Fatalf("alternating resists should not spam: got %d urgent cues %v, want ≤ %d", len(fe.urgent), fe.urgent, len(spells))
+	}
+	if len(fe.urgent) == 0 {
+		t.Error("a resist should still announce at least once")
+	}
+
+	// after the signal clears (quiet > grace) a fresh resist re-announces.
+	later := now + 100
+	tr.Observe("Your target resisted the Snare spell.", later)
+	e.Announce(fe, tr, Prefs{}, later)
+	if len(fe.urgent) == 0 || !strings.Contains(fe.urgent[len(fe.urgent)-1], "Snare") {
+		t.Errorf("a resist after a quiet gap should re-announce, got %v", fe.urgent)
+	}
+}
+
 func TestFeignFailVariety(t *testing.T) {
 	seen := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
@@ -381,6 +481,33 @@ func TestSpawnSoonCue(t *testing.T) {
 	e2.Announce(fe2, tr, prefs, now+235)             // 25s out, but disabled
 	if len(fe2.normal) != 0 {
 		t.Errorf("disabled spawn cue should stay silent, got %v", fe2.normal)
+	}
+}
+
+// TestSpawnOverrideNoReannounce: re-timing a mob's repop (an override edit) moves
+// its expiry but it's the same physical spawn — it must not re-announce. The cue
+// keys on the stable kill time, not the mutable expiry.
+func TestSpawnOverrideNoReannounce(t *testing.T) {
+	fe := &fakeSpeaker{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.UseOverrides(gamestate.LoadOverrides(t.TempDir() + "/ov.json"))
+	now := time.Now().Unix()
+	tr.Observe("You have entered east commonlands.", now)
+	tr.SetOverride("a griffon", 60)
+	tr.Observe("You have slain a griffon!", now) // repop at now+60
+	e := NewEngine()
+
+	e.Announce(fe, tr, Prefs{}, now+35) // 25s out → fires once
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "griffon") {
+		t.Fatalf("spawn should announce once, got %v", fe.normal)
+	}
+	// the player corrects the camp timer while the cue is already spoken: expiry
+	// moves now+60 → now+65 (still ~30s out), same spawn → must stay silent.
+	tr.SetOverride("a griffon", 65)
+	e.Announce(fe, tr, Prefs{}, now+35)
+	if len(fe.normal) != 1 {
+		t.Errorf("an override re-time must not re-announce the same spawn, got %v", fe.normal)
 	}
 }
 

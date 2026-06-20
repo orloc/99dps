@@ -490,10 +490,11 @@ func damageAvoidance(th theme, cur *session.CombatSession, w int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// mobTracker is the zone-aware repop list: the player's kills first, then a
-// "killed by others" separator and others' kills (with the killer's name). A
-// clicked mob (editMob) is marked. Returns a content-line→mob map for click
-// resolution (separator lines have no entry).
+// mobTracker is the zone-aware repop list: the current zone's kills first (the
+// player's, then a "killed by others" separator and others'), followed by each
+// other zone's timers under a zone-name header. A clicked mob (editMob) is
+// marked. Returns a content-line→mob map for click resolution (header/separator
+// lines have no entry).
 func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string, map[int]string) {
 	if tr == nil {
 		return th.fg(th.dim).Render("—"), nil
@@ -502,6 +503,7 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string,
 	if len(rs) == 0 {
 		return th.fg(th.dim).Render("No kills tracked yet."), nil
 	}
+	cur := tr.Zone()
 	// size the time column to the widest entry ("UP" or m:ss / h:mm:ss) so long
 	// repop timers aren't clipped; the mob name yields, the time always shows.
 	timeW := 2 // "UP"
@@ -514,14 +516,30 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string,
 	}
 	nameW := max(w-timeW-1, 1)
 
+	rule := func(label string) string { // a dim "── label ───" divider filling the width
+		s := "── " + label + " "
+		return th.fg(th.dim).Render(truncate(s+strings.Repeat("─", max(w-lipgloss.Width(s), 0)), w))
+	}
+
 	var lines []string
 	targets := map[int]string{}
+	prevZone := cur // current-zone rows lead and carry no header
 	for i, r := range rs {
-		// separate the group's kills (yours + xp-credited) from everyone else's.
-		if i > 0 && rs[i-1].Group && !r.Group {
-			sep := "── killed by others "
-			sep += strings.Repeat("─", max(w-lipgloss.Width(sep), 0))
-			lines = append(lines, th.fg(th.dim).Render(truncate(sep, w)))
+		// each out-of-zone block opens with a zone-name header.
+		if r.Zone != prevZone {
+			prevZone = r.Zone
+			if r.Zone != cur {
+				label := r.Zone
+				if label == "" {
+					label = "unknown zone"
+				}
+				lines = append(lines, rule(label))
+			}
+		}
+		// separate the group's kills (yours + xp-credited) from everyone else's —
+		// within a single zone block only (never across a zone header).
+		if i > 0 && rs[i-1].Zone == r.Zone && rs[i-1].Group && !r.Group {
+			lines = append(lines, rule("killed by others"))
 		}
 		when := mmss(r.Remaining)
 		if r.Remaining <= 0 {
@@ -532,16 +550,21 @@ func mobTracker(th theme, tr *gamestate.Tracker, w int, editMob string) (string,
 			marker = "▸ "
 		}
 		// your own kills bolded; a group-mate's (still a group kill) and others'
-		// name the killer; non-group kills are dimmed.
-		label := marker + r.Mob
+		// name the killer; non-group kills are dimmed. A manual timer is marked
+		// with a pencil and never shows a killer.
+		name := r.Mob
+		if r.Manual {
+			name = "✎ " + r.Mob
+		}
+		label := marker + name
 		nameStyle := th.fg(th.text)
 		switch {
-		case r.Mine:
+		case r.Mine && !r.Manual:
 			nameStyle = nameStyle.Bold(true)
 		case !r.Group:
 			nameStyle = th.fg(th.dim)
 		}
-		if !r.Mine && r.Killer != "" {
+		if !r.Mine && !r.Manual && r.Killer != "" {
 			label += " «" + r.Killer
 		}
 		targets[len(lines)] = r.Mob

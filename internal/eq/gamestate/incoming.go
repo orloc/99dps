@@ -143,6 +143,15 @@ func (t *Tracker) matchIncomingDebuffLocked(body string, at int64) {
 	if !ok {
 		return
 	}
+	// Don't mistake the player's OWN debuff cast for one landing on them: an
+	// Enchanter slow (Forlorn/Shiftless Deeds) shares its cast_on_you emote with the
+	// incoming Slowed family, so the line echoes while you cast it. If a pending cast
+	// is a spell in THIS same family, the line is your own — skip the ON-YOU timer.
+	if t.pending != nil {
+		if pd, ok := incomingByLand[NormEmote(t.pending.CastOnYou)]; ok && pd.label == d.label {
+			return
+		}
+	}
 	t.timers[key(d.label, "You")] = Timer{
 		Spell:       d.label,
 		Target:      "You",

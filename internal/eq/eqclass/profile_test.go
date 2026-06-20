@@ -122,8 +122,9 @@ func TestSkillRelevant(t *testing.T) {
 }
 
 func TestRecastWatched(t *testing.T) {
-	if !RecastWatched(ClassEnchanter, "Dictate") || !RecastWatched(ClassEnchanter, "Rapture") {
-		t.Error("Enchanter should watch Dictate and Rapture")
+	if !RecastWatched(ClassEnchanter, "Dictate") || !RecastWatched(ClassEnchanter, "Rapture") ||
+		!RecastWatched(ClassEnchanter, "Theft of Thought") {
+		t.Error("Enchanter should watch Dictate, Rapture and Theft of Thought")
 	}
 	if RecastWatched(ClassWarrior, "Dictate") {
 		t.Error("a Warrior has no Dictate to watch")

@@ -131,6 +131,31 @@ func TestOnYouRenderedInClassPanel(t *testing.T) {
 	}
 }
 
+// TestMobTrackerZoneBlocks: out-of-zone repops render below the current zone's
+// under a zone-name header, and the current zone's entries come first.
+func TestMobTrackerZoneBlocks(t *testing.T) {
+	// the renderer reads Respawns(time.Now()), so anchor the log times to now or
+	// the repops would be long past and purged.
+	now := time.Now().Unix()
+	tr := gamestate.NewTracker(&gamestate.Book{})
+	tr.Observe("You have entered Greater Faydark.", now)
+	tr.Observe("You have slain a large orc!", now) // GFay kill
+	tr.Observe("You have entered Lesser Faydark.", now)
+	tr.Observe("You have slain a fairy!", now) // current-zone (LFay) kill
+
+	body, _ := mobTracker(themes[0], tr, 40, "")
+	if !strings.Contains(body, "Greater Faydark") {
+		t.Fatalf("out-of-zone block should carry a zone header, got:\n%s", body)
+	}
+	// the current zone's kill is listed above the out-of-zone header.
+	fairy := strings.Index(body, "a fairy")
+	hdr := strings.Index(body, "Greater Faydark")
+	orc := strings.Index(body, "a large orc")
+	if fairy < 0 || hdr < 0 || orc < 0 || !(fairy < hdr && hdr < orc) {
+		t.Errorf("want current-zone (fairy) before the Greater Faydark header before the orc, got:\n%s", body)
+	}
+}
+
 // TestUrgencyColor maps the three thresholds (green healthy → gold low → red
 // expiring) off the shared classifier.
 func TestUrgencyColor(t *testing.T) {

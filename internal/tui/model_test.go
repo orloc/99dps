@@ -992,6 +992,29 @@ func TestParseRespawn(t *testing.T) {
 	}
 }
 
+// TestParseManual splits the add-timer buffer into a mob name and an optional
+// trailing time (0 = use the zone default).
+func TestParseManual(t *testing.T) {
+	cases := []struct {
+		in   string
+		name string
+		sec  int
+	}{
+		{"Lord Nagafen 6:40", "Lord Nagafen", 400},
+		{"a sand giant 300", "a sand giant", 300},
+		{"a sand giant", "a sand giant", 0},   // no time → zone default
+		{"  King Tormax  ", "King Tormax", 0}, // trimmed, no time
+		{"Phinigel 0:00", "Phinigel 0:00", 0}, // zero isn't a valid time → all name
+		{"Vox", "Vox", 0},
+	}
+	for _, c := range cases {
+		name, sec := parseManual(c.in)
+		if name != c.name || sec != c.sec {
+			t.Errorf("parseManual(%q) = (%q,%d), want (%q,%d)", c.in, name, sec, c.name, c.sec)
+		}
+	}
+}
+
 // TestEffectiveSel covers follow-mode, a pinned selection, an over-range pin, and
 // an empty manager.
 func TestEffectiveSel(t *testing.T) {

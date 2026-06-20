@@ -72,6 +72,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenMap {
 			return m.updateMap(msg)
 		}
+		if m.screen == screenLog {
+			return m.updateLog(msg)
+		}
 		switch msg.String() {
 		case "t":
 			m.theme = (m.theme + 1) % len(themes)
@@ -150,6 +153,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+		if m.screen == screenLog {
+			if isWheel(msg.Button) { // scroll the log; an upward scroll pauses the tail
+				if msg.Button == tea.MouseButtonWheelUp {
+					m.logFollow = false
+				}
+				var cmd tea.Cmd
+				m.vpLog, cmd = m.vpLog.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if m.screen != screenMeter {
 			return m, tea.Batch(cmds...)
 		}
@@ -163,6 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			dbl := m.isDoubleClick(msg.X, msg.Y)
 			// click a buff target → dismiss; a session → select; a repop → edit it.
 			if tgt := m.hoverTargetAt(msg.X, msg.Y); tgt != "" {
 				m.tracker.DismissTarget(tgt)
@@ -171,7 +186,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 			if mob := m.mobAt(msg.X, msg.Y); mob != "" {
-				m.editing, m.editMob, m.editBuf = true, mob, ""
+				m.editing, m.editAdd, m.editMob, m.editBuf = true, false, mob, ""
+				m.refresh()
+				return m, tea.Batch(cmds...)
+			}
+			// double-click empty space in the Mob Tracker → add a manual timer.
+			if dbl && m.panelAt(msg.X, msg.Y) == &m.vpMob {
+				m.editing, m.editAdd, m.editMob, m.editBuf = true, true, "", ""
 				m.refresh()
 				return m, tea.Batch(cmds...)
 			}
@@ -198,7 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchMsg:
 		m.character = msg.character
 		m.selected, m.follow, m.hover = 0, true, ""
-		m.editing, m.editMob = false, ""
+		m.editing, m.editAdd, m.editMob = false, false, ""
 		m.invRows, m.invStatus, m.invGen = nil, "", time.Time{} // a new toon has its own inventory
 		m.applyCharSettings(m.store.forChar(msg.character))     // load the new toon's saved settings
 		if m.ready {
@@ -220,6 +241,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 			m.announceCues()
+		case screenLog:
+			m.announceCues() // record fired cues first, then redraw the merged sheet
+			m.refreshLog()
 		default:
 			m.announceCues() // keep audio alerts live on other screens
 		}
@@ -261,8 +285,11 @@ func (m *Model) resizeViewports() {
 	// Tools tab: the inventory column is its own scrollable viewport.
 	tColW, _, tH := m.toolsLayout()
 	set(&m.vpInv, tColW, tH)
+	// Live Log tab: one full-width card under banner/tabs, above the footer.
+	set(&m.vpLog, m.w-2, max(m.h-5, 4))
 	m.ready = true
 	m.refreshInventory() // re-render at the new width
+	m.refreshLog()
 }
 
 // refreshInventory re-renders the inventory list into its viewport (after an
@@ -360,29 +387,88 @@ func (m *Model) mobAt(x, y int) string {
 	return m.mobTargets[(y-contentTop)+m.vpMob.YOffset]
 }
 
-// editKey feeds a keypress to the open repop editor: digits/colon build the time,
-// Enter saves a per-(zone,mob) override, Esc cancels, Backspace deletes.
+// doubleClickMaxMillis is how close (in time) two left-presses on roughly the
+// same cell must be to count as a double-click.
+const doubleClickMaxMillis = 450
+
+// isDoubleClick reports whether the current left-press follows a recent one on
+// roughly the same cell, and records this press for the next test.
+func (m *Model) isDoubleClick(x, y int) bool {
+	now := time.Now()
+	dbl := !m.lastClick.IsZero() &&
+		now.Sub(m.lastClick) <= doubleClickMaxMillis*time.Millisecond &&
+		abs(x-m.lastClickX) <= 1 && abs(y-m.lastClickY) <= 1
+	m.lastClick, m.lastClickX, m.lastClickY = now, x, y
+	if dbl {
+		m.lastClick = time.Time{} // consume it, so a triple-click isn't two doubles
+	}
+	return dbl
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// parseManual splits a free-text "name [m:ss]" add-buffer into a mob name and an
+// optional respawn time (0 = use the zone default). A trailing token that parses
+// as a time is taken as the time; otherwise the whole string is the name.
+func parseManual(buf string) (string, int) {
+	buf = strings.TrimSpace(buf)
+	if i := strings.LastIndexByte(buf, ' '); i > 0 {
+		if sec, ok := parseRespawn(buf[i+1:]); ok {
+			return strings.TrimSpace(buf[:i]), sec
+		}
+	}
+	return buf, 0
+}
+
+// editKey feeds a keypress to the open repop editor. In edit mode digits/colon
+// build a time and Enter saves a per-(zone,mob) override; in add mode (editAdd)
+// the buffer is a free-text "name [m:ss]" and Enter adds a live-only manual
+// timer. Esc cancels, Backspace deletes.
 func (m *Model) editKey(msg tea.KeyMsg) {
 	switch msg.String() {
 	case "enter":
-		if sec, ok := parseRespawn(m.editBuf); ok && m.tracker != nil {
+		if m.editAdd {
+			if name, sec := parseManual(m.editBuf); name != "" && m.tracker != nil {
+				if m.tracker.AddManualRespawn(name, sec, time.Now().Unix()) {
+					m.flash(fmt.Sprintf("added timer for %s", name))
+				} else {
+					m.flash("no zone respawn known — give a time (e.g. " + name + " 6:40)")
+				}
+			}
+		} else if sec, ok := parseRespawn(m.editBuf); ok && m.tracker != nil {
 			m.tracker.SetOverride(m.editMob, sec)
 			m.flash(fmt.Sprintf("%s → %s repop", m.editMob, mmss(int64(sec))))
 		}
-		m.editing, m.editBuf, m.editMob = false, "", ""
+		m.editing, m.editAdd, m.editBuf, m.editMob = false, false, "", ""
 		m.refresh()
 	case "esc":
-		m.editing, m.editBuf, m.editMob = false, "", ""
+		m.editing, m.editAdd, m.editBuf, m.editMob = false, false, "", ""
 		m.refresh()
 	case "backspace":
 		if len(m.editBuf) > 0 {
 			m.editBuf = m.editBuf[:len(m.editBuf)-1]
 		}
 	default:
-		if s := msg.String(); len(s) == 1 && len(m.editBuf) < 8 {
-			if (s[0] >= '0' && s[0] <= '9') || s[0] == ':' {
+		s := msg.String()
+		if len(s) != 1 {
+			return
+		}
+		if m.editAdd {
+			// a name plus an optional time: letters, digits, spaces, colon.
+			if len(m.editBuf) < 28 && (s[0] == ' ' || s[0] == ':' ||
+				(s[0] >= '0' && s[0] <= '9') || (s[0] >= 'A' && s[0] <= 'Z') ||
+				(s[0] >= 'a' && s[0] <= 'z')) {
 				m.editBuf += s
 			}
+			return
+		}
+		if len(m.editBuf) < 8 && ((s[0] >= '0' && s[0] <= '9') || s[0] == ':') {
+			m.editBuf += s
 		}
 	}
 }

@@ -356,8 +356,8 @@ func TestCycleTab(t *testing.T) {
 	if m.cycleTab(+1) != screenMeter {
 		t.Error("next from the last tab should wrap to Meter")
 	}
-	if m.cycleTab(-1) != screenMap {
-		t.Error("prev from Settings should be Map")
+	if m.cycleTab(-1) != screenLog {
+		t.Error("prev from Settings should be Log")
 	}
 	m.screen = screenMeter
 	if m.cycleTab(-1) != screenSettings {
@@ -382,8 +382,12 @@ func TestTabKeyNavigation(t *testing.T) {
 		t.Error("key 4 should open Map")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	if m.(Model).screen != screenLog {
+		t.Error("key 5 should open Log")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("6")})
 	if m.(Model).screen != screenSettings {
-		t.Error("key 5 should open Settings")
+		t.Error("key 6 should open Settings")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab}) // wraps the last tab (Settings) -> Meter
 	if m.(Model).screen != screenMeter {

@@ -35,7 +35,7 @@ type Engine struct {
 
 	// urgent combat-cue dedup (fire once per event, re-arm when it clears).
 	charmAnnounced     bool
-	resistAnnounced    string
+	resistSpoken       map[string]int64 // spell → last-spoken time (per-spell repeat gate)
 	feignFailAnnounced bool
 	cdReady            map[string]bool // cooldown name → was-ready last tick
 	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
@@ -52,6 +52,7 @@ func NewEngine() *Engine {
 		cdReady:        map[string]bool{},
 		cdHalf:         map[string]bool{},
 		spawnAnnounced: map[string]bool{},
+		resistSpoken:   map[string]int64{},
 	}
 }
 
@@ -77,6 +78,9 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 	}
 	if e.spawnAnnounced == nil {
 		e.spawnAnnounced = map[string]bool{}
+	}
+	if e.resistSpoken == nil {
+		e.resistSpoken = map[string]int64{}
 	}
 
 	// a mob died (a slain line or an inferred xp-only kill) → drop any queued fade
@@ -112,17 +116,21 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 		e.feignFailAnnounced = false
 	}
 
-	// a cast that didn't land — alert so you re-cast.
+	// a cast that didn't land — alert so you re-cast. Gate per spell on a repeat
+	// window: a 2-spell macro grinding a high-resist mob alternates spells, so the
+	// resist signal never goes quiet between them. The old single-slot dedup keyed
+	// on the spell NAME, so each alternation looked new and re-fired every cast —
+	// a per-spell last-spoken time caps it to once per spell per window instead.
 	if spell, ok := tr.Resisted(now); ok {
-		if spell != e.resistAnnounced {
-			e.resistAnnounced = spell
+		if now-e.resistSpoken[spell] > resistRepeatSec {
+			e.resistSpoken[spell] = now
 			if prefs.Enabled(cueResist, true) {
 				sp.SayUrgent(resistPhrase(spell, e.seq))
 				e.seq++
 			}
 		}
-	} else {
-		e.resistAnnounced = ""
+	} else if len(e.resistSpoken) > 0 {
+		e.resistSpoken = map[string]int64{} // resist signal fully cleared → re-arm every spell
 	}
 
 	// cooldowns recovering. Each skill's "ready" and "halfway" cues toggle
@@ -177,7 +185,11 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 		var soon []string
 		liveSpawn := map[string]bool{}
 		for _, r := range tr.Respawns(now) {
-			key := r.Mob + "\x00" + strconv.FormatInt(now+r.Remaining, 10)
+			// key on the stable kill time, not the expiry: an override edit rewrites
+			// expiry in place (zone.setOverrideLocked), which would otherwise mint a
+			// new key and re-announce an already-spoken spawn. A re-killed spawn gets
+			// a fresh At, so it still re-arms.
+			key := r.Mob + "\x00" + strconv.FormatInt(r.At, 10)
 			liveSpawn[key] = true
 			if r.Remaining > 0 && r.Remaining <= spawnLeadSec && !e.spawnAnnounced[key] {
 				e.spawnAnnounced[key] = true
@@ -198,6 +210,11 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 
 // spawnLeadSec is how far out a repop's "about to spawn" cue fires.
 const spawnLeadSec = 30
+
+// resistRepeatSec is the minimum gap before the same spell's resist re-announces.
+// It de-spams a sustained resist macro (each spell at most once per window) while
+// still re-alerting if resists keep happening over a long fight.
+const resistRepeatSec = 15
 
 // spawnPhrase announces mobs about to repop, varied per seq, collapsing to a
 // count when several pop at once.
@@ -237,14 +254,32 @@ type cueDue struct {
 // "~" ON-YOU debuffs are skipped too (their duration is a deliberate over-estimate,
 // and a debuff ending on you is good news).
 func (e *Engine) dueAnnouncements(active []gamestate.Timer, prefs Prefs, now int64) []cueDue {
-	var due []cueDue
-	live := make(map[string]bool, len(active))
+	// Collapse timers that share a (spell, target) key to a single subject: two
+	// same-named mobs (e.g. pacify on each of several "a sand giant") produce
+	// duplicate keys, and speech can't tell them apart anyway. The most-urgent
+	// (soonest-expiring) instance represents the key. This is also what prevents
+	// per-tick repeat spam: with several non-detrimental same-key instances
+	// (pacify), the old per-instance loop reset the announced urgency to the
+	// LEAST-urgent instance at the end of each tick, so the most-urgent one
+	// re-fired its "fading" cue every tick. One representative per key fixes that.
+	rep := make(map[string]gamestate.Timer, len(active))
+	order := make([]string, 0, len(active))
 	for _, tm := range active {
 		if tm.Charm || tm.Estimated {
 			continue
 		}
 		k := tm.Spell + "\x00" + tm.Target
-		live[k] = true
+		if cur, seen := rep[k]; !seen {
+			rep[k] = tm
+			order = append(order, k)
+		} else if tm.Expiry < cur.Expiry {
+			rep[k] = tm // soonest-expiring wins
+		}
+	}
+
+	var due []cueDue
+	for _, k := range order {
+		tm := rep[k]
 		u := gamestate.TimerUrgency(tm.Expiry-now, tm.Expiry-tm.Start)
 		prev := e.announced[k]
 		switch {
@@ -260,7 +295,7 @@ func (e *Engine) dueAnnouncements(active []gamestate.Timer, prefs Prefs, now int
 		}
 	}
 	for k := range e.announced {
-		if !live[k] {
+		if _, live := rep[k]; !live {
 			delete(e.announced, k) // timer gone (expired / mob died) → re-arm
 		}
 	}

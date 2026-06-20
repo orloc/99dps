@@ -11,22 +11,31 @@ func runeRow(name, castOnYou string) string {
 	})
 }
 
+func castRune(tr *Tracker, name, emote string, at int64) {
+	tr.BeginCast(name, at)
+	tr.Observe(emote, at)
+}
+
+const (
+	bedlamEmote = "Your eyes gleam with bedlam."
+	runeVEmote  = "A coat of shimmering runes surround you."
+)
+
+func soak(tr *Tracker, mob string, at int64) {
+	tr.Observe(mob+" tries to hit YOU, but YOUR magical skin absorbs the blow!", at)
+}
+
 // TestRuneShields: casting recognized runes lists them in depletion order with
-// their pools; absorbed blows are counted and reset on a (re)cast.
+// their pools; absorbed blows are counted and the attacker captured.
 func TestRuneShields(t *testing.T) {
-	b := loadBook(t,
-		runeRow("Bedlam", "Your eyes gleam with bedlam."),
-		runeRow("Rune V", "A coat of shimmering runes surround you."),
-	)
+	b := loadBook(t, runeRow("Bedlam", bedlamEmote), runeRow("Rune V", runeVEmote))
 	tr := NewTracker(b)
 	tr.SetLevel(60)
 	now := int64(1000)
-	tr.BeginCast("Bedlam", now)
-	tr.Observe("Your eyes gleam with bedlam.", now)
-	tr.BeginCast("Rune V", now)
-	tr.Observe("A coat of shimmering runes surround you.", now)
+	castRune(tr, "Bedlam", bedlamEmote, now)
+	castRune(tr, "Rune V", runeVEmote, now)
 
-	shields, blows, _ := tr.RuneShields(now + 1)
+	shields, blows := tr.RuneShields(now+1, 0)
 	if len(shields) != 2 || shields[0].Name != "Bedlam" || shields[1].Name != "Rune V" {
 		t.Fatalf("want [Bedlam, Rune V] in depletion order, got %+v", shields)
 	}
@@ -37,18 +46,51 @@ func TestRuneShields(t *testing.T) {
 		t.Errorf("fresh runes → 0 blows, got %d", blows)
 	}
 
-	// each "magical skin absorbs the blow" is one soaked blow; the attacker is captured
 	for i := 0; i < 3; i++ {
-		tr.Observe("A spectre tries to hit YOU, but YOUR magical skin absorbs the blow!", now+2)
+		soak(tr, "A spectre", now+2)
 	}
-	if _, blows, attacker := tr.RuneShields(now + 3); blows != 3 || attacker != "A spectre" {
-		t.Errorf("want 3 blows from 'A spectre', got %d from %q", blows, attacker)
+	if _, blows := tr.RuneShields(now+3, 0); blows != 3 {
+		t.Errorf("want 3 soaked blows, got %d", blows)
+	}
+	if a := tr.RuneAttacker(); a != "A spectre" {
+		t.Errorf("attacker = %q, want 'A spectre'", a)
+	}
+}
+
+// TestRunePerShieldRefresh is the separate-pools bug: refreshing the TOP rune
+// (Bedlam) must restore only its own pool and leave the underlying Rune's
+// depletion intact — not wipe the whole stack as the old shared counter did.
+func TestRunePerShieldRefresh(t *testing.T) {
+	b := loadBook(t, runeRow("Bedlam", bedlamEmote), runeRow("Rune V", runeVEmote))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+	castRune(tr, "Bedlam", bedlamEmote, now)
+	castRune(tr, "Rune V", runeVEmote, now)
+	const avg = 50 // Bedlam 350 = 7 blows; Rune V 700
+
+	// 10 blows = 500 dmg: Bedlam (350) depletes, 150 overflows into Rune V.
+	for i := 0; i < 10; i++ {
+		soak(tr, "a golem", now+1)
+	}
+	sh, _ := tr.RuneShields(now+2, avg)
+	if sh[0].Remaining != 0 || sh[1].Remaining != 550 {
+		t.Fatalf("after 500 absorbed: got Bedlam=%d RuneV=%d, want 0/550", sh[0].Remaining, sh[1].Remaining)
 	}
 
-	// recasting a rune resets the estimate (count + attacker)
-	tr.BeginCast("Rune V", now+4)
-	tr.Observe("A coat of shimmering runes surround you.", now+4)
-	if _, blows, attacker := tr.RuneShields(now + 5); blows != 0 || attacker != "" {
-		t.Errorf("a recast should reset the estimate, got %d blows / %q", blows, attacker)
+	// refresh Bedlam → only Bedlam restores; Rune V keeps its 150 absorbed.
+	castRune(tr, "Bedlam", bedlamEmote, now+3)
+	sh, _ = tr.RuneShields(now+4, avg)
+	if sh[0].Remaining != 350 || sh[1].Remaining != 550 {
+		t.Fatalf("refreshing Bedlam must not refill Rune V: got Bedlam=%d RuneV=%d, want 350/550", sh[0].Remaining, sh[1].Remaining)
+	}
+
+	// 5 more blows (250 dmg) hit the refreshed Bedlam; Rune V untouched (no overflow).
+	for i := 0; i < 5; i++ {
+		soak(tr, "a golem", now+5)
+	}
+	sh, _ = tr.RuneShields(now+6, avg)
+	if sh[0].Remaining != 100 || sh[1].Remaining != 550 {
+		t.Errorf("post-refresh drain: got Bedlam=%d RuneV=%d, want 100/550", sh[0].Remaining, sh[1].Remaining)
 	}
 }

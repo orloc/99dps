@@ -11,11 +11,12 @@
 package gamestate
 
 import (
-	"bufio"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+
+	"99dps/internal/eq/eqclass"
 )
 
 // field indices in spells_us.txt (0-based)
@@ -31,6 +32,23 @@ const (
 	fGoodEffect  = 83 // 0 = detrimental, 1/2 = beneficial
 	minFields    = 84 // we read up to index 83
 )
+
+// numSpellClasses is the count of player classes in spells_us.txt's per-class
+// min-cast-level block (a 16-wide run: each entry is the level that class can
+// first cast the spell, or 254/255 = never). The block's OFFSET differs by client
+// version (Titanium vs later clients add fields), so it is auto-calibrated at load
+// rather than hardcoded — see calibrateClassOffset. The class ORDER within the
+// block is the canonical EQ one and is stable across clients.
+const numSpellClasses = 16
+
+// spellClassIndex maps an eqclass to its column in the per-class block, in the
+// canonical EQ order. Berserker (index 15) has no eqclass (outside P99's era).
+var spellClassIndex = map[eqclass.Class]int{
+	eqclass.ClassWarrior: 0, eqclass.ClassCleric: 1, eqclass.ClassPaladin: 2, eqclass.ClassRanger: 3,
+	eqclass.ClassShadowKnight: 4, eqclass.ClassDruid: 5, eqclass.ClassMonk: 6, eqclass.ClassBard: 7,
+	eqclass.ClassRogue: 8, eqclass.ClassShaman: 9, eqclass.ClassNecromancer: 10, eqclass.ClassWizard: 11,
+	eqclass.ClassMagician: 12, eqclass.ClassEnchanter: 13, eqclass.ClassBeastlord: 14,
+}
 
 // genericBuffEmotes are cast-on-you lines for beneficial effects other players
 // commonly put on you (e.g. group regen). They are NOT click-items, many real
@@ -65,6 +83,51 @@ type Spell struct {
 	Charm       bool // a charm spell — no landing emote, breaks unpredictably
 	Mez         bool // a mez (mesmerize/enthrall) — crowd control, breaks on damage
 	Pacify      bool // a pacify/lull/calm — lowers aggro ("looks less aggressive")
+
+	// classLevels is the per-class min cast level (canonical EQ class order; 254/255
+	// = the class can't cast it). nil when the class block couldn't be calibrated
+	// for this file — in which case castability is treated as UNKNOWN (assume yes),
+	// preserving the pre-calibration behavior.
+	classLevels []int
+}
+
+// playerCastable reports whether any player class can cast the spell. With no
+// class data (calibration failed) it returns true — unknown, so don't filter.
+func (s *Spell) playerCastable() bool {
+	if s.classLevels == nil {
+		return true
+	}
+	for _, lv := range s.classLevels {
+		if lv >= 1 && lv <= 253 {
+			return true
+		}
+	}
+	return false
+}
+
+// minCastLevel is the lowest level any class can cast the spell (the base/classic
+// version), or a large sentinel when none/unknown — used to pick the canonical
+// row among duplicate names (the real player spell over a high-level reprint).
+func (s *Spell) minCastLevel() int {
+	m := 999
+	for _, lv := range s.classLevels {
+		if lv >= 1 && lv <= 253 && lv < m {
+			m = lv
+		}
+	}
+	return m
+}
+
+// castableBy returns the level a given class can first cast the spell, and whether
+// it can at all. Always false when class data is absent.
+func (s *Spell) castableBy(classIdx int) (int, bool) {
+	if classIdx < 0 || classIdx >= len(s.classLevels) {
+		return 0, false
+	}
+	if lv := s.classLevels[classIdx]; lv >= 1 && lv <= 253 {
+		return lv, true
+	}
+	return 0, false
 }
 
 // DurationSeconds returns the spell's duration at the given caster level, using
@@ -144,17 +207,64 @@ func (s Spell) PacifyDurationSeconds(level int) int {
 
 // Book is a spell lookup keyed by name.
 type Book struct {
+	// byName is the CANONICAL spell per name: among duplicate-named rows (the file
+	// has thousands), the player-castable one is preferred over NPC-only copies, and
+	// the lowest-level (classic) variant over a high-level reprint. This fixes the
+	// old last-row-wins bug where an NPC/later-era copy could shadow the real spell.
 	byName map[string]*Spell
+	// byNameAll keeps every same-named variant, so a cast can be resolved to the one
+	// the player's CLASS can actually cast (ByNameForClass) when the canonical pick
+	// isn't theirs.
+	byNameAll map[string][]*Spell
 	// byEmote maps an instant self-buff's landing emote (cast_on_you) to its
 	// spell, so clickies that emit no "You begin casting" line (Journeyman Boots
 	// etc.) are still trackable.
 	byEmote map[string]*Spell
+	// classKnown is true when the per-class block was calibrated for this file, so
+	// castability filtering/selection is active. False → behaves as before (no
+	// filtering), so a custom/unrecognized file never regresses.
+	classKnown bool
 }
 
-// ByName returns the spell with the given name, if known.
+// ByName returns the canonical spell with the given name, if known.
 func (b *Book) ByName(name string) (*Spell, bool) {
 	s, ok := b.byName[name]
 	return s, ok
+}
+
+// ByNameForClass resolves a spell name to the variant the given class can cast,
+// preferring the lowest-level one (the version they actually learned). It falls
+// back to the canonical ByName pick when the class can't cast any same-named
+// variant, when the class is unknown, or when class data is absent — so it's
+// always at least as good as ByName, never worse.
+func (b *Book) ByNameForClass(name string, c eqclass.Class) (*Spell, bool) {
+	if b.classKnown {
+		if idx, ok := spellClassIndex[c]; ok {
+			var best *Spell
+			bestLv := 999
+			for _, s := range b.byNameAll[name] {
+				if lv, ok := s.castableBy(idx); ok && lv < bestLv {
+					best, bestLv = s, lv
+				}
+			}
+			if best != nil {
+				return best, true
+			}
+		}
+	}
+	return b.ByName(name)
+}
+
+// betterCanonical reports whether candidate should replace cur as the canonical
+// entry for a name: a player-castable row beats an NPC-only one; among equals, the
+// lower min cast level (the classic spell, not a high-level reprint) wins. With no
+// class data both are "castable" and the later row wins (the original behavior).
+func betterCanonical(candidate, cur *Spell) bool {
+	cc, pc := candidate.playerCastable(), cur.playerCastable()
+	if cc != pc {
+		return cc
+	}
+	return candidate.minCastLevel() <= cur.minCastLevel()
 }
 
 // SelfClicky returns the instant self-buff whose cast-on-you emote is line, if
@@ -177,17 +287,35 @@ func Load(path string) (*Book, error) {
 	return LoadReader(f)
 }
 
-// LoadReader parses spells_us.txt content from r.
+// LoadReader parses spells_us.txt content from r. It first auto-calibrates the
+// per-class min-level block offset (which moves between client versions), then
+// decodes each row, keeping the canonical (player-castable, classic) spell per
+// name and all variants for class-aware lookup.
 func LoadReader(r io.Reader) (*Book, error) {
-	b := &Book{byName: make(map[string]*Spell, 9000), byEmote: make(map[string]*Spell)}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		s := decode(sc.Text())
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+
+	classOff := calibrateClassOffset(lines)
+	b := &Book{
+		byName:     make(map[string]*Spell, 9000),
+		byNameAll:  make(map[string][]*Spell, 9000),
+		byEmote:    make(map[string]*Spell),
+		classKnown: classOff >= 0,
+	}
+	for _, line := range lines {
+		s := decode(line, classOff)
 		if s == nil {
 			continue
 		}
-		b.byName[s.Name] = s
+		// canonical pick per name (player-castable + lowest level wins; see
+		// betterCanonical) and keep every variant for class-aware resolution.
+		if cur, ok := b.byName[s.Name]; !ok || betterCanonical(s, cur) {
+			b.byName[s.Name] = s
+		}
+		b.byNameAll[s.Name] = append(b.byNameAll[s.Name], s)
 		// index instant (cast-time 0) self-buffs with a real duration by their
 		// landing emote — these clickies emit no "You begin casting" line. Many
 		// spells share an emote ("Your feet leave the ground." → Levitate, a dev
@@ -199,21 +327,20 @@ func LoadReader(r io.Reader) (*Book, error) {
 		// NPC/GM variants are excluded too: many are instant copies of a real buff
 		// (NPCAegolism vs the castable Aegolism), and being instant they'd win the
 		// shared landing emote — so a cleric's Aegolism on you showed as NPCAegolism.
+		// When class data is available, also require the buff be player-castable —
+		// the same NPC-copy problem, caught structurally rather than by name prefix.
 		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" && !s.Detrimental &&
 			!strings.Contains(strings.ToLower(s.Name), "test") && !genericBuffEmotes[s.CastOnYou] &&
-			!nonPlayerSpell(s.Name) {
+			!nonPlayerSpell(s.Name) && (!b.classKnown || s.playerCastable()) {
 			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s
 			}
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
 	return b, nil
 }
 
-func decode(line string) *Spell {
+func decode(line string, classOff int) *Spell {
 	f := strings.Split(line, "^")
 	if len(f) < minFields {
 		return nil
@@ -238,14 +365,147 @@ func decode(line string) *Spell {
 		// mez/enthrall — the landing emote on the mob carries "mesmeriz"/"enthrall"
 		Mez: mezEmote(f[fCastOnOther]),
 		// pacify/lull/calm — the whole line lands with "<mob> looks less aggressive."
-		Pacify: strings.Contains(strings.ToLower(f[fCastOnOther]), "looks less aggressive"),
+		Pacify:      strings.Contains(strings.ToLower(f[fCastOnOther]), "looks less aggressive"),
+		classLevels: decodeClassLevels(f, classOff),
 	}
 }
 
-// mezEmote reports whether a cast-on-other emote marks a mez/enthrall.
+// decodeClassLevels reads the 16-wide per-class min-level block at the calibrated
+// offset. Returns nil when uncalibrated (classOff < 0) or the row is too short, so
+// castability reads as unknown rather than wrongly "NPC-only".
+func decodeClassLevels(f []string, classOff int) []int {
+	if classOff < 0 || classOff+numSpellClasses > len(f) {
+		return nil
+	}
+	out := make([]int, numSpellClasses)
+	for i := range out {
+		out[i] = atoi(f[classOff+i])
+	}
+	return out
+}
+
+// classAnchors are spells whose exact player-class castability is well known, used
+// to locate the per-class block without hardcoding a client-specific offset. Gate
+// is the keystone: castable by exactly the seven pure casters and nothing else, a
+// near-unique 16-wide signature. The single-class anchors confirm the offset.
+var classAnchors = []struct {
+	name    string
+	casters []int // class indices that MUST be castable; all others MUST be 254/255
+}{
+	{"Gate", []int{1, 5, 9, 10, 11, 12, 13}}, // Cleric/Druid/Shaman/Necro/Wizard/Mage/Enchanter
+	{"Complete Heal", []int{1}},              // Cleric only
+	{"Mesmerize", []int{13}},                 // Enchanter only
+}
+
+// calibrateClassOffset finds the offset of the per-class min-level block by testing
+// every plausible offset against the anchor spells. Gate must validate; any other
+// anchor present must validate at the same offset. Returns -1 if it can't be found
+// (a custom/foreign file) — callers then skip class features rather than misread.
+func calibrateClassOffset(lines []string) int {
+	// collect the split fields of each anchor spell's rows (names may repeat)
+	rows := map[string][][]string{}
+	wanted := map[string]bool{}
+	for _, a := range classAnchors {
+		wanted[a.name] = true
+	}
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "^")
+		if len(f) <= fName {
+			continue
+		}
+		if wanted[f[fName]] {
+			rows[f[fName]] = append(rows[f[fName]], f)
+		}
+	}
+	gate := rows["Gate"]
+	if len(gate) == 0 {
+		return -1 // no keystone → can't calibrate
+	}
+	maxLen := 0
+	for _, f := range gate {
+		if len(f) > maxLen {
+			maxLen = len(f)
+		}
+	}
+	for off := fGoodEffect + 1; off+numSpellClasses <= maxLen; off++ {
+		ok := true
+		for _, a := range classAnchors {
+			present := rows[a.name]
+			if len(present) == 0 {
+				continue // anchor not in this file — skip (Gate is guaranteed above)
+			}
+			if !anyRowMatchesSignature(present, off, a.casters) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return off
+		}
+	}
+	return -1
+}
+
+// anyRowMatchesSignature reports whether at least one of the anchor's rows has,
+// at offset off, exactly the given caster columns castable (1..253) and every
+// other column set to "never" (254/255). At least one row must match because a
+// duplicate name can include NPC copies whose block is all-255.
+func anyRowMatchesSignature(rows [][]string, off int, casters []int) bool {
+	isCaster := make([]bool, numSpellClasses)
+	for _, c := range casters {
+		isCaster[c] = true
+	}
+	for _, f := range rows {
+		if off+numSpellClasses > len(f) {
+			continue
+		}
+		good := true
+		for i := range numSpellClasses {
+			v := atoi(f[off+i])
+			castable := v >= 1 && v <= 253
+			if castable != isCaster[i] {
+				good = false
+				break
+			}
+		}
+		if good {
+			return true
+		}
+	}
+	return false
+}
+
+// mezEmoteMarkers are the distinctive cast-on-other phrases that mark a mez/charm-
+// hold (a stand-still crowd-control that breaks on damage). The original heuristic
+// only caught "mesmeriz"/"enthrall", which silently MISSED the Enchanter and Bard
+// mez lines that phrase it differently (Rapture, Fascination, Entrance, Lullaby,
+// Song of the Sirens, the undead Rest/Numb the Dead). Each phrase was confirmed
+// present in spells_us cast_on_other and unique to mez spells — verified against
+// the GINA "Kingdom" P99 trigger pack, which enumerates these CC landing emotes.
+var mezEmoteMarkers = []string{
+	"mesmeriz",                 // Mesmerize / Dazzle / Mesmerization (the broad family)
+	"enthrall",                 // Enthrall / Dominate / Gaze
+	"swoons in raptured bliss", // Rapture
+	"has been fascinated",      // Fascination
+	"has been entranced",       // Entrance / Entrancing Tune
+	"head nods",                // Kelin's Lucid Lullaby (and Dreams of … line)
+	"eyes glaze over",          // Solon's Song of the Sirens / Bewitching Bravura
+	"looks ambivalent",         // Rest the Dead / Numb the Dead (undead mez)
+}
+
+// mezEmote reports whether a cast-on-other emote marks a mez (crowd control that
+// breaks on damage).
 func mezEmote(castOnOther string) bool {
 	s := strings.ToLower(castOnOther)
-	return strings.Contains(s, "mesmeriz") || strings.Contains(s, "enthrall")
+	for _, m := range mezEmoteMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // NormEmote collapses a run of trailing periods to a single one. spells_us.txt

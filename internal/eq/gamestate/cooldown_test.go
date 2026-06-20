@@ -50,12 +50,15 @@ func TestMendCooldown(t *testing.T) {
 // fires, so the settings UI can list per-skill cues.
 func TestCooldownCatalog(t *testing.T) {
 	cat := CooldownCatalog()
-	want := map[string]int64{"Mend": 360, "Kick": monkSpecialReuseSec, "Feign Death": feignReuseSec}
+	want := map[string]int64{
+		"Mend": 360, "Kick": monkSpecialReuseSec, "Feign Death": feignReuseSec,
+		"Taunt": 6, "Evade": 10, "Pick Pocket": 10,
+	}
 	got := map[string]int64{}
 	for _, c := range cat {
 		got[c.Name] = c.ReuseSec
-		if c.Class != eqclass.ClassMonk {
-			t.Errorf("%s: class = %v, want Monk (all current abilities are Monk)", c.Name, c.Class)
+		if !eqclass.IsKnown(c.Class) {
+			t.Errorf("%s: class = %v is not a known class", c.Name, c.Class)
 		}
 	}
 	for name, reuse := range want {
@@ -256,6 +259,69 @@ func TestCooldown_KickNotForNonMonk(t *testing.T) {
 	}
 	if tr.Class() != eqclass.ClassWarrior {
 		t.Errorf("a kick must not change the detected class; got %v", tr.Class())
+	}
+}
+
+// TestTauntCooldown: a successful taunt starts the 6s reuse for any class and
+// infers none; the no-target miss starts nothing (no phantom cooldown).
+func TestTauntCooldown(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+
+	// no-target miss: no cooldown, no class
+	tr.Observe("You must target an NPC to taunt first.", 1000)
+	if len(tr.Cooldowns(1000)) != 0 {
+		t.Fatal("a failed (no-target) taunt must not start a cooldown")
+	}
+
+	// a real taunt: 6s reuse, class still unknown (taunt isn't class-exclusive)
+	tr.Observe("You taunt a sand giant to ignore others and attack you!", 1000)
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("taunt must infer no class, got %q", tr.Class())
+	}
+	cds := tr.Cooldowns(1000)
+	if len(cds) != 1 || cds[0].Name != "Taunt" || cds[0].Remaining != 6 {
+		t.Fatalf("taunt cooldowns = %+v, want Taunt 6", cds)
+	}
+	// a quoting tell must not start it
+	tr.Clear()
+	tr.Observe("You tell Bob, 'taunt the mob to ignore others and attack you'", 2000)
+	if len(tr.Cooldowns(2000)) != 0 {
+		t.Error("a quoting tell must not start the taunt cooldown")
+	}
+}
+
+// TestEvadePickPocketCooldown: Rogue Evade and Pick Pocket start their 10s reuse
+// on both success and fail lines, for any class, inferring none. Spoof-safe.
+func TestEvadePickPocketCooldown(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+
+	tr.Observe("You have momentarily ducked away from the main combat.", 1000)
+	if cds := tr.Cooldowns(1000); len(cds) != 1 || cds[0].Name != "Evade" || cds[0].Remaining != 10 {
+		t.Fatalf("evade success = %+v, want Evade 10", cds)
+	}
+	// the fail line restarts it too
+	tr.Observe("Your attempts at ducking clear of combat fail.", 1005)
+	if rem := tr.Cooldowns(1005)[0].Remaining; rem != 10 {
+		t.Errorf("a failed evade should restart the reuse, got %d", rem)
+	}
+
+	tr.Observe("You have stolen a rusty dagger.", 1010)
+	got := map[string]int64{}
+	for _, c := range tr.Cooldowns(1010) {
+		got[c.Name] = c.Remaining
+	}
+	if got["Pick Pocket"] != 10 {
+		t.Fatalf("pick pocket success should start a 10s cooldown, have %v", got)
+	}
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("evade/pickpocket must infer no class, got %q", tr.Class())
+	}
+
+	// spoof: a say echoing the phrasing (with a name prefix) must not match
+	tr.Clear()
+	tr.Observe("You say, 'You have stolen my heart and ducked away from the main combat'", 2000)
+	if len(tr.Cooldowns(2000)) != 0 {
+		t.Error("a quoting say must not start evade/pickpocket cooldowns")
 	}
 }
 

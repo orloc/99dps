@@ -14,6 +14,105 @@ func hasMob(rs []Respawn, mob string) bool {
 	return false
 }
 
+// TestAddManualRespawn: a user-added timer uses the zone default when no time is
+// given, honors an explicit time, is flagged Manual, and refuses to add with no
+// name or no time available.
+func TestAddManualRespawn(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Greater Faydark.", 1000) // GFay default respawn is known
+
+	// no time given → seed from the zone default; flagged Manual.
+	if !tr.AddManualRespawn("a named placeholder", 0, 1000) {
+		t.Fatal("AddManualRespawn with zone default should succeed")
+	}
+	rs := tr.Respawns(1000)
+	var got *Respawn
+	for i := range rs {
+		if rs[i].Mob == "a named placeholder" {
+			got = &rs[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("manual entry not listed")
+	}
+	if !got.Manual || got.Mine || got.Killer != "You" || got.Remaining <= 0 {
+		t.Errorf("manual entry = %+v, want Manual w/ zone-default remaining", *got)
+	}
+
+	// explicit time wins.
+	tr.AddManualRespawn("Lord Nagafen", 400, 2000)
+	for _, r := range tr.Respawns(2000) {
+		if r.Mob == "Lord Nagafen" && r.Remaining != 400 {
+			t.Errorf("explicit-time remaining = %d, want 400", r.Remaining)
+		}
+	}
+
+	// no name → rejected.
+	if tr.AddManualRespawn("", 0, 3000) {
+		t.Error("AddManualRespawn with empty name should fail")
+	}
+
+	// unknown zone with no time → no respawn basis, rejected.
+	tr.Observe("You have entered Some Unknown Place.", 4000)
+	if tr.AddManualRespawn("a mystery", 0, 4000) {
+		t.Error("AddManualRespawn should fail with no default and no given time")
+	}
+	if !tr.AddManualRespawn("a mystery", 120, 4000) {
+		t.Error("AddManualRespawn with an explicit time should succeed in an unknown zone")
+	}
+}
+
+// TestRespawnsPersistAcrossZones: every timer (kills + manual) survives a
+// zone-out, keeps counting, and carries its origin zone. Out-of-zone entries
+// sort after the current zone's, and a zone whose timers all purge drops off.
+func TestRespawnsPersistAcrossZones(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Greater Faydark.", 1000)
+
+	tr.AddManualRespawn("Lord Nagafen", 6000, 1000) // long manual timer, GFay
+	tr.Observe("You have slain a large orc!", 1000) // a kill repop, GFay (425s)
+	if rs := tr.Respawns(1000); !hasMob(rs, "Lord Nagafen") || !hasMob(rs, "a large orc") {
+		t.Fatalf("both timers should show in GFay: %+v", rs)
+	}
+
+	// zone out: both persist, tagged with their origin zone; none are "current".
+	tr.Observe("You have entered Lesser Faydark.", 1100)
+	rs := tr.Respawns(1100)
+	if !hasMob(rs, "Lord Nagafen") || !hasMob(rs, "a large orc") {
+		t.Fatalf("kills + manual timers should persist across a zone-out: %+v", rs)
+	}
+	for _, r := range rs {
+		if r.Zone != "Greater Faydark" {
+			t.Errorf("persisted entry should keep origin zone, got %q for %s", r.Zone, r.Mob)
+		}
+	}
+
+	// a kill in the new zone sorts ABOVE the out-of-zone block (current zone leads).
+	tr.Observe("You have slain a fairy!", 1100)
+	rs = tr.Respawns(1100)
+	if rs[0].Zone != "Lesser Faydark" {
+		t.Errorf("current-zone timer should lead, got %+v", rs[0])
+	}
+
+	// the GFay orc (425s) pops + purges while we're away; its zone drops off, but
+	// the long manual timer keeps GFay present.
+	rs = tr.Respawns(1100 + 425 + respawnKeepUpSec + 1)
+	if hasMob(rs, "a large orc") {
+		t.Error("a popped + purged kill repop should drop off")
+	}
+	if !hasMob(rs, "Lord Nagafen") {
+		t.Error("the still-pending manual timer should keep its zone listed")
+	}
+
+	// back in GFay: the manual timer is "current" again, still counting from its cast.
+	tr.Observe("You have entered Greater Faydark.", 1200)
+	for _, r := range tr.Respawns(1200) {
+		if r.Mob == "Lord Nagafen" && r.Remaining != int64(6000-(1200-1000)) {
+			t.Errorf("manual remaining = %d, want %d", r.Remaining, 6000-(1200-1000))
+		}
+	}
+}
+
 // TestTimeInZone: the clock starts on a zone-in (unknown before), counts up, and
 // resets when a different zone is entered.
 func TestTimeInZone(t *testing.T) {
@@ -127,13 +226,21 @@ func TestZoneRespawnTracking(t *testing.T) {
 		t.Error("a player's death must not be tracked as a repop")
 	}
 
-	// zoning clears the list (different zone, different mobs)
+	// zoning no longer clears the list — prior-zone repops persist (as an
+	// out-of-zone block) and keep their origin zone, until they pop and purge.
 	tr.Observe("You have entered Lesser Faydark.", 2000)
-	if len(tr.Respawns(2000)) != 0 {
-		t.Error("zone change should clear repops")
+	rs := tr.Respawns(2000)
+	if len(rs) == 0 {
+		t.Error("prior-zone repops should persist across a zone change")
+	}
+	for _, r := range rs {
+		if r.Zone != "Greater Faydark" {
+			t.Errorf("persisted repop should keep its origin zone, got %q", r.Zone)
+		}
 	}
 
-	// an unknown zone has no timer, so kills don't start one
+	// an unknown zone has no timer, so kills don't start one (and by now the GFay
+	// repops have popped + purged, so the list is empty again)
 	tr.Observe("You have entered Some Unknown Place.", 3000)
 	if tr.ZoneKnown() {
 		t.Error("unknown zone should not be marked known")

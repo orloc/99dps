@@ -29,6 +29,7 @@ var tabs = []struct {
 	{screenSessions, "Sessions", "≣", false},
 	{screenTools, "Tools", "✦", false},
 	{screenMap, "Map", "⊞", false},
+	{screenLog, "Log", "▤", false},
 	{screenSettings, "Settings", "⚙", true},
 }
 
@@ -135,6 +136,9 @@ func (m Model) gotoScreen(scr screen) Model {
 	case screenSessions:
 		m.resizeViewports()
 		m.refreshSessions()
+	case screenLog:
+		m.logFollow = true // jump to live when you open the tab
+		m.refreshLog()
 	}
 	return m
 }

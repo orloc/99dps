@@ -52,6 +52,14 @@ func TestCueRowsCoverCatalog(t *testing.T) {
 			t.Errorf("cue matrix missing toggle %q", want)
 		}
 	}
+	// class-agnostic action skills (CooldownInfo.AnyClass) are tracked in the panel
+	// but deliberately kept OUT of the per-class cue matrix — their reuse is too
+	// short to cue. Guard the exclusion so it can't silently regress.
+	for _, skip := range []string{"Taunt", "Evade", "Pick Pocket"} {
+		if ids[cueCDReady(skip)] || ids[cueCDHalf(skip)] {
+			t.Errorf("anyClass cooldown %q must not appear in the cue matrix", skip)
+		}
+	}
 }
 
 // TestCueRowsByClass: the matrix shows only what a class can produce.

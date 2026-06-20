@@ -86,3 +86,66 @@ var disciplines = map[Class][]Discipline{
 // class with none — the widget's gate). The slice aliases the canonical table —
 // READ-ONLY.
 func DisciplinesFor(c Class) []Discipline { return disciplines[c] }
+
+// disciplineActivations maps a discipline's self-activation emote (the exact line
+// EQ logs when the player uses it) to the discipline name. These are first-person
+// self-emotes, so they only ever appear in the owner's own log — matching the
+// whole line (not a substring) keeps a quoted tell/say from tripping them.
+//
+// Transcribed from the GINA "Kingdom" community trigger pack; verify against real
+// logs before trusting any one line. Emotes are stored in NormEmote form (a single
+// trailing period) — EQ sometimes writes a doubled "..", which gamestate.NormEmote
+// collapses before lookup. Only disciplines with a confirmed unique emote are
+// listed; the rest simply aren't auto-detected yet (their timers still work if
+// started another way). Every name here MUST exist in `disciplines` above and be
+// unique to one class — TestDisciplineActivationsValid guards both.
+var disciplineActivations = map[string]string{
+	// Warrior
+	"You assume a defensive fighting style.":    "Defensive",
+	"You assume an evasive fighting style.":     "Evasive",
+	"You assume a precise fighting style.":      "Precision",
+	"A consuming rage takes over your weapons.": "Furious",
+	// Monk
+	"Your body becomes one with the earth.":                    "Stonestance",
+	"You become untouchable.":                                  "Voiddance",
+	"Your instincts take over as you turn aside every attack.": "Whirlwind",
+	"Your muscles bulge with the force of will.":               "Inner Flame",
+	// Rogue
+	"Your weapons move with uncanny grace.": "Counterattack",
+	"Your muscles quiver with power.":       "Duelist",
+	"You bounce about nimbly.":              "Nimble",
+	// Paladin
+	"Your body is surrounded in an aura of sanctification.": "Sanctification",
+	// Ranger
+	"Your bow crackles with natural energy.": "Trueshot",
+	"Your weapons begin to spin.":            "Weapon Shield",
+	// Bard
+	"You dance about nimbly.":                 "Deftdance",
+	"Your voice becomes perfectly melodious.": "Puretone",
+}
+
+// DisciplineActivation resolves a self-emote line to the discipline it signals.
+// It returns the discipline name, the owning class, and whether that class can be
+// safely inferred from the emote (true when exactly one class has the discipline,
+// which is the case for every entry today). ok is false when no emote matches. The
+// class is derived from the `disciplines` table, so the activation map is the
+// single source of truth for emotes and can't drift from the class data.
+func DisciplineActivation(line string) (name string, class Class, inferClass bool, ok bool) {
+	name, ok = disciplineActivations[line]
+	if !ok {
+		return "", ClassUnknown, false, false
+	}
+	var owners []Class
+	for c, list := range disciplines {
+		for _, d := range list {
+			if d.Name == name {
+				owners = append(owners, c)
+				break
+			}
+		}
+	}
+	if len(owners) == 1 {
+		return name, owners[0], true, true
+	}
+	return name, ClassUnknown, false, true // shared name → record it, but don't guess the class
+}

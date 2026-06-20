@@ -28,6 +28,47 @@ func TestIncomingDebuffLandsOnYou(t *testing.T) {
 	}
 }
 
+// A player's OWN slow cast (Forlorn/Shiftless Deeds) shares its cast_on_you emote
+// with the incoming Slowed family, so the line echoes while they cast it. It must
+// time the MOB it lands on — never spawn a false ~Slowed on the caster, and never
+// land the detrimental spell on "You".
+func TestSelfSlowNotIncomingDebuff(t *testing.T) {
+	b := loadBook(t, row(map[int]string{
+		fName: "Forlorn Deeds", fCastOnOther: "'s movements slow.",
+		fCastOnYou: "You feel drowsy.", fCastTime: "0",
+		fDurFormula: "3", fDurCap: "50", fGoodEffect: "0", // detrimental
+	}))
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	now := int64(1000)
+	tr.BeginCast("Forlorn Deeds", now)
+	tr.Observe("a gnoll's movements slow.", now) // lands on the mob → correct timer
+	tr.Observe("You feel drowsy.", now)          // own cast echo — NOT a debuff on you
+
+	if _, ok := findTimer(tr, "Slowed", now+1); ok {
+		t.Error("casting your own slow must not create a self ~Slowed timer")
+	}
+	mob := false
+	for _, tm := range tr.Active(now + 1) {
+		if tm.Target == "You" {
+			t.Errorf("a detrimental self-cast must not land on the caster: %+v", tm)
+		}
+		if tm.Spell == "Forlorn Deeds" && tm.Target == "a gnoll" {
+			mob = true
+		}
+	}
+	if !mob {
+		t.Error("Forlorn Deeds should still time the mob it landed on")
+	}
+
+	// a genuine incoming slow (no matching pending cast) is unaffected — still shows.
+	tr2 := NewTracker(loadBook(t))
+	tr2.Observe("You feel drowsy.", 2000)
+	if _, ok := findTimer(tr2, "Slowed", 2001); !ok {
+		t.Error("a real incoming slow (no own cast) must still register")
+	}
+}
+
 func TestIncomingDebuffClearedByFade(t *testing.T) {
 	tr := NewTracker(loadBook(t))
 	tr.Observe("Your feet adhere to the ground.", 1000) // rooted

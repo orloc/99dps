@@ -113,21 +113,45 @@ func TestCanniGrade(t *testing.T) {
 	}
 }
 
-// ---- moved from rune_test.go ----
+// (rune-drain math now lives in gamestate.RuneShields — see rune_test.go.)
 
-// TestRuneRemaining: damage drains the shields in order — the first absorbs until
-// empty, then the overflow eats the next.
-func TestRuneRemaining(t *testing.T) {
-	sh := []gamestate.RuneShield{{Name: "Bedlam", Pool: 350}, {Name: "Rune V", Pool: 700}}
+// TestStackedRuneBar: the stacked bar fills proportionally, always spans exactly
+// `cells`, and renders each rune's pool independently — so a refreshed top rune
+// reads full while the rune under it still shows its own depletion.
+func TestStackedRuneBar(t *testing.T) {
+	th := themes[0]
+	cellsOf := func(bar string) int { return strings.Count(bar, "█") + strings.Count(bar, "░") }
 
-	if got := runeRemaining(sh, 8, 60); got[0] != 0 || got[1] != 570 { // 480 absorbed
-		t.Errorf("8×60: got %v, want [0 570]", got)
+	// full stack → all filled, no empty, exactly 15 wide.
+	full := []gamestate.RuneShield{{Name: "Bedlam", Pool: 350, Remaining: 350}, {Name: "Rune V", Pool: 700, Remaining: 700}}
+	bar := stackedRuneBar(th, full, 15)
+	if cellsOf(bar) != 15 || strings.Count(bar, "░") != 0 {
+		t.Errorf("full stack should be 15 filled cells, got %d total / %d empty", cellsOf(bar), strings.Count(bar, "░"))
 	}
-	if got := runeRemaining(sh, 3, 60); got[0] != 170 || got[1] != 700 { // 180, all on Bedlam
-		t.Errorf("3×60: got %v, want [170 700]", got)
+
+	// Bedlam empty (its ~5-cell segment), Rune V full → ~5 empty, total still 15.
+	part := []gamestate.RuneShield{{Name: "Bedlam", Pool: 350, Remaining: 0}, {Name: "Rune V", Pool: 700, Remaining: 700}}
+	bar = stackedRuneBar(th, part, 15)
+	if cellsOf(bar) != 15 {
+		t.Errorf("width should stay 15, got %d", cellsOf(bar))
 	}
-	if got := runeRemaining(sh, 0, 60); got[0] != 350 || got[1] != 700 {
-		t.Errorf("fresh: got %v, want [350 700]", got)
+	if e := strings.Count(bar, "░"); e < 4 || e > 6 {
+		t.Errorf("Bedlam-empty should leave ~5 empty cells, got %d", e)
+	}
+
+	// refresh independence: Bedlam full, Rune V partial → Bedlam segment full, Rune V
+	// segment partly empty. The old shared-counter bug would show the whole bar full.
+	ref := []gamestate.RuneShield{{Name: "Bedlam", Pool: 350, Remaining: 350}, {Name: "Rune V", Pool: 700, Remaining: 550}}
+	bar = stackedRuneBar(th, ref, 15)
+	if strings.Count(bar, "░") == 0 {
+		t.Errorf("a partially-drained Rune V should leave empty cells, got none")
+	}
+	if strings.Count(bar, "█") == 15 {
+		t.Errorf("only Bedlam should be full; the bar must not be entirely filled")
+	}
+
+	if stackedRuneBar(th, full, 0) != "" || stackedRuneBar(th, nil, 15) != "" {
+		t.Error("degenerate inputs should render empty")
 	}
 }
 

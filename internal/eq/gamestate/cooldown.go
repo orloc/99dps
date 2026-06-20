@@ -18,6 +18,12 @@ type Cooldown struct {
 	// too), so only count it for an already-known matching class, and never infer
 	// the class from it.
 	requireClass bool
+	// anyClass: the log line itself proves the skill was used (you can't taunt or
+	// pick-pocket without the skill), so track it for EVERY class and infer none.
+	// Class is then just the catalog/panel label. The skill self-gates: the line
+	// only appears when that skill actually fires, so a class that lacks it never
+	// sees the cooldown.
+	anyClass bool
 }
 
 // monkSpecialReuseSec is the reuse on monk special attacks (kick / hand strike).
@@ -71,6 +77,47 @@ var cooldownRegistry = []Cooldown{
 				strings.HasPrefix(s, "You strike ") || strings.HasPrefix(s, "You try to strike ")
 		},
 	},
+	{
+		// Taunt — usable by several tank classes (War/Pal/SK/Ranger/Bard), so it's
+		// class-agnostic. Only the SUCCESS line is matched: "You must target an NPC
+		// to taunt first." is a no-target miss that consumes no reuse, so matching it
+		// would show a phantom cooldown. (A resisted taunt isn't matched either, so
+		// this can under-count — a phantom timer is the worse error.) Reuse from the
+		// GINA "Kingdom" pack; verify against logs.
+		Name:     "Taunt",
+		Class:    eqclass.ClassWarrior, // catalog/panel label only (anyClass)
+		ReuseSec: 6,
+		anyClass: true,
+		matches: func(s string) bool {
+			return strings.HasPrefix(s, "You taunt ") && strings.Contains(s, "to ignore others and attack you")
+		},
+	},
+	{
+		// Evade (Rogue duck-behind). Both the success and the fail line fire the skill
+		// and consume the reuse, so both restart the timer. Matched by full-line
+		// equality (spoof-safe; the lines start with "You"/"Your" but a quoting tell
+		// carries a name prefix and so won't equal them). Reuse from GINA; verify.
+		Name:     "Evade",
+		Class:    eqclass.ClassRogue,
+		ReuseSec: 10,
+		anyClass: true,
+		matches: func(s string) bool {
+			return s == "You have momentarily ducked away from the main combat." ||
+				s == "Your attempts at ducking clear of combat fail."
+		},
+	},
+	{
+		// Pick Pocket (Rogue). Success names the stolen item; the failed-attempt line
+		// is fixed. Both consume the reuse. Reuse from GINA; verify.
+		Name:     "Pick Pocket",
+		Class:    eqclass.ClassRogue,
+		ReuseSec: 10,
+		anyClass: true,
+		matches: func(s string) bool {
+			return strings.HasPrefix(s, "You have stolen ") ||
+				s == "Your attempt at stealing was unsuccessful."
+		},
+	},
 }
 
 // CooldownInfo is one statically-registered ability's identity, independent of
@@ -81,6 +128,8 @@ type CooldownInfo struct {
 	Name     string
 	Class    eqclass.Class
 	ReuseSec int64
+	AnyClass bool // class-agnostic action skill (Taunt/Evade/Pick Pocket): tracked
+	// for whoever uses it, but not part of any one class's per-class cue config.
 }
 
 // CooldownCatalog returns every ability the tracker can put on cooldown, in a
@@ -90,7 +139,7 @@ type CooldownInfo struct {
 func CooldownCatalog() []CooldownInfo {
 	out := make([]CooldownInfo, 0, len(cooldownRegistry)+1)
 	for _, cd := range cooldownRegistry {
-		out = append(out, CooldownInfo{Name: cd.Name, Class: cd.Class, ReuseSec: cd.ReuseSec})
+		out = append(out, CooldownInfo{Name: cd.Name, Class: cd.Class, ReuseSec: cd.ReuseSec, AnyClass: cd.anyClass})
 	}
 	out = append(out, CooldownInfo{Name: "Feign Death", Class: eqclass.ClassMonk, ReuseSec: feignReuseSec})
 	return out
@@ -224,8 +273,8 @@ func (c *cooldownTracker) matchLocked(body string, at int64, class eqclass.Class
 			continue // not class-exclusive (a kick) — only count it for a known matching class
 		}
 		c.cooldowns[cd.Name] = cdState{expiry: at + cd.ReuseSec, total: cd.ReuseSec}
-		if cd.requireClass {
-			return eqclass.ClassUnknown // never infer the class from a non-exclusive activation
+		if cd.requireClass || cd.anyClass {
+			return eqclass.ClassUnknown // never infer the class from a non-exclusive / class-agnostic activation
 		}
 		return cd.Class
 	}

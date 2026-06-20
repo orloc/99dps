@@ -55,7 +55,7 @@ var profiles = map[Class]Profile{
 	ClassWizard:      {Category: CatCaster},
 	ClassMagician:    {Category: CatCaster},
 	ClassEnchanter: {Category: CatCaster, Mez: true, Charm: true, Pacify: true,
-		RecastWatch: []string{"Dictate", "Rapture"}},
+		RecastWatch: []string{"Dictate", "Rapture", "Theft of Thought"}},
 }
 
 // classList is every real (non-unknown) class, in a stable order. It's the

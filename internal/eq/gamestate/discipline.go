@@ -53,9 +53,27 @@ func (t *Tracker) disciplineTimersLocked(now int64) []DisciplineTimer {
 	return out
 }
 
+// matchDisciplineLocked records a discipline activation when body is its exact
+// self-emote, and infers the owning class when that emote is class-exclusive (all
+// currently-known emotes are). Recording is unconditional: discAt is keyed by
+// name and only ever read for the detected class's own disciplines
+// (disciplineTimersLocked), so a name the class doesn't have is harmless. Caller
+// holds the lock. body is already NormEmote-normalized by Observe.
+func (t *Tracker) matchDisciplineLocked(body string, at int64) {
+	name, class, inferClass, ok := eqclass.DisciplineActivation(body)
+	if !ok {
+		return
+	}
+	t.cool.discAt[name] = at
+	if inferClass {
+		t.inferClassLocked(class)
+	}
+}
+
 // DisciplineUsed records that the player activated a discipline at log time `at`
-// — starting its active window and reuse cooldown. Called by the parser when it
-// matches a discipline's activation line. No-op for a name the class doesn't have.
+// — starting its active window and reuse cooldown. No-op for a name the class
+// doesn't have. (The live path is matchDisciplineLocked, driven by the activation
+// emote; this stays as a direct API for tests and explicit callers.)
 func (t *Tracker) DisciplineUsed(name string, at int64) {
 	if t == nil {
 		return

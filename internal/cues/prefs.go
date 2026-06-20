@@ -117,6 +117,11 @@ func Rows(class eqclass.Class) []Row {
 
 	var cds []Row
 	for _, cd := range gamestate.CooldownCatalog() {
+		if cd.AnyClass {
+			continue // class-agnostic action skills (Taunt/Evade/Pick Pocket): tracked
+			// in the panel for whoever uses them, but not a per-class cue toggle, and
+			// their reuse is too short to cue anyway (well under longCooldownSec).
+		}
 		if !caps.all && cd.Class != class {
 			continue
 		}

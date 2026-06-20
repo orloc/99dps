@@ -1,0 +1,61 @@
+{{Spellpagesmart|
+
+| spellname = Spirit of Wolf
+| spellicon = A
+| description = Infuses your target with the spirit of the wolf, increasing their movement speed for 27.0 mins @L9 to 36.0 mins @L12.
+| Table = {{{Table|0}}}
+| TableLevel = {{{TableLevel|}}}
+
+| classes = 
+
+* [[Ranger]] - Level 30 (39 Pre Velious)
+* [[Druid]] - Level 14
+* [[Shaman]] - Level 9
+
+| items_with_effect = 
+
+<ul><li>  {{:Black Fur Boots}}
+</li><li> {{:10 Dose Blood of the Wolf}}
+</li><li> {{:Blood Orchid Katana}}
+</li><li> {{:Nature Walker's Boots}}
+</li><li> {{:Rowyl's Boots of Nature}}
+</li><li> {{:Woven Grass Boots}}
+</li><li> {{:Watchman Boots}}
+</li><li> {{:Sandals of Harmony}}
+</li></ul>
+
+| slots = 
+
+{{SpellSlotRowSmart | 1 | Increase Movement Speed by 34% (L9) to 55% (L50) | simple = {{#ifeq:{{{Table|0}}}|0|0|1}} }}
+
+| skill = [[Skill Alteration | Alteration]]
+
+| mana = 40
+| range = 100
+| casting_time = 4.50
+| fizzle_time = 2.25
+| recast_time = 3.50
+| duration = 27.0 mins @L9 to 36.0 mins @L12
+| target_type = Single
+| spell_type = Beneficial
+| resist = Unresistable
+
+| msg_cast_on_you = You feel the spirit of wolf enter you.
+| msg_cast_on_other = Someone  is surrounded by a brief lupine aura.
+| msg_wears_off = The spirit of wolf leaves you.
+
+| where_to_obtain = 
+
+{{SpellWhereTable|
+{{SpellWhereRowB | [[Cabilis|East Cabilis]] | [[Vessel Grott]] | Temple of Terror (First Floor) | (1050,-213) }}
+{{SpellWhereRow  | [[Greater Faydark]] | [[Horth Evergreen]] | Kelethin Druid Guild | (-640,219) }}
+{{SpellWhereRowB | [[Greater Faydark]] | [[Cerila Windrider]] - Does not sell on P99.  Bug? | Kelethin Ranger Guild | (-428,476) }}
+{{SpellWhereRow  | [[Grobb]] | [[Hoart - Troll]] | Shaman Guild | (329,-408) }}
+{{SpellWhereRowB | [[Halas]] | [[Tukanta]] | Shaman Guild | (352,423) }}
+{{SpellWhereRow  | [[Oggok]] | [[Hoart - Ogre]] | Shaman Guild | (666,1087) }}
+{{SpellWhereRowB | [[Rivervale]] | [[Torth Largefoot]] | Druid Guild | (-32,-384) }}
+{{SpellWhereRow  | [[Surefall Glade]] | [[Arrivae Valleren]] | Druid Guild | (-156,-300) }}
+}}
+| TableLocations = Cabilis/Kelethin<br/>Grobb/Halas<br/>Oggok/Rivervale<br/>Surefall Glade
+| TableEra = Classic
+}}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -34,13 +35,10 @@ func (m Model) classBoxView(w, h int) string {
 	iw := max(w-4, 1)
 	now := time.Now().Unix()
 
-	shields, blows, attacker := m.tracker.RuneShields(now)
-	if len(shields) == 0 {
-		return th.fg(th.dim).Render(truncate("no rune up", iw))
-	}
-
 	// size the estimate by the attacker's own recent (last 30 min) average hit, so
-	// it's specific to what's beating on the rune; fall back to all mobs.
+	// it's specific to what's beating on the rune; fall back to all mobs. Resolve it
+	// first, since the per-rune drain inside RuneShields consumes it.
+	attacker := m.tracker.RuneAttacker()
 	avg, haveAvg := 0, false
 	if m.sm != nil {
 		mi := m.sm.MobStats()
@@ -51,24 +49,37 @@ func (m Model) classBoxView(w, h int) string {
 			avg, haveAvg = mi.Overall(now)
 		}
 	}
-	rem := runeRemaining(shields, blows, avg)
+	useAvg := 0
+	if haveAvg {
+		useAvg = avg
+	}
+	shields, blows := m.tracker.RuneShields(now, useAvg)
+	if len(shields) == 0 {
+		return th.fg(th.dim).Render(truncate("no rune up", iw))
+	}
 
-	// header: the average hit the estimate is built from (so the guess is legible).
 	var lines []string
 	if haveAvg && avg > 0 {
-		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("avg hit %d · %d soaked", avg, blows), iw)))
-	} else {
-		lines = append(lines, th.fg(th.dim).Render(truncate("no hit data yet", iw)))
-	}
-	for i, s := range shields {
-		var detail string
-		if !haveAvg || avg <= 0 {
-			detail = th.fg(th.dim).Render(fmt.Sprintf("%d soaked", blows)) // no hit data → raw count
-		} else {
-			col := urgencyColor(th, int64(rem[i]), int64(s.Pool))
-			detail = th.fg(col).Render(fmt.Sprintf("~%d (%dh)", rem[i], rem[i]/avg))
+		// header: the average hit + how many more such hits the whole stack can eat.
+		total := 0
+		for _, s := range shields {
+			total += s.Remaining
 		}
-		lines = append(lines, truncate(th.fg(th.text).Render(runeShort(s.Name)+" ")+detail, iw))
+		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("avg %d · ~%d hits left", avg, total/avg), iw)))
+		// the stack as one horizontal bar (top rune leftmost), then a per-rune legend.
+		lines = append(lines, stackedRuneBar(th, shields, iw))
+		var parts []string
+		for _, s := range shields {
+			col := urgencyColor(th, int64(s.Remaining), int64(s.Pool))
+			parts = append(parts, th.fg(col).Render(fmt.Sprintf("%s ~%d", runeShort(s.Name), s.Remaining)))
+		}
+		lines = append(lines, truncate(strings.Join(parts, th.fg(th.dim).Render(" · ")), iw))
+	} else {
+		// no hit data yet → just name the active runes with the raw soaked count.
+		lines = append(lines, th.fg(th.dim).Render(truncate(fmt.Sprintf("no hit data · %d soaked", blows), iw)))
+		for _, s := range shields {
+			lines = append(lines, truncate(th.fg(th.text).Render(runeShort(s.Name)), iw))
+		}
 	}
 	if ih := max(h-3, 1); len(lines) > ih { // clip to the card's inner height
 		lines = lines[:ih]
@@ -76,23 +87,53 @@ func (m Model) classBoxView(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-// runeRemaining estimates each shield's leftover absorb, draining them in order:
-// total damage soaked (blows × average hit) eats the first shield, then overflows
-// into the next.
-func runeRemaining(shields []gamestate.RuneShield, blows, avgHit int) []int {
-	absorbed := blows * avgHit
-	out := make([]int, len(shields))
-	for i, s := range shields {
-		r := s.Pool - absorbed
-		if r < 0 {
-			r = 0
-		}
-		out[i] = r
-		if absorbed -= s.Pool; absorbed < 0 {
-			absorbed = 0
-		}
+// stackedRuneBar draws the active runes as one horizontal absorb bar: each rune
+// is a segment sized to its pool (depletion order, top rune leftmost), filled to
+// its own remaining fraction. Stacked runes have SEPARATE pools, so each segment
+// drains independently — a refreshed top rune shows full again while the one under
+// it keeps its depletion. Each rune carries a distinct hue that reddens as it
+// empties; spent capacity is the dim track. Widths sum to exactly cells.
+func stackedRuneBar(th theme, shields []gamestate.RuneShield, cells int) string {
+	if cells <= 0 || len(shields) == 0 {
+		return ""
 	}
-	return out
+	total := 0
+	for _, s := range shields {
+		total += s.Pool
+	}
+	if total <= 0 {
+		return ""
+	}
+	var sb strings.Builder
+	acc, used := 0, 0
+	for _, s := range shields {
+		acc += s.Pool
+		upto := min(int(math.Round(float64(acc)/float64(total)*float64(cells))), cells)
+		w := upto - used // cumulative rounding keeps the segment widths summing to cells
+		used = upto
+		if w <= 0 {
+			continue
+		}
+		frac := 0.0
+		if s.Pool > 0 {
+			frac = float64(s.Remaining) / float64(s.Pool)
+		}
+		fill := min(int(math.Round(frac*float64(w))), w)
+		// spent cells sit on the LEFT of each segment, so the stack erodes cleanly
+		// left-to-right as the front rune is eaten first.
+		sb.WriteString(th.fg(th.track).Render(strings.Repeat("░", w-fill)))
+		sb.WriteString(th.fg(runeHue(s.Name)).Render(strings.Repeat("█", fill)))
+	}
+	return sb.String()
+}
+
+// runeHue colors a rune's segment in the stacked bar: Bedlam blue, the Rune line
+// yellow.
+func runeHue(name string) string {
+	if name == "Bedlam" {
+		return hsvHex(212, 0.62, 0.95) // blue
+	}
+	return hsvHex(48, 0.78, 0.96) // yellow
 }
 
 // runeShort compacts a rune name for the narrow box ("Rune V" → "RV").

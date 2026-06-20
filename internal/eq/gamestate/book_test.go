@@ -248,6 +248,38 @@ func TestDecode_CCFlags(t *testing.T) {
 	}
 }
 
+// TestDecode_MezEmoteVariants: the mez classifier must catch the Enchanter/Bard
+// mez lines that don't say "mesmerize"/"enthrall" — the old heuristic missed
+// these, so spells like Rapture and Song of the Sirens never read as crowd
+// control. Each emote is a real spells_us cast_on_other (verified against the file
+// + the GINA P99 pack). A plain debuff must NOT be flagged.
+func TestDecode_MezEmoteVariants(t *testing.T) {
+	mez := map[string]string{
+		"Rapture":                    "swoons in raptured bliss.",
+		"Fascination":                " has been fascinated.",
+		"Entrance":                   " has been entranced.",
+		"Kelin's Lucid Lullaby":      "'s head nods.",
+		"Solon's Song of the Sirens": "'s eyes glaze over.",
+		"Rest the Dead":              " looks ambivalent.",
+	}
+	var rows []string
+	for name, emote := range mez {
+		rows = append(rows, row(map[int]string{fName: name, fCastOnOther: emote, fDurFormula: "3", fDurCap: "24"}))
+	}
+	// a non-mez debuff control: it must stay un-flagged.
+	rows = append(rows, row(map[int]string{fName: "Cripple", fCastOnOther: " has been crippled.", fDurFormula: "8", fDurCap: "70"}))
+	b := loadBook(t, rows...)
+
+	for name := range mez {
+		if s, ok := b.ByName(name); !ok || !s.Mez {
+			t.Errorf("%q should be flagged Mez (emote %q)", name, mez[name])
+		}
+	}
+	if s, _ := b.ByName("Cripple"); s.Mez {
+		t.Error("a plain debuff (Cripple) must not be flagged Mez")
+	}
+}
+
 // TestLoad_FromFile exercises the file-reading Load path with a temp spells file.
 func TestLoad_FromFile(t *testing.T) {
 	dir := t.TempDir()

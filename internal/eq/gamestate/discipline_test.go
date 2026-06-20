@@ -87,6 +87,56 @@ func TestDisciplinePhases(t *testing.T) {
 	}
 }
 
+// TestDisciplineActivationEmote: a discipline's self-emote in the log starts its
+// timer AND reveals the class (the emote is class-exclusive), with no /who needed.
+func TestDisciplineActivationEmote(t *testing.T) {
+	tr := NewTracker(&Book{})
+	tr.SetLevel(60)
+
+	// a Warrior Defensive emote: infers Warrior and arms the discipline
+	tr.Observe("You assume a defensive fighting style.", 1000)
+	if tr.Class() != eqclass.ClassWarrior {
+		t.Fatalf("Defensive emote should infer Warrior, got %q", tr.Class())
+	}
+	find := func(now int64) DisciplineTimer {
+		for _, d := range tr.Disciplines(now) {
+			if d.Name == "Defensive" {
+				return d
+			}
+		}
+		t.Fatal("Defensive not found")
+		return DisciplineTimer{}
+	}
+	if d := find(1010); d.Phase != DiscActive || d.Remaining != 180-10 {
+		t.Errorf("just-activated Defensive should be Active ~170s, got phase %d rem %d", d.Phase, d.Remaining)
+	}
+}
+
+// TestDisciplineActivationDoublePeriod: EQ writes some discipline emotes with a
+// doubled trailing period ("...fighting style.."); NormEmote collapses it, so the
+// stored single-period emote still matches.
+func TestDisciplineActivationDoublePeriod(t *testing.T) {
+	tr := NewTracker(&Book{})
+	tr.SetLevel(60)
+	tr.Observe("You assume a defensive fighting style..", 1000) // doubled period, as logged
+	if tr.Class() != eqclass.ClassWarrior {
+		t.Fatalf("a doubled-period emote should still match, got class %q", tr.Class())
+	}
+}
+
+// TestDisciplineActivationSpoof: a quoted tell/say containing a discipline emote
+// must not arm a discipline or infer a class — only the bare first-person line
+// (matched whole) is the player's own activation.
+func TestDisciplineActivationSpoof(t *testing.T) {
+	tr := NewTracker(&Book{})
+	tr.SetLevel(60)
+	tr.Observe("Bob tells you, 'You assume a defensive fighting style.'", 1000)
+	tr.Observe("You say, 'You become untouchable.'", 1000)
+	if tr.Class() != eqclass.ClassUnknown {
+		t.Errorf("a quoted emote must not infer a class, got %q", tr.Class())
+	}
+}
+
 // TestDisciplineUsedUnknown: activating a discipline the class doesn't have is a
 // no-op (no panic, no phantom timer).
 func TestDisciplineUsedUnknown(t *testing.T) {

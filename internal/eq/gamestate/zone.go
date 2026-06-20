@@ -19,15 +19,20 @@ type respawnEntry struct {
 	mine   bool   // the player landed the killing blow
 	group  bool   // a group kill — you got xp for it (your own blow, or a group-mate's)
 	killer string // who landed the blow ("You" for the player's own)
+	manual bool   // a user-added timer (no kill behind it), not from the log
+	zone   string // the zone this repop belongs to (manual timers survive a zone-out)
 }
 
 // Respawn is one pending repop, for the panel.
 type Respawn struct {
 	Mob       string
+	At        int64  // kill time (unix) — stable across an override re-time, unlike Expiry
 	Remaining int64  // seconds until repop; <= 0 means it should be up now
 	Mine      bool   // the player landed the killing blow (bold)
 	Group     bool   // a group kill (you got xp) — sorted above others'
 	Killer    string // who killed it ("You" for the player's own)
+	Manual    bool   // a user-added timer (marked, never has a killer)
+	Zone      string // the zone this repop belongs to (for the out-of-zone blocks)
 }
 
 // groupXPWindowSec is how far back a "You gain (party) experience" line will look
@@ -92,7 +97,8 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName, inferredVict
 			z.name = zn
 			z.enteredAt = at
 			z.respawnSec, _ = ZoneRespawn(zn)
-			z.respawns = nil // left the zone — old repops are moot
+			// repops persist across zones (each entry carries its zone) and show as
+			// out-of-zone blocks until they pop and purge; only the kill tallies reset.
 			z.xpKills, z.deaths, z.firstKillAt, z.xpKillTimes = 0, 0, 0, nil
 			z.lastOwnKillAt = 0
 		}
@@ -193,17 +199,40 @@ func (z *zoneTracker) recordKillLocked(mob string, at int64, mine bool, killer s
 	}
 	exp := at + int64(sec)
 	for i := range z.respawns {
-		if z.respawns[i].mob == mob && z.respawns[i].expiry <= at {
-			// same spawn, re-killed: reset time and attribute to this kill
+		if z.respawns[i].mob == mob && z.respawns[i].zone == z.name && z.respawns[i].expiry <= at {
+			// same spawn, re-killed: reset time and attribute to this kill. A real
+			// kill reclaims an expired manual slot for the same mob (manual=false).
 			z.respawns[i].at, z.respawns[i].expiry = at, exp
 			z.respawns[i].mine, z.respawns[i].killer = mine, killer
 			z.respawns[i].group = mine // a group-mate's kill is credited later by xp
+			z.respawns[i].manual, z.respawns[i].zone = false, z.name
 			return
 		}
 	}
 	// your own blow is a group kill immediately; a group-mate's becomes one when
 	// the following "You gain party experience" credits it (creditGroupKillLocked).
-	z.respawns = append(z.respawns, respawnEntry{mob: mob, at: at, expiry: exp, mine: mine, group: mine, killer: killer})
+	z.respawns = append(z.respawns, respawnEntry{mob: mob, at: at, expiry: exp, mine: mine, group: mine, killer: killer, zone: z.name})
+}
+
+// addManualLocked adds a user-created repop timer for the current zone, seeded
+// with sec seconds (or the zone default when sec <= 0). Unlike a kill repop it's
+// flagged manual and grouped with your own (group=true) so it isn't dimmed or
+// parked under others' kills. Returns false with no name or no time to use.
+// Caller holds the lock.
+func (z *zoneTracker) addManualLocked(mob string, sec int, at int64) bool {
+	if mob == "" {
+		return false
+	}
+	if sec <= 0 {
+		sec = z.respawnSec
+	}
+	if sec <= 0 {
+		return false
+	}
+	z.respawns = append(z.respawns, respawnEntry{
+		mob: mob, at: at, expiry: at + int64(sec), group: true, killer: "You", manual: true, zone: z.name,
+	})
+	return true
 }
 
 // creditGroupKillLocked marks the most-recent recently-killed mob as a group
@@ -268,29 +297,49 @@ func (z *zoneTracker) killStatsLocked(now int64) (kills, perHour, deaths int) {
 	return kills, perHour, deaths
 }
 
-// respawnsLocked returns pending repops, soonest first, purging long-dead
-// entries. Caller holds the lock.
+// respawnsLocked returns pending repops across every zone, purging long-dead
+// entries. The current zone's timers come first, then each other zone as its own
+// block (ordered by its soonest timer) so the UI can label them; within a zone,
+// group kills (yours + xp-credited) lead, then soonest first. Caller holds the
+// lock.
 func (z *zoneTracker) respawnsLocked(now int64) []Respawn {
 	kept := z.respawns[:0]
 	out := make([]Respawn, 0, len(z.respawns))
+	// soonest remaining seen per zone — orders the out-of-zone blocks.
+	zoneSoonest := map[string]int64{}
 	for _, e := range z.respawns {
 		rem := e.expiry - now
 		if rem < -respawnKeepUpSec {
 			continue // long past up — drop it
 		}
 		kept = append(kept, e)
-		out = append(out, Respawn{Mob: e.mob, Remaining: rem, Mine: e.mine, Group: e.group, Killer: e.killer})
+		out = append(out, Respawn{Mob: e.mob, At: e.at, Remaining: rem, Mine: e.mine, Group: e.group, Killer: e.killer, Manual: e.manual, Zone: e.zone})
+		if v, ok := zoneSoonest[e.zone]; !ok || rem < v {
+			zoneSoonest[e.zone] = rem
+		}
 	}
 	z.respawns = kept
-	// group kills (yours + xp-credited) first, then others'; within each, soonest first.
+
+	curZone := func(zone string) bool { return zone == z.name }
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Group != out[j].Group {
-			return out[i].Group
+		a, b := out[i], out[j]
+		if ca, cb := curZone(a.Zone), curZone(b.Zone); ca != cb {
+			return ca // the current zone's block leads
 		}
-		if out[i].Remaining != out[j].Remaining {
-			return out[i].Remaining < out[j].Remaining
+		if a.Zone != b.Zone { // different out-of-zone blocks: soonest zone first, then name
+			if zoneSoonest[a.Zone] != zoneSoonest[b.Zone] {
+				return zoneSoonest[a.Zone] < zoneSoonest[b.Zone]
+			}
+			return a.Zone < b.Zone
 		}
-		return out[i].Mob < out[j].Mob
+		// within a zone: group kills first, then soonest, then name.
+		if a.Group != b.Group {
+			return a.Group
+		}
+		if a.Remaining != b.Remaining {
+			return a.Remaining < b.Remaining
+		}
+		return a.Mob < b.Mob
 	})
 	return out
 }
@@ -337,6 +386,20 @@ func (t *Tracker) SetOverride(mob string, sec int) {
 	if o != nil && zone != "" {
 		_ = o.Set(zone, mob, sec)
 	}
+}
+
+// AddManualRespawn adds a user-created repop timer in the current zone, seeded
+// with sec seconds (or the zone default when sec <= 0). It's a live-only entry
+// like a kill repop — never persisted as an override. Reports whether it added
+// one (false when mob is empty or no time is available). `now` is the kill-time
+// base (wall-clock unix, matching the log clock the panel reads against).
+func (t *Tracker) AddManualRespawn(mob string, sec int, now int64) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.zone.addManualLocked(mob, sec, now)
 }
 
 // ZoneKillStats returns the zone-wide tallies at wall-clock `now`: xp-credited

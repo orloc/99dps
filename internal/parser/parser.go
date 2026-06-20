@@ -47,9 +47,16 @@ type DmgParser struct {
 	// tracker, when non-nil, receives cast/level/landing signals for the spell
 	// timer overlay.
 	tracker SpellObserver
+	// tap, when non-nil, receives every raw line for the live-log view.
+	tap RawTap
 	// lastTS is the previous line's log timestamp, for camp/logout gap detection.
 	lastTS int64
 }
+
+// RawTap receives every raw log line and its parsed timestamp (0 if the line has
+// no parseable timestamp), before classification — the feed behind the live-log
+// view. Optional; nil disables it.
+type RawTap func(line string, ts int64)
 
 const COMBAT_VERB_STRING = "gores|gore|claws|claw|punches|punch|kicks|kick|bites|bite|mauls|maul|slashes|slash|slices|slice|strikes|strike|stings|sting|pierces|pierce|bashes|bash|hits|hit|backstabs|backstab|crushes|crush"
 
@@ -59,8 +66,8 @@ const LOG_SUBJECT_INDEX_START = 27
 // DoParse tails the log, classifying each line and forwarding the parsed event
 // to sink. tracker (optional) receives spell-timer signals. It blocks until the
 // tail's line channel closes.
-func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver) {
-	p := DmgParser{character: character, tracker: tracker}
+func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver, tap RawTap) {
+	p := DmgParser{character: character, tracker: tracker, tap: tap}
 	for line := range t.Lines {
 		if line.Err != nil {
 			continue // a tail read/watch error yields empty Text — skip it
@@ -76,11 +83,17 @@ func DoParse(t *tail.Tail, sink Sink, character string, tracker SpellObserver) {
 func (p *DmgParser) line(text string, sink Sink) {
 	// A long silence then resumed activity is a camp/logout: EQ buffs pause while
 	// you're out, so tell the tracker to freeze them over the gap.
-	if ts, err := parseTimestamp(text); err == nil {
+	ts, err := parseTimestamp(text)
+	if err == nil {
 		if p.lastTS != 0 && ts-p.lastTS > logoutGapSec && p.tracker != nil {
 			p.tracker.LogoutPause(ts - p.lastTS)
 		}
 		p.lastTS = ts
+	} else {
+		ts = 0
+	}
+	if p.tap != nil {
+		p.tap(text, ts) // raw line for the live-log view (before classification)
 	}
 	p.dispatch(text, sink)
 	if p.tracker != nil {

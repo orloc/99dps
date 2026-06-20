@@ -89,10 +89,14 @@ type Tracker struct {
 	// to flush stale queued audio cues about the now-dead mob.
 	slainClears int
 
-	// runeAbsorbs counts melee blows the player's runes have soaked since they were
-	// last (re)cast; runeAttacker is the mob that landed the most recent soaked blow
-	// — together they drive the rune-health estimate (see rune.go).
+	// rune-absorb estimate (see rune.go). runeAbsorbs is the cumulative blows the
+	// stack has soaked since it came up; runeAttacker is the mob that landed the
+	// most recent one. runeAbsorbed holds each active rune's absorbed damage so far
+	// (stacked runes have SEPARATE pools — refreshing one resets only its bucket);
+	// runeDrained marks how many blows have been folded into those buckets.
 	runeAbsorbs  int
+	runeDrained  int
+	runeAbsorbed map[string]int
 	runeAttacker string
 }
 
@@ -202,7 +206,9 @@ func (t *Tracker) BeginCast(spellName string, at int64) {
 	// unknown/untimed — so a later landing emote can't mis-attribute to the
 	// stale cast.
 	t.pending = nil
-	if s, ok := t.book.ByName(spellName); ok {
+	// resolve to the variant the player's CLASS can cast (a same-named spell can
+	// differ in duration between classes); falls back to the canonical pick.
+	if s, ok := t.book.ByNameForClass(spellName, t.class); ok {
 		t.pending = s
 		t.pendingAt = at
 	}
@@ -371,6 +377,7 @@ func (t *Tracker) Observe(body string, at int64) {
 		t.cool.dropLocked(strings.TrimSuffix(name, "."))
 	}
 	t.inferClassLocked(t.cool.matchLocked(body, at, t.class))
+	t.matchDisciplineLocked(body, at) // a discipline's self-emote starts its timer (and may reveal the class)
 	// xp with no slain line (a DoT/charmed-pet kill) → infer the death of the mob we
 	// were debuffing, so it gets a repop timer and its debuffs clear. observeLocked
 	// returns the inferred victim (or "") so we can drop its timers here.
@@ -432,7 +439,12 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 	switch {
 	case t.pending.CastOnOther != "" && strings.HasSuffix(body, t.pending.CastOnOther):
 		target = strings.TrimSpace(strings.TrimSuffix(body, t.pending.CastOnOther))
-	case t.pending.CastOnYou != "" && body == t.pending.CastOnYou:
+	case t.pending.CastOnYou != "" && body == t.pending.CastOnYou &&
+		(!t.pending.Detrimental || t.pending.Pacify || t.pending.Mez):
+		// a self-buff lands on the caster, and an AoE pacify/mez genuinely can (CC on
+		// you). But a plain detrimental cast_on_you emote (an Enchanter slow's "You
+		// feel drowsy.") is the player's own debuff echoing — it targets a mob, never
+		// the caster — so don't land it on "You".
 		target = "You"
 	default:
 		// Not this spell's landing. Drop the pending only once we're past the latest
@@ -471,7 +483,7 @@ func (t *Tracker) matchLandingLocked(body string, at int64) bool {
 	}, at)
 	t.cool.startSpellRecastLocked(t.pending, at, t.class) // Rapture's reuse, zone-scoped
 	if isRune(t.pending.Name) {
-		t.runeAbsorbs, t.runeAttacker = 0, "" // a fresh rune resets the absorb estimate
+		delete(t.runeAbsorbed, t.pending.Name) // refreshed → only THIS rune's pool is whole again
 	}
 	// pending is left set on purpose: an AoE lands on several mobs, each with its
 	// own emote line, so we keep matching until the cast window (landWindowSec)
@@ -744,7 +756,8 @@ func (t *Tracker) Clear() {
 	t.class = eqclass.ClassUnknown
 	t.petName = ""
 	t.petOwners = nil
-	t.runeAbsorbs, t.runeAttacker = 0, ""
+	t.runeAbsorbs, t.runeDrained, t.runeAttacker = 0, 0, ""
+	t.runeAbsorbed = nil
 	t.mu.Unlock()
 }
 

@@ -121,6 +121,14 @@ func (m Model) View() string {
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}
 
+	// the Live Log tab: the raw log tail merged with the cues 99dps fired.
+	if m.screen == screenLog {
+		sheet := card(th, innerW, max(m.h-5, 4), m.logTitle()+scrollHint(m.vpLog), m.vpLog.View())
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, sheet, m.footer(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
 	// the Map tab: a braille render of the current zone, player marked from /loc.
 	if m.screen == screenMap {
 		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.mapView(th, innerW, max(m.h-4, 4)))
@@ -202,6 +210,9 @@ func (m Model) View() string {
 // status flash, else the keybinding help + audio/data-source state.
 func (m Model) footer(th theme, w int) string {
 	switch {
+	case m.editing && m.editAdd:
+		return th.fg(th.accent).Bold(true).Render(truncate(
+			fmt.Sprintf("add timer (name [m:ss]): %s_   [enter] save   [esc] cancel", m.editBuf), w))
 	case m.editing:
 		return th.fg(th.accent).Bold(true).Render(truncate(
 			fmt.Sprintf("set repop for %s (m:ss): %s_   [enter] save   [esc] cancel", m.editMob, m.editBuf), w))

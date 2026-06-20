@@ -43,6 +43,34 @@ func TestParseTimestamp_ShortLine(t *testing.T) {
 	p.line("   ", nil)
 }
 
+// TestRawTap: the optional raw-line tap receives every line with its parsed
+// timestamp (0 when the line has none) — the feed behind the live-log view.
+func TestRawTap(t *testing.T) {
+	var got []struct {
+		line string
+		ts   int64
+	}
+	p := &DmgParser{tap: func(line string, ts int64) {
+		got = append(got, struct {
+			line string
+			ts   int64
+		}{line, ts})
+	}}
+	sink := &session.SessionManager{}
+	p.line("[Sun Mar 09 21:03:14 2025] a gnoll hits YOU for 12 points of damage.", sink)
+	p.line("no-timestamp line", sink)
+
+	if len(got) != 2 {
+		t.Fatalf("tap should fire once per line, got %d", len(got))
+	}
+	if got[0].ts == 0 || got[0].line == "" {
+		t.Errorf("first line should carry a parsed timestamp + text, got %+v", got[0])
+	}
+	if got[1].ts != 0 {
+		t.Errorf("a line with no timestamp should tap ts=0, got %d", got[1].ts)
+	}
+}
+
 // spellRow builds a 217-field spells_us.txt line with the given fields set.
 func spellRow(set map[int]string) string {
 	f := make([]string, 217)
