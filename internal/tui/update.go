@@ -226,6 +226,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resizeViewports() // a layout change (Off/Compact/Full) needs re-sizing
 		}
 		m.flash("▶ now tracking " + msg.character)
+		m.logTail.AddMark("▶ now tracking "+msg.character, time.Now().Unix()) // divider in the Live Log
 		m.refresh()
 	case tickMsg:
 		switch m.screen {

@@ -75,3 +75,28 @@ func TestLogSheetColumns(t *testing.T) {
 		}
 	}
 }
+
+// TestLogSheetMark: a character-switch mark renders as a divider that shows the
+// message and rule dashes, without overflowing the width.
+func TestLogSheetMark(t *testing.T) {
+	th := themes[0]
+	const w = 64
+	lt := NewLogTail()
+	lt.AddMark("▶ now tracking Sensive", 1_700_000_000)
+	entries, _ := lt.Snapshot(logTailCap)
+	if len(entries) != 1 || entries[0].Kind != logMark {
+		t.Fatalf("AddMark should record one logMark entry, got %+v", entries)
+	}
+	sheet := logSheet(th, entries, w)
+	if !strings.Contains(sheet, "now tracking Sensive") {
+		t.Errorf("divider should show the switch message, got %q", sheet)
+	}
+	if !strings.Contains(sheet, "─") {
+		t.Error("divider should render rule dashes")
+	}
+	for _, ln := range strings.Split(sheet, "\n") {
+		if lipgloss.Width(ln) > w {
+			t.Errorf("divider overflowed width %d: %d", w, lipgloss.Width(ln))
+		}
+	}
+}

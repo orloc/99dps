@@ -13,8 +13,9 @@ const logTailCap = 4000
 type logKind uint8
 
 const (
-	logRaw logKind = iota // a raw log line
-	logCue                // a cue the engine fired
+	logRaw  logKind = iota // a raw log line
+	logCue                 // a cue the engine fired
+	logMark                // a system annotation (e.g. character switch) — a divider
 )
 
 // LogEntry is one row of the live-log sheet: a raw log line or a fired cue, in
@@ -56,6 +57,12 @@ func (l *LogTail) add(e LogEntry) {
 // AddCue records a fired cue (urgent = the queue-jumping voice).
 func (l *LogTail) AddCue(text string, at int64, urgent bool) {
 	l.add(LogEntry{At: at, Kind: logCue, Text: text, Urgent: urgent})
+}
+
+// AddMark records a system annotation — rendered as a full-width divider in the
+// sheet — to visually separate log activity (e.g. a character hot-swap).
+func (l *LogTail) AddMark(text string, at int64) {
+	l.add(LogEntry{At: at, Kind: logMark, Text: text})
 }
 
 // Tap returns the parser RawTap-shaped callback that records each raw line, or

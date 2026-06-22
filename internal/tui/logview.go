@@ -33,6 +33,18 @@ func logSheet(th theme, entries []LogEntry, w int) string {
 			ts = time.Unix(e.At, 0).Format("15:04:05")
 		}
 		stamp := th.fg(th.dim).Render(ts)
+		if e.Kind == logMark {
+			// a system divider (character switch): a centered label in a rule of
+			// dashes spanning the rest of the row, so it clearly breaks the stream.
+			label := " " + e.Text + " "
+			avail := max(w-timeW-sepW, 4)
+			label = truncate(label, avail)
+			dashes := avail - lipgloss.Width(label)
+			left := dashes / 2
+			rule := strings.Repeat("─", left) + label + strings.Repeat("─", dashes-left)
+			lines[i] = stamp + sep + th.fg(th.accent).Bold(true).Render(rule)
+			continue
+		}
 		if e.Kind == logCue {
 			marker, col := "♪ ", th.accent
 			if e.Urgent {
