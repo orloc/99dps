@@ -132,6 +132,18 @@ func init() {
 	}
 }
 
+// isIncomingDebuffLand reports whether emote is a hostile-debuff landing line
+// owned by the incoming-debuff path (a slow's "You slow down.", a root's "Your
+// feet adhere to the ground.", …). A beneficial spell that happens to share such
+// an emote must NOT be indexed as a self-buff clicky — the line means "you were
+// debuffed", not "a buff landed", so matching it would spawn a phantom buff timer
+// (e.g. an instant Rejuvenation whose cast_on_you is "You slow down." colliding
+// with a self-cast slow's emote). emote is already NormEmote-normalized.
+func isIncomingDebuffLand(emote string) bool {
+	_, ok := incomingByLand[emote]
+	return ok
+}
+
 // matchIncomingDebuffLocked starts (or refreshes) a timer when body is the
 // cast_on_you emote of a melee-relevant hostile effect. The timer is on "You",
 // detrimental, and flagged Estimated (its duration is a family ceiling, not an

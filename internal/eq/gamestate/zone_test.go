@@ -181,6 +181,35 @@ func TestPetKillCreditedToOwner(t *testing.T) {
 	}
 }
 
+// TestCharmedPetKillCredited mirrors Iznoa's charm-killing: with a charm active,
+// a "...Master." command-reply adopts the charmed mob as your pet, so its kills
+// credit to You — without ever needing a /pet leader line.
+func TestCharmedPetKillCredited(t *testing.T) {
+	tr := NewTracker(loadBook(t, row(map[int]string{
+		fName: "Allure", fFades: "You are no longer charmed.",
+		fCastTime: "4000", fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	})))
+	tr.SetCharacter("Iznoa")
+	tr.SetLevel(60)
+	tr.Observe("You have entered Greater Faydark.", 1000)
+
+	tr.BeginCast("Allure", 1001)                                            // charm a mob…
+	tr.Observe("a bile golem hits a kobold for 10 points of damage.", 1006) // …lands on cast completion
+	tr.Observe("greater war boned skeleton tells you, 'Attacking a sepulcher skeleton Master.'", 1007)
+	tr.Observe("a sepulcher skeleton has been slain by greater war boned skeleton!", 1010)
+
+	var found *Respawn
+	for _, r := range tr.Respawns(1010) {
+		if r.Mob == "a sepulcher skeleton" {
+			rr := r
+			found = &rr
+		}
+	}
+	if found == nil || !found.Mine || found.Killer != "You" {
+		t.Errorf("a charmed-pet kill should credit You, got %+v", tr.Respawns(1010))
+	}
+}
+
 func TestZoneRespawnTracking(t *testing.T) {
 	tr := NewTracker(&Book{byName: map[string]*Spell{}})
 	if tr.Zone() != "" {

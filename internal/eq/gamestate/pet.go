@@ -13,10 +13,14 @@ import "strings"
 // `/pet leader` reveals their pet too). Yatiri's log shows a re-summon renames
 // the pet (Xaber → Xenab), so the latest leader line wins.
 //
-// We do NOT use the "...Master." command replies: those leak into nearby
-// players' logs (you see a group-mate's pet say "Following you, Master."), so
-// they can't tell whose pet it is — relying on them mis-attributes others' pets
-// to you. PetName (your own pet) is just the pet whose owner is the tracked
+// The "...Master." command replies are a leak-prone FALLBACK, used only for charm
+// pets: they appear in nearby players' logs too (you see a group-mate's pet say
+// "Following you, Master."), so on their own they mis-attribute others' pets to
+// you. But a charmed mob keeps a generic mob name and rarely gets a /pet leader
+// line, so its kills/damage would go uncredited. We bridge that by adopting a
+// "...Master." speaker as YOUR pet ONLY while you have an active charm running
+// (you do have a charmed pet then) — and never over an owner a /pet leader line
+// already settled. PetName (your own pet) is the pet whose owner is the tracked
 // character.
 
 // SetCharacter records the tracked player (for the "My leader is <you>" check).
@@ -50,38 +54,66 @@ func (t *Tracker) PetOwner(pet string) string {
 	return t.petOwners[strings.ToLower(pet)]
 }
 
-// parsePetSays splits "<Speaker> says '<message>'" (note: no comma after "says"
-// on P99). Returns ("","",false) for any other line.
-func parsePetSays(body string) (speaker, msg string, ok bool) {
-	const sep = " says '"
-	i := strings.Index(body, sep)
-	if i <= 0 || !strings.HasSuffix(body, "'") {
+// parsePetReply splits a pet line in either form EQ uses on P99: "<Speaker> says
+// '<msg>'" or "<Speaker> tells you, '<msg>'" (the pet command-replies use the
+// latter for an /pet attack). Returns ("","",false) for any other line.
+func parsePetReply(body string) (speaker, msg string, ok bool) {
+	if !strings.HasSuffix(body, "'") {
 		return "", "", false
 	}
-	return body[:i], body[i+len(sep) : len(body)-1], true
+	for _, sep := range []string{" says '", " tells you, '"} {
+		if i := strings.Index(body, sep); i > 0 {
+			return body[:i], body[i+len(sep) : len(body)-1], true
+		}
+	}
+	return "", "", false
 }
 
-// observePetLocked records a "<Pet> says 'My leader is <Owner>.'" line into the
-// pet→owner map (for the whole group), and flags the player's own pet when the
-// owner is the tracked character. Caller holds the lock.
+// hasActiveCharmLocked reports whether the player currently has a charm running (a
+// charm timer not yet cleared by the "worn off" break). Caller holds the lock.
+func (t *Tracker) hasActiveCharmLocked() bool {
+	for _, tm := range t.timers {
+		if tm.Charm {
+			return true
+		}
+	}
+	return false
+}
+
+// observePetLocked links a pet to its owner from a pet line. The authoritative
+// signal is "<Pet> says 'My leader is <Owner>.'" (/pet leader), recorded for the
+// whole group. As a fallback for charm pets — which keep a generic mob name and
+// rarely get a leader line — a "...Master." command-reply adopts the speaker as
+// YOUR pet, but only while you have an active charm (so a nearby enchanter's pet
+// reply isn't grabbed) and never over an owner a leader line already set. Caller
+// holds the lock.
 func (t *Tracker) observePetLocked(body string) {
-	speaker, msg, ok := parsePetSays(body)
-	if !ok {
+	speaker, msg, ok := parsePetReply(body)
+	if !ok || speaker == "" {
 		return
 	}
-	owner, isLeader := strings.CutPrefix(msg, "My leader is ")
-	if !isLeader {
+	if owner, isLeader := strings.CutPrefix(msg, "My leader is "); isLeader {
+		owner = strings.TrimSuffix(owner, ".")
+		if owner == "" {
+			return
+		}
+		if t.petOwners == nil {
+			t.petOwners = map[string]string{}
+		}
+		t.petOwners[strings.ToLower(speaker)] = owner
+		if t.character != "" && strings.EqualFold(owner, t.character) {
+			t.petName = speaker // the player's own pet
+		}
 		return
 	}
-	owner = strings.TrimSuffix(owner, ".")
-	if owner == "" || speaker == "" {
-		return
-	}
-	if t.petOwners == nil {
-		t.petOwners = map[string]string{}
-	}
-	t.petOwners[strings.ToLower(speaker)] = owner
-	if t.character != "" && strings.EqualFold(owner, t.character) {
-		t.petName = speaker // the player's own pet
+	// charm-gated fallback: a command-reply while you're charming names your pet.
+	if t.character != "" && strings.Contains(msg, "Master") && t.hasActiveCharmLocked() {
+		if t.petOwners == nil {
+			t.petOwners = map[string]string{}
+		}
+		if k := strings.ToLower(speaker); t.petOwners[k] == "" {
+			t.petOwners[k] = t.character
+			t.petName = speaker
+		}
 	}
 }

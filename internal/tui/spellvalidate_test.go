@@ -50,9 +50,10 @@ func TestSuspect_FlagsUnknownSpell(t *testing.T) {
 	if !strings.Contains(w, "Xyzzy") || !strings.Contains(w, "unconfirmed") {
 		t.Errorf("warning = %q, want it to name the spell + 'unconfirmed'", w)
 	}
+	// header + one bullet per suspect + a trailing dataset-provenance line
 	lines := strings.Split(w, "\n")
-	if len(lines) != 2 || !strings.Contains(lines[1], "•") {
-		t.Errorf("warning should be a header + bullet list, got %q", w)
+	if len(lines) != 3 || !strings.Contains(lines[1], "•") || !strings.Contains(lines[2], "P99 set:") {
+		t.Errorf("warning should be a header + bullet list + provenance, got %q", w)
 	}
 	if m.spellWarning(4) != "" {
 		t.Error("warning should be suppressed at tiny widths")

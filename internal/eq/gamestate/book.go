@@ -331,6 +331,7 @@ func LoadReader(r io.Reader) (*Book, error) {
 		// the same NPC-copy problem, caught structurally rather than by name prefix.
 		if s.CastTimeMs == 0 && s.DurFormula != 0 && s.CastOnYou != "" && !s.Detrimental &&
 			!strings.Contains(strings.ToLower(s.Name), "test") && !genericBuffEmotes[s.CastOnYou] &&
+			!isIncomingDebuffLand(s.CastOnYou) && // a slow/debuff "on you" line is never a self-buff landing
 			!nonPlayerSpell(s.Name) && (!b.classKnown || s.playerCastable()) {
 			if prev, ok := b.byEmote[s.CastOnYou]; !ok || s.DurCap > prev.DurCap {
 				b.byEmote[s.CastOnYou] = s

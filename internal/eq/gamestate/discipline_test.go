@@ -87,6 +87,61 @@ func TestDisciplinePhases(t *testing.T) {
 	}
 }
 
+// TestDisciplineSharedLockout: in classic EQ all disciplines share one reuse —
+// using one locks out EVERY other until the used one's reuse expires.
+func TestDisciplineSharedLockout(t *testing.T) {
+	tr := NewTracker(&Book{})
+	tr.SetClass(eqclass.ClassWarrior)
+	tr.SetLevel(60)
+
+	// Defensive: 3 min duration, 10 min reuse. Evasive's own reuse is only 7 min.
+	tr.DisciplineUsed("Defensive", 1000)
+	find := func(name string, now int64) DisciplineTimer {
+		for _, d := range tr.Disciplines(now) {
+			if d.Name == name {
+				return d
+			}
+		}
+		t.Fatalf("%s not found", name)
+		return DisciplineTimer{}
+	}
+
+	// while Defensive is active, EVERY other discipline is locked out — not Ready,
+	// and counting down to Defensive's reuse (600s), not its own.
+	ev := find("Evasive", 1100)
+	if ev.Phase != DiscCooling {
+		t.Fatalf("Evasive should be locked out while Defensive holds the timer, got phase %d", ev.Phase)
+	}
+	if ev.Remaining != 600-100 || ev.LockedBy != "Defensive" || ev.LockTotal != 600 {
+		t.Errorf("Evasive lock = rem %d by %q total %d, want 500/Defensive/600", ev.Remaining, ev.LockedBy, ev.LockTotal)
+	}
+	if d := find("Defensive", 1100); d.Phase != DiscActive {
+		t.Errorf("Defensive should be Active, got %d", d.Phase)
+	}
+
+	// the shared-lockout summary mirrors it.
+	if name, rem, on := tr.DisciplineLock(1100); !on || name != "Defensive" || rem != 500 {
+		t.Errorf("DisciplineLock = (%q,%d,%v), want (Defensive,500,true)", name, rem, on)
+	}
+
+	// once Defensive's reuse elapses, the whole bar frees up.
+	if ev := find("Evasive", 1601); ev.Phase != DiscReady {
+		t.Errorf("past the shared reuse Evasive should be Ready, got %d", ev.Phase)
+	}
+	if _, _, on := tr.DisciplineLock(1601); on {
+		t.Error("no lockout should remain past the reuse")
+	}
+
+	// the most-recent activation governs: now Evasive holds the (shorter) lock.
+	tr.DisciplineUsed("Evasive", 2000) // 7 min reuse
+	if name, _, on := tr.DisciplineLock(2100); !on || name != "Evasive" {
+		t.Errorf("the latest activation should hold the lock, got %q (%v)", name, on)
+	}
+	if d := find("Defensive", 2100); d.Phase != DiscCooling || d.LockedBy != "Evasive" {
+		t.Errorf("Defensive should now be locked by Evasive, got phase %d by %q", d.Phase, d.LockedBy)
+	}
+}
+
 // TestDisciplineActivationEmote: a discipline's self-emote in the log starts its
 // timer AND reveals the class (the emote is class-exclusive), with no /who needed.
 func TestDisciplineActivationEmote(t *testing.T) {

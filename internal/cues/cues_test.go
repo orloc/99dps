@@ -446,8 +446,9 @@ func TestSlainFlushesQueuedCues(t *testing.T) {
 	}
 }
 
-// TestSpawnSoonCue: a tracked repop cues once when it crosses ~30s out, and the
-// toggle silences it.
+// TestSpawnSoonCue: a tracked repop gets a calm heads-up ~60s out (normal voice,
+// once) then an urgent "spawning now" alert ~3s out (urgent voice, once); the
+// toggle silences both.
 func TestSpawnSoonCue(t *testing.T) {
 	fe := &fakeSpeaker{}
 	book, _ := gamestate.LoadReader(strings.NewReader(""))
@@ -455,32 +456,43 @@ func TestSpawnSoonCue(t *testing.T) {
 	now := time.Now().Unix()
 	tr.Observe("You have entered east commonlands.", now)
 	tr.UseOverrides(gamestate.LoadOverrides(t.TempDir() + "/ov.json"))
-	tr.SetOverride("a griffon", 60)              // 60s repop
-	tr.Observe("You have slain a griffon!", now) // repop at now+60
+	tr.SetOverride("a griffon", 120)             // 120s repop
+	tr.Observe("You have slain a griffon!", now) // repop at now+120
 	e := NewEngine()
 
-	e.Announce(fe, tr, Prefs{}, now+20) // 40s out → not yet in the 30s window
+	e.Announce(fe, tr, Prefs{}, now+30) // 90s out → not yet in the 60s heads-up window
 	if len(fe.normal) != 0 {
-		t.Fatalf("no spawn cue at 40s out, got %v", fe.normal)
+		t.Fatalf("no spawn cue at 90s out, got %v", fe.normal)
 	}
-	e.Announce(fe, tr, Prefs{}, now+35) // 25s out → fires
+	e.Announce(fe, tr, Prefs{}, now+65) // 55s out → heads-up fires (normal voice)
 	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "griffon") {
-		t.Fatalf("spawn cue expected ~30s out, got %v", fe.normal)
+		t.Fatalf("heads-up expected ~60s out, got %v", fe.normal)
 	}
-	e.Announce(fe, tr, Prefs{}, now+36) // still in window → no repeat
+	e.Announce(fe, tr, Prefs{}, now+66) // still in window → no repeat
 	if len(fe.normal) != 1 {
-		t.Errorf("spawn cue should fire once per spawn, got %v", fe.normal)
+		t.Errorf("heads-up should fire once per spawn, got %v", fe.normal)
 	}
 
-	// the toggle silences it: a fresh kill with the cue disabled stays quiet.
+	// the urgent at-the-pop alert fires once as the timer crosses ~3s out.
+	e.Announce(fe, tr, Prefs{}, now+118) // 2s out → "spawning now" (urgent voice)
+	if len(fe.urgent) != 1 || !strings.Contains(fe.urgent[0], "griffon") {
+		t.Fatalf("imminent alert expected ~3s out, got urgent=%v", fe.urgent)
+	}
+	e.Announce(fe, tr, Prefs{}, now+119) // still imminent → no repeat
+	if len(fe.urgent) != 1 {
+		t.Errorf("imminent alert should fire once per spawn, got %v", fe.urgent)
+	}
+
+	// the toggle silences both stages: a fresh kill with the cue disabled stays quiet.
 	fe2 := &fakeSpeaker{}
 	e2 := NewEngine()
 	prefs := Prefs{Overrides: map[string]bool{cueSpawnSoon: false}}
 	tr.SetOverride("a griffon", 60)
 	tr.Observe("You have slain a griffon!", now+200) // a second spawn, repop at now+260
 	e2.Announce(fe2, tr, prefs, now+235)             // 25s out, but disabled
-	if len(fe2.normal) != 0 {
-		t.Errorf("disabled spawn cue should stay silent, got %v", fe2.normal)
+	e2.Announce(fe2, tr, prefs, now+258)             // 2s out, but disabled
+	if len(fe2.normal) != 0 || len(fe2.urgent) != 0 {
+		t.Errorf("disabled spawn cue should stay silent, got normal=%v urgent=%v", fe2.normal, fe2.urgent)
 	}
 }
 
@@ -508,6 +520,34 @@ func TestSpawnOverrideNoReannounce(t *testing.T) {
 	e.Announce(fe, tr, Prefs{}, now+35)
 	if len(fe.normal) != 1 {
 		t.Errorf("an override re-time must not re-announce the same spawn, got %v", fe.normal)
+	}
+}
+
+// TestSpawnSoonOnlyCurrentZone: a repop in a zone you've LEFT must not cue (you
+// can't reach it) — the visual mob list still shows it, but the audio alert is
+// scoped to your current zone, and re-fires if you zone back while it's pending.
+func TestSpawnSoonOnlyCurrentZone(t *testing.T) {
+	fe := &fakeSpeaker{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	tr.UseOverrides(gamestate.LoadOverrides(t.TempDir() + "/ov.json"))
+	now := time.Now().Unix()
+	tr.Observe("You have entered east commonlands.", now)
+	tr.SetOverride("a griffon", 60)
+	tr.Observe("You have slain a griffon!", now) // repop in ECommons at now+60
+	tr.Observe("You have entered west commonlands.", now+10)
+	e := NewEngine()
+
+	// 25s before the griffon pops, but we're in a different zone now → silent.
+	e.Announce(fe, tr, Prefs{}, now+35)
+	if len(fe.normal) != 0 {
+		t.Fatalf("a repop in a left zone must not cue, got %v", fe.normal)
+	}
+	// zone back in while it's still pending → the cue fires.
+	tr.Observe("You have entered east commonlands.", now+40)
+	e.Announce(fe, tr, Prefs{}, now+40)
+	if len(fe.normal) != 1 || !strings.Contains(fe.normal[0], "griffon") {
+		t.Fatalf("returning to the zone should cue the still-pending spawn, got %v", fe.normal)
 	}
 }
 

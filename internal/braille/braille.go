@@ -97,12 +97,6 @@ type Marker struct {
 // Empty cells render as a space.
 func (c *Canvas) String() string { return c.render(nil) }
 
-// StringWithMarker renders like String but draws one marker glyph at a cell.
-// Out-of-range coords render no marker.
-func (c *Canvas) StringWithMarker(markCol, markRow int, marker string) string {
-	return c.render([]Marker{{Col: markCol, Row: markRow, Glyph: marker}})
-}
-
 // StringWithMarkers renders like String but overlays several markers (e.g. the
 // player pin plus a selected POI pin). Earlier markers win a shared cell.
 func (c *Canvas) StringWithMarkers(markers []Marker) string { return c.render(markers) }

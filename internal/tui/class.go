@@ -369,23 +369,40 @@ func disciplineRows(th theme, ds []gamestate.DisciplineTimer, w int) string {
 		return ds[i].Level < ds[j].Level
 	})
 
-	lines := []string{th.fg(th.accent).Bold(true).Render("DISCIPLINES")}
+	// header notes the shared lockout: all disciplines share one reuse, so while one
+	// is running the rest read locked (the countdown is the same for every row).
+	header := th.fg(th.accent).Bold(true).Render("DISCIPLINES")
+	for _, d := range ds {
+		if d.Phase == gamestate.DiscCooling {
+			header += th.fg("#e0564e").Render("  ⊘ "+mmss(d.Remaining)) + th.fg(th.dim).Render(" · "+d.LockedBy)
+			break // every locked row shares the same countdown
+		}
+	}
+	lines := []string{header}
 	const (
 		nameW  = 14 // fits "Mighty Strike" / "Sanctification"
 		timeW  = 5
 		active = "#d4af37"
 		charge = "#5aa9e6"
 		ready  = "#5fd37a"
+		locked = "#8a8378" // a disc blocked by ANOTHER's shared timer (not its own reuse)
 	)
 	boxW := min(w-2-nameW-1-1-timeW, 12)
 	for _, d := range ds {
 		name := fmt.Sprintf("%-*s", nameW, truncate(d.Name, nameW))
+		// a disc on cooldown because of ANOTHER discipline's shared timer (not the one
+		// you used) is "collaterally" locked — render it muted to set it apart.
+		collateral := d.Phase == gamestate.DiscCooling && d.LockedBy != "" && d.LockedBy != d.Name
 		if boxW < 4 { // too narrow for a box — plain text
 			switch d.Phase {
 			case gamestate.DiscActive:
 				lines = append(lines, "  "+th.fg(active).Render(name)+" "+th.fg(active).Render(mmss(d.Remaining)))
 			case gamestate.DiscCooling:
-				lines = append(lines, "  "+th.fg(th.text).Render(name)+" "+th.fg(th.dim).Render(mmss(d.Remaining)))
+				nc := th.text
+				if collateral {
+					nc = locked
+				}
+				lines = append(lines, "  "+th.fg(nc).Render(name)+" "+th.fg(th.dim).Render(mmss(d.Remaining)))
 			default:
 				lines = append(lines, "  "+th.fg(ready).Render(name)+" "+th.fg(ready).Render("ready"))
 			}
@@ -400,13 +417,21 @@ func disciplineRows(th theme, ds []gamestate.DisciplineTimer, w int) string {
 			lines = append(lines, "  "+th.fg(active).Render(name)+" "+
 				gradientBar(frac, boxW, active, active, th.track)+" "+
 				th.fg(active).Render(fmt.Sprintf("%*s", timeW, mmss(d.Remaining))))
-		case gamestate.DiscCooling: // reuse counting down — fills toward ready
-			frac := 0.0
-			if d.ReuseSec > 0 {
-				frac = float64(d.ReuseSec-d.Remaining) / float64(d.ReuseSec)
+		case gamestate.DiscCooling: // shared lockout counting down — fills toward ready
+			total := d.LockTotal // the shared lockout length, not this disc's own reuse
+			if total <= 0 {
+				total = d.ReuseSec
 			}
-			lines = append(lines, "  "+th.fg(th.text).Render(name)+" "+
-				gradientBar(frac, boxW, charge, charge, th.track)+" "+
+			frac := 0.0
+			if total > 0 {
+				frac = float64(total-d.Remaining) / float64(total)
+			}
+			barCol, nameCol := charge, th.text
+			if collateral { // blocked by another disc — muted, so it doesn't read as its own reuse
+				barCol, nameCol = locked, locked
+			}
+			lines = append(lines, "  "+th.fg(nameCol).Render(name)+" "+
+				gradientBar(frac, boxW, barCol, barCol, th.track)+" "+
 				th.fg(th.dim).Render(fmt.Sprintf("%*s", timeW, mmss(d.Remaining))))
 		default: // ready
 			lines = append(lines, "  "+th.fg(ready).Render(name)+" "+

@@ -1,6 +1,9 @@
 package gamestate
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // findTimer returns the active "You" timer for the given category label, if any.
 func findTimer(tr *Tracker, label string, now int64) (Timer, bool) {
@@ -143,6 +146,96 @@ func TestDismissTargetKeepsIncomingDebuff(t *testing.T) {
 	tr.DismissTarget("You")
 	if _, ok := findTimer(tr, "Slowed", 1001); !ok {
 		t.Error("DismissTarget(\"You\") must not clear an incoming ON-YOU debuff")
+	}
+}
+
+// TestSelfClickyExcludesDebuffEmote: an instant beneficial buff whose cast_on_you
+// is a hostile-debuff line (a slow's "You slow down.") must NOT be self-clicky
+// indexed — otherwise a self-cast slow's echo is misread as that buff (the
+// Forlorn Deeds → "Rejuvenation" bug).
+func TestSelfClickyExcludesDebuffEmote(t *testing.T) {
+	b := loadBook(t,
+		row(map[int]string{
+			fName: "Forlorn Deeds", fCastOnOther: "'s movements slow.",
+			fCastOnYou: "You slow down.", fCastTime: "3000",
+			fDurFormula: "3", fDurCap: "50", fGoodEffect: "0", // detrimental slow
+		}),
+		row(map[int]string{
+			fName: "Rejuvenation", fCastOnYou: "You slow down.", fCastTime: "0",
+			fDurFormula: "3", fDurCap: "100", fGoodEffect: "1", // instant beneficial buff
+		}),
+	)
+	if s, ok := b.byEmote[NormEmote("You slow down.")]; ok {
+		t.Fatalf("a debuff emote must not index a self-buff, got %q", s.Name)
+	}
+
+	tr := NewTracker(b)
+	tr.SetLevel(60)
+	tr.BeginCast("Forlorn Deeds", 1000)
+	tr.Observe("You slow down.", 1003) // Forlorn Deeds' own slow echo
+	for _, tm := range tr.Active(1004) {
+		if tm.Spell == "Rejuvenation" {
+			t.Errorf("a self-cast slow must not be misread as Rejuvenation: %+v", tm)
+		}
+	}
+}
+
+// TestSelfClickyNeverIndexesDebuffEmotes is the structural lock: NO incoming
+// debuff "on you" landing emote — for ANY category (slow, root, cripple, tash, …)
+// — may be indexed as a self-buff clicky, even if a beneficial instant spell
+// collides with it. This generalizes the Forlorn Deeds → "Rejuvenation" bug to the
+// whole incoming registry, so a new category or emote can't reopen it.
+func TestSelfClickyNeverIndexesDebuffEmotes(t *testing.T) {
+	var rows, emotes []string
+	for _, d := range incomingDebuffs {
+		for i, land := range d.land {
+			rows = append(rows, row(map[int]string{
+				fName: fmt.Sprintf("Phantom %s %d", d.label, i), fCastOnYou: land,
+				fCastTime: "0", fDurFormula: "3", fDurCap: "100", fGoodEffect: "1", // instant beneficial buff
+			}))
+			emotes = append(emotes, land)
+		}
+	}
+	b := loadBook(t, rows...)
+	for _, e := range emotes {
+		if s, ok := b.byEmote[NormEmote(e)]; ok {
+			t.Errorf("debuff emote %q must not index a self-buff, got %q", e, s.Name)
+		}
+	}
+}
+
+// TestSelfCastDebuffNoPhantom drives the full Observe pipeline: casting a
+// DETRIMENTAL spell on a mob whose cast_on_you collides with an incoming family
+// must produce NO self timer — not the incoming "on you" category (pending-family
+// skip), and not a phantom self-buff (debuff emote excluded from the index).
+func TestSelfCastDebuffNoPhantom(t *testing.T) {
+	cases := []struct{ spell, emote string }{
+		{"Forlorn Deeds", "You slow down."},
+		{"Enstill", "Your feet adhere to the ground."},
+		{"Cripple", "You feel weak."},
+		{"Tashan", "You hear the barking of Tashan."},
+		{"Ensnare", "You are ensnared."},
+	}
+	for _, c := range cases {
+		b := loadBook(t,
+			row(map[int]string{ // the player's own detrimental cast
+				fName: c.spell, fCastOnOther: " staggers.", fCastOnYou: c.emote,
+				fCastTime: "3000", fDurFormula: "3", fDurCap: "50", fGoodEffect: "0",
+			}),
+			row(map[int]string{ // a beneficial buff that collides on the emote
+				fName: "Decoy Buff", fCastOnYou: c.emote, fCastTime: "0",
+				fDurFormula: "3", fDurCap: "100", fGoodEffect: "1",
+			}),
+		)
+		tr := NewTracker(b)
+		tr.SetLevel(60)
+		tr.BeginCast(c.spell, 1000)
+		tr.Observe(c.emote, 1003) // the player's own debuff cast echoing
+		for _, tm := range tr.Active(1004) {
+			if tm.Target == "You" {
+				t.Errorf("%s: own cast must not create any self timer, got %+v", c.spell, tm)
+			}
+		}
 	}
 }
 

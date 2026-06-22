@@ -1,11 +1,11 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"99dps/internal/tts"
 )
 
 // TestSwitchReloadsCharacterSettings: a character hot-swap loads that toon's own
@@ -73,7 +73,17 @@ func TestStorePerCharacterIsolation(t *testing.T) {
 // don't get re-onboarded after upgrading.
 func TestStoreMigratesLegacyTTS(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if err := tts.SavePrefs(tts.Prefs{Configured: true, Enabled: true, Voice: "7"}); err != nil {
+	// simulate an old binary's per-install tts.json (the legacy format/location
+	// loadStore migrates from via tts.LoadPrefs).
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg, "99dps"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	legacy := filepath.Join(cfg, "99dps", "tts.json")
+	if err := os.WriteFile(legacy, []byte(`{"configured":true,"enabled":true,"voice":"7"}`), 0o644); err != nil {
 		t.Fatalf("seed legacy prefs: %v", err)
 	}
 

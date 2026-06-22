@@ -41,10 +41,10 @@ func TestDisciplineData(t *testing.T) {
 }
 
 // TestDisciplineActivationsValid guards the activation table against drift: every
-// emote's name must exist in `disciplines`, be unique to one class (so the derived
-// class inference is sound), carry no stray leading/trailing whitespace, and be in
-// NormEmote form (no doubled trailing period). DisciplineActivation must then
-// resolve it with inferClass=true.
+// emote's name must exist in `disciplines`, carry no stray whitespace, and be in
+// NormEmote form (no doubled trailing period). DisciplineActivation must resolve
+// it; a name owned by exactly one class infers that class, while a name shared by
+// several (the common Resistant/Fearless) resolves with inferClass=false.
 func TestDisciplineActivationsValid(t *testing.T) {
 	for emote, name := range disciplineActivations {
 		if emote != strings.TrimSpace(emote) {
@@ -63,14 +63,20 @@ func TestDisciplineActivationsValid(t *testing.T) {
 		}
 		if len(owners) == 0 {
 			t.Errorf("activation %q → %q: no such discipline in the table", emote, name)
-		}
-		if len(owners) > 1 {
-			t.Errorf("activation %q → %q: not class-unique (owners %v)", emote, name, owners)
+			continue
 		}
 		gotName, gotClass, infer, ok := DisciplineActivation(emote)
-		if !ok || gotName != name || !infer || len(owners) != 1 || gotClass != owners[0] {
-			t.Errorf("DisciplineActivation(%q) = (%q,%v,%v,%v), want (%q,%v,true,true)",
-				emote, gotName, gotClass, infer, ok, name, owners)
+		if !ok || gotName != name {
+			t.Errorf("DisciplineActivation(%q) = (%q,…,%v), want name %q", emote, gotName, ok, name)
+		}
+		// class-unique → infers that class; shared → records without inferring.
+		if len(owners) == 1 {
+			if !infer || gotClass != owners[0] {
+				t.Errorf("%q (unique to %v): got infer=%v class=%v, want infer=true class=%v",
+					emote, owners[0], infer, gotClass, owners[0])
+			}
+		} else if infer {
+			t.Errorf("%q (shared by %v): must NOT infer a class", emote, owners)
 		}
 	}
 	// a non-emote resolves to nothing

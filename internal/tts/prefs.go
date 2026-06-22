@@ -38,19 +38,3 @@ func LoadPrefs() Prefs {
 	_ = json.Unmarshal(b, &p)
 	return p
 }
-
-// SavePrefs persists the choice next to the other 99dps config.
-func SavePrefs(p Prefs) error {
-	path, err := prefsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
-}

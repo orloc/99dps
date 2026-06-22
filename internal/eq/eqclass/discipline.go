@@ -92,30 +92,53 @@ func DisciplinesFor(c Class) []Discipline { return disciplines[c] }
 // self-emotes, so they only ever appear in the owner's own log — matching the
 // whole line (not a substring) keeps a quoted tell/say from tripping them.
 //
-// Transcribed from the GINA "Kingdom" community trigger pack; verify against real
-// logs before trusting any one line. Emotes are stored in NormEmote form (a single
-// trailing period) — EQ sometimes writes a doubled "..", which gamestate.NormEmote
-// collapses before lookup. Only disciplines with a confirmed unique emote are
-// listed; the rest simply aren't auto-detected yet (their timers still work if
-// started another way). Every name here MUST exist in `disciplines` above and be
-// unique to one class — TestDisciplineActivationsValid guards both.
+// SOURCE: each string is the verbatim `cast_on_you` field of the matching
+// "<Name> Discipline" row in the client's spells_us.txt (the authoritative client
+// data), cross-checked against the GINA "Kingdom" P99 pack. Strings are stored
+// EXACTLY as the client has them — including its own typos ("You instincts take
+// over…", "Your hands speeds up.") — because that's what lands in the log; do NOT
+// "correct" them. Emotes are in NormEmote form (single trailing period;
+// gamestate.NormEmote collapses a doubled ".."). Every name MUST exist in
+// `disciplines` above; an emote unique to one class also infers that class, while
+// the common disciplines (Resistant/Fearless, shared by all classes) record the
+// timer without inferring. TestDisciplineActivationsValid guards this.
+//
+// Only Felstrike (Warrior) has no usable emote in spells_us, so it stays unwired.
 var disciplineActivations = map[string]string{
+	// Common (every melee/hybrid class — shared emote, so no class inference)
+	"You channel your will into magical resistance.": "Resistant",
+	"Your will drives fear from your mind.":          "Fearless",
 	// Warrior
-	"You assume a defensive fighting style.":    "Defensive",
-	"You assume an evasive fighting style.":     "Evasive",
-	"You assume a precise fighting style.":      "Precision",
-	"A consuming rage takes over your weapons.": "Furious",
+	"You assume a defensive fighting style.":             "Defensive",
+	"You assume an evasive fighting style.":              "Evasive",
+	"You assume a precise fighting style.":               "Precision",
+	"You assume an aggressive fighting style.":           "Aggressive",
+	"A consuming rage takes over your weapons.":          "Furious",
+	"Your focus becomes perfect.":                        "Charge",
+	"You feel like a killing machine.":                   "Mighty Strike",
+	"You instincts take over as you avoid every attack.": "Fortitude", // sic: client typo "You"
 	// Monk
 	"Your body becomes one with the earth.":                    "Stonestance",
 	"You become untouchable.":                                  "Voiddance",
 	"Your instincts take over as you turn aside every attack.": "Whirlwind",
 	"Your muscles bulge with the force of will.":               "Inner Flame",
+	"Your feet glow with mystic power.":                        "Thunderkick",
+	"Your fists begin to blur.":                                "Hundred Fists",
+	"Your body is filled with silent fury.":                    "Silentfist",
+	"Your hands clench with fatal fervor.":                     "Ashenhand",
 	// Rogue
-	"Your weapons move with uncanny grace.": "Counterattack",
-	"Your muscles quiver with power.":       "Duelist",
-	"You bounce about nimbly.":              "Nimble",
+	"Your weapons move with uncanny grace.":    "Counterattack",
+	"Your muscles quiver with power.":          "Duelist",
+	"You bounce about nimbly.":                 "Nimble",
+	"You feel unstoppable.":                    "Deadeye",
+	"Your arms feel alive with mystic energy.": "Kinesthetics",
+	"Your hands speeds up.":                    "Blinding Speed", // sic: client grammar
 	// Paladin
 	"Your body is surrounded in an aura of sanctification.": "Sanctification",
+	"Your weapon is bathed in a holy light.":                "Holyforge",
+	// Shadow Knight
+	"An unholy aura envelops your body.": "Unholy Aura",
+	"Your skin glows with dark energy.":  "Leechcurse",
 	// Ranger
 	"Your bow crackles with natural energy.": "Trueshot",
 	"Your weapons begin to spin.":            "Weapon Shield",
@@ -126,10 +149,11 @@ var disciplineActivations = map[string]string{
 
 // DisciplineActivation resolves a self-emote line to the discipline it signals.
 // It returns the discipline name, the owning class, and whether that class can be
-// safely inferred from the emote (true when exactly one class has the discipline,
-// which is the case for every entry today). ok is false when no emote matches. The
-// class is derived from the `disciplines` table, so the activation map is the
-// single source of truth for emotes and can't drift from the class data.
+// safely inferred from the emote — true when exactly one class has the discipline,
+// false for a name shared across classes (the common Resistant/Fearless, whose
+// emote names the discipline but not the caster). ok is false when no emote
+// matches. The class is derived from the `disciplines` table, so the activation
+// map is the single source of truth for emotes and can't drift from the data.
 func DisciplineActivation(line string) (name string, class Class, inferClass bool, ok bool) {
 	name, ok = disciplineActivations[line]
 	if !ok {

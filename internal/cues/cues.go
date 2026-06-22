@@ -39,7 +39,8 @@ type Engine struct {
 	feignFailAnnounced bool
 	cdReady            map[string]bool // cooldown name → was-ready last tick
 	cdHalf             map[string]bool // cooldown name → was-past-halfway last tick
-	spawnAnnounced     map[string]bool // repop expiry-key → "spawn soon" cue already spoken
+	spawnAnnounced     map[string]bool // repop key → "spawn soon" heads-up already spoken
+	spawnImminent      map[string]bool // repop key → urgent "spawning now" alert already spoken
 	lastSlainClears    int             // tracker.SlainClearCount() last seen → flush queued cues on a kill
 
 	seq int // rotates phrasing for natural variety
@@ -52,6 +53,7 @@ func NewEngine() *Engine {
 		cdReady:        map[string]bool{},
 		cdHalf:         map[string]bool{},
 		spawnAnnounced: map[string]bool{},
+		spawnImminent:  map[string]bool{},
 		resistSpoken:   map[string]int64{},
 	}
 }
@@ -78,6 +80,9 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 	}
 	if e.spawnAnnounced == nil {
 		e.spawnAnnounced = map[string]bool{}
+	}
+	if e.spawnImminent == nil {
+		e.spawnImminent = map[string]bool{}
 	}
 	if e.resistSpoken == nil {
 		e.resistSpoken = map[string]int64{}
@@ -179,21 +184,37 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 		e.seq++
 	}
 
-	// tracked mobs about to repop (~spawnLeadSec out) — fires once per spawn, keyed
-	// by its stable expiry (now+Remaining), re-arming when the spawn pops/purges.
+	// tracked mobs about to repop — a two-stage alert, each firing once per spawn and
+	// re-arming when the spawn pops/purges: a calm heads-up ~spawnLeadSec out, then an
+	// urgent "spawning now" ~spawnImminentSec out (jumps the queue — it's time-critical).
 	if prefs.Enabled(cueSpawnSoon, true) {
-		var soon []string
+		var soon, imminent []string
 		liveSpawn := map[string]bool{}
+		curZone := tr.Zone()
 		for _, r := range tr.Respawns(now) {
 			// key on the stable kill time, not the expiry: an override edit rewrites
 			// expiry in place (zone.setOverrideLocked), which would otherwise mint a
 			// new key and re-announce an already-spoken spawn. A re-killed spawn gets
 			// a fresh At, so it still re-arms.
 			key := r.Mob + "\x00" + strconv.FormatInt(r.At, 10)
-			liveSpawn[key] = true
+			liveSpawn[key] = true // track every zone's keys so re-arm bookkeeping stays correct
+			// only CUE spawns in the zone you're actually in: the list still shows
+			// other zones' repops (you can read those at your leisure), but an
+			// interrupting audio alert for a mob you can't reach is just noise. A spawn
+			// still pending when you zone back in cues then (curZone matches again).
+			if r.Zone != curZone {
+				continue
+			}
 			if r.Remaining > 0 && r.Remaining <= spawnLeadSec && !e.spawnAnnounced[key] {
 				e.spawnAnnounced[key] = true
 				soon = append(soon, r.Mob)
+			}
+			// imminent: a tight window straddling the pop (just before → just after) so
+			// it reads as "now". The lower bound rejects a spawn first seen long after it
+			// popped (a fresh start / zone-back into the keep-up window) — that's not news.
+			if r.Remaining <= spawnImminentSec && r.Remaining > -spawnImminentSec && !e.spawnImminent[key] {
+				e.spawnImminent[key] = true
+				imminent = append(imminent, r.Mob)
 			}
 		}
 		for k := range e.spawnAnnounced {
@@ -201,15 +222,28 @@ func (e *Engine) Announce(sp Speaker, tr *gamestate.Tracker, prefs Prefs, now in
 				delete(e.spawnAnnounced, k) // spawn popped / purged → re-arm for next kill
 			}
 		}
+		for k := range e.spawnImminent {
+			if !liveSpawn[k] {
+				delete(e.spawnImminent, k)
+			}
+		}
 		if len(soon) > 0 {
 			sp.Say(spawnPhrase(soon, e.seq))
+			e.seq++
+		}
+		if len(imminent) > 0 {
+			sp.SayUrgent(spawnNowPhrase(imminent, e.seq))
 			e.seq++
 		}
 	}
 }
 
-// spawnLeadSec is how far out a repop's "about to spawn" cue fires.
-const spawnLeadSec = 30
+// spawnLeadSec is how far out a repop's calm "about to spawn" heads-up fires.
+const spawnLeadSec = 60
+
+// spawnImminentSec sizes the tight window around the actual pop for the urgent
+// "spawning now" alert (fires once as the timer crosses ~3s out, into "up").
+const spawnImminentSec = 3
 
 // resistRepeatSec is the minimum gap before the same spell's resist re-announces.
 // It de-spams a sustained resist macro (each spell at most once per window) while
@@ -228,6 +262,21 @@ func spawnPhrase(mobs []string, seq int) string {
 		return fmt.Sprintf(tpl[seq%len(tpl)], subj)
 	}
 	tpl := []string{"%s are about to spawn.", "Heads up, %s are about to pop.", "%s spawn soon."}
+	return fmt.Sprintf(tpl[seq%len(tpl)], subj)
+}
+
+// spawnNowPhrase is the urgent at-the-pop alert (a few seconds out → now), varied
+// per seq, collapsing to a count when several pop together.
+func spawnNowPhrase(mobs []string, seq int) string {
+	if len(mobs) > 3 {
+		return fmt.Sprintf("%d spawns now!", len(mobs))
+	}
+	subj := joinList(mobs)
+	if len(mobs) == 1 {
+		tpl := []string{"%s is spawning now!", "%s, spawning now!", "Here comes %s!"}
+		return fmt.Sprintf(tpl[seq%len(tpl)], subj)
+	}
+	tpl := []string{"%s are spawning now!", "%s, spawning now!", "Here they come — %s!"}
 	return fmt.Sprintf(tpl[seq%len(tpl)], subj)
 }
 

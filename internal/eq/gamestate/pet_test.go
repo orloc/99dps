@@ -19,9 +19,9 @@ func TestPet_LeaderReply(t *testing.T) {
 	}
 }
 
-// TestPet_CommandRepliesIgnored: the "...Master." command replies must NOT set
-// your pet — they leak into nearby players' logs, so a group-mate's pet saying
-// "Following you, Master." would otherwise be mis-attributed to you.
+// TestPet_CommandRepliesIgnored: with NO active charm, the "...Master." command
+// replies must NOT set your pet — they leak into nearby players' logs, so a
+// group-mate's pet saying "Following you, Master." would be mis-attributed to you.
 func TestPet_CommandRepliesIgnored(t *testing.T) {
 	for _, line := range []string{
 		"Zarekab says 'Following you, Master.'",
@@ -31,8 +31,44 @@ func TestPet_CommandRepliesIgnored(t *testing.T) {
 		tr := newPetTracker(t, "Kelkix")
 		tr.Observe(line, 1000)
 		if got := tr.PetName(); got != "" {
-			t.Errorf("%q should not set your pet, got %q", line, got)
+			t.Errorf("%q should not set your pet (no active charm), got %q", line, got)
 		}
+	}
+}
+
+// TestPet_CharmedPetFromCommandReply: while a charm is active, a "...Master."
+// command-reply adopts the charmed mob as your pet (the /pet-leader fallback for
+// charm-killers — see Iznoa's logs). A leader line stays authoritative.
+func TestPet_CharmedPetFromCommandReply(t *testing.T) {
+	tr := newPetTracker(t, "Iznoa")
+	tr.book = loadBook(t, row(map[int]string{
+		fName: "Allure", fFades: "You are no longer charmed.",
+		fCastTime: "4000", fDurFormula: "10", fDurCap: "70", fGoodEffect: "0",
+	}))
+	tr.SetLevel(60)
+
+	// no charm yet → the reply is ignored, as before.
+	tr.Observe("greater war boned skeleton says 'Following you, Master.'", 1000)
+	if tr.PetName() != "" {
+		t.Fatal("a command-reply with no active charm must not set your pet")
+	}
+
+	// cast a charm → it lands on cast completion; now the same reply names your pet.
+	tr.BeginCast("Allure", 1010)
+	tr.Observe("a bile golem hits a kobold for 10 points of damage.", 1015) // any line completes the cast
+	tr.Observe("greater war boned skeleton tells you, 'Attacking a bile golem Master.'", 1016)
+	if got := tr.PetName(); got != "greater war boned skeleton" {
+		t.Fatalf("an active-charm command-reply should adopt the pet, got %q", got)
+	}
+	if got := tr.PetOwner("greater war boned skeleton"); got != "Iznoa" {
+		t.Errorf("the charmed pet should be owned by you, got %q", got)
+	}
+
+	// a /pet leader line stays authoritative and is never overridden by a reply.
+	tr.Observe("greater war boned skeleton says 'My leader is Sensive.'", 1020)
+	tr.Observe("greater war boned skeleton says 'Following you, Master.'", 1021)
+	if got := tr.PetOwner("greater war boned skeleton"); got != "Sensive" {
+		t.Errorf("a leader line must win over the command-reply fallback, got %q", got)
 	}
 }
 
@@ -86,13 +122,18 @@ func TestPet_ClearedOnSwitch(t *testing.T) {
 	}
 }
 
-func TestParsePetSays(t *testing.T) {
-	sp, msg, ok := parsePetSays("Xenab says 'My leader is Yatiri.'")
+func TestParsePetReply(t *testing.T) {
+	sp, msg, ok := parsePetReply("Xenab says 'My leader is Yatiri.'")
 	if !ok || sp != "Xenab" || msg != "My leader is Yatiri." {
-		t.Errorf("parse = %q,%q,%v", sp, msg, ok)
+		t.Errorf("says parse = %q,%q,%v", sp, msg, ok)
 	}
-	if _, _, ok := parsePetSays("a sand giant hits YOU for 50 points of damage."); ok {
-		t.Error("non-says line should not parse")
+	// the /pet attack reply uses the "tells you," form
+	sp, msg, ok = parsePetReply("greater war boned skeleton tells you, 'Attacking a bile golem Master.'")
+	if !ok || sp != "greater war boned skeleton" || msg != "Attacking a bile golem Master." {
+		t.Errorf("tells-you parse = %q,%q,%v", sp, msg, ok)
+	}
+	if _, _, ok := parsePetReply("a sand giant hits YOU for 50 points of damage."); ok {
+		t.Error("non-reply line should not parse")
 	}
 	if !strings.HasSuffix("x'", "'") { // sanity for the suffix guard
 		t.Fatal("unreachable")

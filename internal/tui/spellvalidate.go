@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -56,5 +57,10 @@ func (m *Model) spellWarning(w int) string {
 	for _, s := range sus {
 		lines = append(lines, red.Render(truncate("  • "+s, w)))
 	}
+	// provenance: which bundled set judged these, so the user can gauge how current
+	// the authority is (the offline dataset is regenerated occasionally, not live).
+	dim := themes[m.theme].fg("#8a8a8a")
+	prov := fmt.Sprintf("P99 set: %d spells · %s", spellwiki.Count(), spellwiki.Generated())
+	lines = append(lines, dim.Render(truncate(prov, w)))
 	return strings.Join(lines, "\n")
 }
