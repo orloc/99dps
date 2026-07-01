@@ -21,6 +21,11 @@ import (
 // "buff.fade", "alert.resist".
 type Prefs struct {
 	Overrides map[string]bool `json:"overrides"`
+	// Style knobs (see style.go). Their persisted source of truth is the per-
+	// character store (tui.charSettings); they ride along on Prefs so Announce can
+	// read everything from one value. Zero values = today's behavior.
+	Timing  Timing  `json:"timing,omitempty"`
+	Chatter Chatter `json:"chatter,omitempty"`
 }
 
 // Enabled reports whether a cue should fire: the user's override if set,
@@ -60,6 +65,7 @@ const (
 	cueFeignFail  = "alert.feignfail"
 	cueResist     = "alert.resist"
 	cueSpawnSoon  = "spawn.soon" // a tracked mob about to repop (~30s out)
+	cueCHGap      = "raid.chgap" // a Complete Heal chain broke (urgent)
 )
 
 func cueCDReady(skill string) string { return "cd.ready." + skill }
@@ -165,6 +171,8 @@ func Rows(class eqclass.Class) []Row {
 
 	// the mob tracker is class-agnostic — everyone kills things.
 	section("Mob Tracker", []Row{{Label: "Spawn soon (~30s)", ID: cueSpawnSoon, Def: true}})
+	// raid cues are class-agnostic too — anyone watching the CH chain wants the alert.
+	section("Raid", []Row{{Label: "CH chain gap", ID: cueCHGap, Def: true}})
 	return rows
 }
 

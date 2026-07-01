@@ -50,3 +50,20 @@ func TestSpecialStat_HitRate(t *testing.T) {
 		t.Errorf("HitRate(empty) = %d, want -1", hr)
 	}
 }
+
+// IgnoredEntity skips summoned "Eye of <caster>" familiars but not real mobs
+// (which carry an article + lowercase e, e.g. "an eye of the deep").
+func TestIgnoredEntity(t *testing.T) {
+	ignore := []string{"Eye of Kelkix", "Eye of Zomm", "Eye of Bob"}
+	for _, n := range ignore {
+		if !IgnoredEntity(n) {
+			t.Errorf("IgnoredEntity(%q) = false, want true", n)
+		}
+	}
+	keep := []string{"an eye of the deep", "a sand giant", "Sebilite juggernaut", "", "Eyeball"}
+	for _, n := range keep {
+		if IgnoredEntity(n) {
+			t.Errorf("IgnoredEntity(%q) = true, want false", n)
+		}
+	}
+}

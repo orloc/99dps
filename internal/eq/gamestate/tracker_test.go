@@ -408,18 +408,19 @@ func TestTimer_FadeClearsOneInstance(t *testing.T) {
 	}
 }
 
-// TestTimer_SlainClearsAllOnMob: a mob's death ends ALL debuffs on it. The death
-// line names only the mob (not which same-named instance), and a single-target
-// caster stacks several instances on one mob — all die with it. (A *fade* line,
-// by contrast, clears just one instance: see TestTimer_FadeClearsOneInstance.)
-func TestTimer_SlainClearsAllOnMob(t *testing.T) {
+// TestTimer_SlainClearsMobsDebuffs: a mob's death ends its debuffs — one instance
+// per spell (its own), symmetric with the fade path. Here the two malo casts are
+// two same-named mobs (a second instance, not a stack), so slaying one leaves the
+// other's timer up (see TestTimer_SlainClearsOnlyOneOfTwoSameNamed). A single mob
+// carrying several DIFFERENT DoTs is one instance each, so those all clear.
+func TestTimer_SlainClearsMobsDebuffs(t *testing.T) {
 	tr := NewTracker(loadBook(t, malo()))
 	tr.SetLevel(60)
 	castMalo(tr, 1000)
-	castMalo(tr, 1001) // two instances on "a sand giant"
+	castMalo(tr, 1001) // two same-named mobs, each maloed
 	tr.Observe("You have slain a sand giant!", 1003)
-	if act := tr.Active(1004); len(act) != 0 {
-		t.Fatalf("slaying the mob should clear all its debuffs, got %d", len(act))
+	if act := tr.Active(1004); len(act) != 1 {
+		t.Fatalf("slaying one of two same-named mobs should leave the other's timer, got %d", len(act))
 	}
 }
 
@@ -627,5 +628,59 @@ func TestPacify_SameNamedMobsInstance(t *testing.T) {
 	land(1167) // lands 1170; soonest expiry 1183 → 13s left (< 30) → refresh
 	if act := tr.Active(1171); len(act) != 2 {
 		t.Errorf("re-applying within 30s of expiry should refresh, not add a third; got %d", len(act))
+	}
+}
+
+// TestTimer_SlainClearsOnlyOneOfTwoSameNamed reproduces the friend's report: DoTs
+// on TWO same-named mobs, one dies → only the dead one's timer should clear, the
+// other must keep running (symmetric with the fade path).
+func TestTimer_SlainClearsOnlyOneOfTwoSameNamed(t *testing.T) {
+	tr := NewTracker(loadBook(t, malo()))
+	tr.SetLevel(60)
+	castMalo(tr, 1000)
+	castMalo(tr, 1001) // two same-named mobs, each debuffed → two instances
+	if act := tr.Active(1002); len(act) != 2 {
+		t.Fatalf("setup: expected 2 timers, got %d", len(act))
+	}
+	tr.Observe("You have slain a sand giant!", 1003) // ONE of the two dies
+	if act := tr.Active(1004); len(act) != 1 {
+		t.Fatalf("slaying one of two same-named mobs should leave the OTHER's timer running; got %d", len(act))
+	}
+}
+
+// TestTimer_SlainOneOfTwoSameNamed_MixedDots: two same-named mobs, each carrying
+// TWO different DoTs (four timers). Slaying one clears one instance of EACH spell
+// (that mob's worth), leaving the other mob's two intact.
+func TestTimer_SlainOneOfTwoSameNamed_MixedDots(t *testing.T) {
+	// a second instant debuff (like malo) so both land immediately and each same-
+	// named re-cast makes a distinct instance.
+	slow := row(map[int]string{
+		fName: "Test Slow", fCastOnOther: "'s movements slow.", fFades: " speeds up.",
+		fCastTime: "0", fDurFormula: "1", fDurCap: "50", fGoodEffect: "0",
+	})
+	tr := NewTracker(loadBook(t, malo(), slow))
+	tr.SetLevel(60)
+	slowCast := func(at int64) { tr.BeginCast("Test Slow", at); tr.Observe("a sand giant's movements slow.", at) }
+	// giant #1: malo + slow
+	castMalo(tr, 1000)
+	slowCast(1000)
+	// giant #2 (second same-named instance; casts outside the reapply window): malo + slow
+	castMalo(tr, 1002)
+	slowCast(1002)
+	if act := tr.Active(1003); len(act) != 4 {
+		t.Fatalf("setup: expected 4 timers (2 mobs × 2 DoTs), got %d", len(act))
+	}
+
+	tr.Observe("You have slain a sand giant!", 1005) // one giant dies
+	act := tr.Active(1006)
+	if len(act) != 2 {
+		t.Fatalf("slaying one giant should clear one malo + one slow (its own), leaving the other's two; got %d", len(act))
+	}
+	spells := map[string]int{}
+	for _, tm := range act {
+		spells[tm.Spell]++
+	}
+	if spells["Malosini"] != 1 || spells["Test Slow"] != 1 {
+		t.Errorf("survivors should be 1 Malosini + 1 Test Slow, got %v", spells)
 	}
 }

@@ -678,3 +678,21 @@ func TestPet_NilTracker(t *testing.T) {
 		t.Errorf("PetOwner of an unknown pet = %q, want empty", got)
 	}
 }
+
+// A summoned "Eye of <caster>" familiar (Eye of Zomm) must never create a repop —
+// whether you pop it yourself or a mob kills it — while a real same-zone mob does.
+func TestIgnoredEntityNoRepop(t *testing.T) {
+	tr := NewTracker(&Book{byName: map[string]*Spell{}})
+	tr.Observe("You have entered Greater Faydark.", 1000)
+
+	tr.Observe("You have slain Eye of Kelkix!", 1000)                        // you popped your eye
+	tr.Observe("Eye of Kelkix has been slain by a lava duct crawler!", 1001) // a mob popped it
+	if rs := tr.Respawns(1002); hasMob(rs, "Eye of Kelkix") {
+		t.Errorf("a summoned eye must not create a repop: %+v", rs)
+	}
+
+	tr.Observe("You have slain a large orc!", 1003) // a real kill still tracks
+	if rs := tr.Respawns(1003); !hasMob(rs, "a large orc") {
+		t.Errorf("a real mob kill should still create a repop: %+v", rs)
+	}
+}

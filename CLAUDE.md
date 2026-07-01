@@ -92,7 +92,7 @@ The UI is a single Bubble Tea `Model` (Elm-style `Init`/`Update`/`View`) reading
 - **`model.go`** — the root `Model` struct, `NewModel`, the 1s self-`tick`, `refresh()`/`rebuildInteractive` (snapshot + re-render), and `announceCues`. **`program.go`** — `NewProgram`/`Program` wrap `*tea.Program` so the host can `SwitchCharacter`.
 - **`layout.go`** — `layout()` computes panel rectangles for the window. **`view.go`** — `View` composes the active screen (banner + Sessions sidebar + Damage meter / Offense·Defense / class panel / Mob Tracker + footer). **`update.go`** — `Update` (keys/mouse/tick/resize/switch) plus input routing: `panelAt` (wheel → hovered panel), `hoverTargetAt`/`mobAt` (clicks → targets), `editKey`.
 - **`damage.go`** — the damage-meter renderer (`damageMeter`, pure; `damageContent` a thin forwarder). **`sessions.go`** — the Sessions sidebar/table + its selection/scroll. **`panels.go`** — pure `data → string` renderers (`card`, the timer-column split, mob tracker, specials/avoidance). **`class.go`** — the class-aware bottom panel (`classPanel`, cooldown/discipline/canni rows). No program state in the pure renderers, so they're unit-tested directly.
-- **Tabbed screens** (`settings.go`: `tabBar`/`cycleTab`/`gotoScreen`) — beyond the main meter there are **Map** (`map.go`: braille zone map via the `MapSource` seam, player pinned from `/loc`; a right-hand **POI side panel** lists the map's `P`-line points grouped by label heuristic — ZONE LINES (`to <zone>`) / NPCS (`Name (Role)`) / POINTS — each with distance + an 8-way screen-arrow, `↑/↓` select; the selected POI drops a distinct **🚩 pin** (≠ the player's 📍, edge-clamped when off-screen at zoom). All POIs also show as faint colored `+` markers. The braille `Canvas` supports multiple overlay `Marker`s — player + selected pin), **Tools** (`tools.go`: inventory board from `internal/inventory` + `prices` lookups), **Live Log** (`logview.go`: a merged auto-tailing sheet — `time │ raw log line │ fired cue` — that interleaves the verbatim log with the cues the engine fired; raw lines are fed by an optional `parser.RawTap` the composition root wires into a thread-safe `LogTail` ring (`logtail.go`), and fired cues are captured by a `cueRecorder` wrapping the cue `Speaker`, so the tui still never imports the parser), **Setup** (`setup.go`: first-run onboarding + the neural-voice download), and **Settings** screens. **`store.go`** persists per-character UI prefs; **`layoutprefs.go`** the panel-size prefs.
+- **Tabbed screens** (`settings.go`: `tabBar`/`cycleTab`/`gotoScreen`) — beyond the main meter there are **Map** (`map.go`: braille zone map via the `MapSource` seam, player pinned from `/loc`; a right-hand **POI side panel** lists the map's `P`-line points grouped by label heuristic — ZONE LINES (`to <zone>`) / NPCS (`Name (Role)`) / POINTS — each with distance + an 8-way screen-arrow, `↑/↓` select; the selected POI drops a distinct **🚩 pin** (≠ the player's 📍, edge-clamped when off-screen at zoom). All POIs also show as faint colored `+` markers. The braille `Canvas` supports multiple overlay `Marker`s — player + selected pin), **Tools** (`tools.go`: inventory board from `internal/inventory` + `prices` lookups), **Live Log** (`logview.go`: a merged auto-tailing sheet — `time │ raw log line │ fired cue` — that interleaves the verbatim log with the cues the engine fired; raw lines are fed by an optional `parser.RawTap` the composition root wires into a thread-safe `LogTail` ring (`logtail.go`), and fired cues are captured by a `cueRecorder` wrapping the cue `Speaker`, so the tui still never imports the parser), **Raid** (`chchain.go`: the CH-chain monitor + raid-debuff board — two side-by-side scrollable viewports `vpChain`/`vpRaid`; see the dedicated section below), **Setup** (`setup.go`: first-run onboarding + the neural-voice download), and **Settings** screens. **`store.go`** persists per-character UI prefs; **`layoutprefs.go`** the panel-size prefs.
 - **`theme.go`** — the themes + gradient/`fg` helpers. **`format.go`** — number/time/name formatters (`humanize`, `truncate`, `mmss`, …).
 - Each overflowing panel renders into its own `bubbles/viewport` (independent scroll); the mouse wheel routes to whichever panel the cursor is over (`panelAt`), and clicks resolve via line→target maps built by the same code that renders them (the anti-drift pattern).
 - **Lipgloss wraps overlong lines** (it doesn't clip), which reads as "scrunched". So every line must fit its width: tables are **width-aware** (Hit%/Crit% gate on width; the share bar yields before the name; the countdown column is never dropped), free text is clipped with `truncate`/`MaxWidth`, and a degenerate early `WindowSizeMsg` (0×0) is ignored. `TestViewFitsWindow`/`TestDamageNoOverflow` guard this.
@@ -159,6 +159,54 @@ the right column; its title shows the current zone. The bottom bar
 tracker. Caveat: zone is only known after the next zone-in (no log line gives the
 current zone at startup), and repop times are zone *defaults* — named/PH mobs
 differ.
+
+## CH-chain + raid debuffs (the Raid tab)
+
+Two `gamestate` sub-trackers fed off `Tracker.Observe` (same fan-out as the spell
+timers), read lock-free by the **Raid** tab. Both parse guild/group *macro
+call-outs*, not spell landings.
+
+**CH-chain analyzer (`internal/eq/gamestate/chchain.go`).** Clerics running a
+Complete Heal chain announce each cast: `"<Caster> tells the guild, 'KCH -
+<Target> - <Slot>'"`, so one guild member's log carries the whole chain. Parsed by
+`kchRE` (tolerates `-`/`---` separators, trailing space; slot is a number *or* a
+label — `GAP`/`R11`/`SPOT`/`RAMP` are real call-outs, counted; `GAP` is also
+surfaced as the clerics' own gap signal). Real raids taught the model three
+non-obvious things, each with a regression test: (1) **concurrent chains** — 2–4
+tanks are chained at once with call-outs *interleaved*, so chains are keyed by
+**target** in `chchainTracker.active` and tracked simultaneously (a single
+"current chain" would shatter each at every interleaved call); (2) **cadence is
+per-chain and derived** — median of the "tight" intervals (within 1.5× the
+overall median), which scales with stack size (~3s @16 clerics, ~6s @7); a **gap**
+is an interval past `max(2.5×cadence, cadence+3s)`, judged against cadence from
+*prior* intervals so it can't inflate its own baseline; (3) **slots are positions,
+clerics get subbed** — the live roster is keyed by **slot** (`chSlot`), the holder
+is whoever's currently calling that number, and a holder silent >`chDropSec`(60s)
+is dropped and replaced by the next caller (counted as a "sub"). `statsLocked`
+also predicts **NextCaster** (next numbered slot after the last, wrapping) and,
+per cleric, **BeatPct** (% of their *recent* laps — capped to `chLapWindow` so a
+stack-size change can't retro-misjudge old laps — within 1.5× the rotation period
+`cadence×activeClerics`) and **LagSec** (seconds overdue now). `CHActiveChains` /
+`CHChainHistory` return fresh value-typed snapshots (no aliasing). A quiet chain
+(>`chChainEndSec` 90s) finalizes into `done` for the post-raid summary.
+
+**Raid-debuff board (`internal/eq/gamestate/raid.go`).** Reuses the existing
+macro-debuff vocabulary/durations (`enemydebuff.go` `macroDebuffs` — SLOWED /
+TASHED / SIEVED / MALO / CRIPPLE / OOS…). `matchMacroDebuffLocked` already timed
+these for the player's Enemy column; it now *also* calls `raid.recordLocked` with
+the **caller** (`speakerOf`). Keyed by target → debuff label → `{caller, expiry}`;
+`RaidDebuffTargets(now)` returns each active mob (called within
+`raidTargetTTLSec`) and its debuffs with **seconds remaining** (≤0 = lapsed →
+`OUT`) and who called each. Bounded by `raidTargetCap` (evict stalest).
+
+**TUI (`internal/tui/chchain.go` + `view.go`/`update.go`).** The Raid tab is two
+side-by-side scrollable `viewport`s (`vpChain`/`vpRaid`) — `chchainBody` /
+`raidDebuffBody` render into them via `refreshRaid` (each tick + on resize/enter).
+Column widths come from the single-source `chainCardW`/`raidCardW`/`raidSplit`
+helpers (shared by `View`, `resizeViewports`, and wheel routing, so geometry can't
+drift); below 64 cols it collapses to the chain column only. The roster's
+**NextCaster** row is a full-width green highlight (`◀ NEXT`); a lagging cleric's
+row goes red; every row is `truncate`d to width (Lipgloss wraps overlong lines).
 
 ## Views and input
 

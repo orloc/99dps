@@ -110,6 +110,21 @@ var incomingDebuffs = []incomingDebuff{
 		fade: []string{"The poison has run its course."},
 		dur:  48, // cap 7 ticks
 	},
+	{
+		// Resurrection Effects — the weakening debuff every player-cast rez applies
+		// (≈75% HP / 100% mana / stat drain). Unlike the others its duration is a
+		// FIXED 5 minutes (not level-scaled), so the ceiling is exact; the fade line
+		// "You feel your strength return." still clears it early (shared with Crippled,
+		// which clears harmlessly too). Triggered off the XP-restore line so it only
+		// fires on a real rez. P99 duration confirmed on the wiki (Resurrection_Effects).
+		// It rides the same path as the other incoming debuffs, so it's flagged
+		// Estimated — the UI shows a leading "~" and it fires no audio cue. Both are
+		// fine: it's a debuff on you, and the strength-return line is the real end.
+		label: "Rez Effects",
+		land:  []string{"You regain some experience from resurrection."},
+		fade:  []string{"You feel your strength return."},
+		dur:   300, // 5 minutes
+	},
 }
 
 // incoming lookup tables, built once from the curated set. A landing emote maps

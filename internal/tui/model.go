@@ -41,13 +41,16 @@ type Model struct {
 
 	// every overflowing panel is independently scrollable (mirrors the previous
 	// per-panel scroll). The mouse wheel scrolls whichever panel it's over.
-	vpDamage viewport.Model
-	vpExtras viewport.Model // Specials / Avoidance, beside the damage meter
-	vpClass  viewport.Model // spell timers / skills (class-aware bottom panel)
-	vpMob    viewport.Model
-	vpEnemy  viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
-	vpInv    viewport.Model // Tools tab: scrollable inventory price list
-	vpLog    viewport.Model // Live Log tab: merged raw-line + fired-cue sheet
+	vpDamage       viewport.Model
+	vpExtras       viewport.Model // Specials / Avoidance, beside the damage meter
+	vpClass        viewport.Model // spell timers / skills (class-aware bottom panel)
+	vpMob          viewport.Model
+	vpEnemy        viewport.Model // Enemy column: CC + debuffs (caster/hybrid)
+	vpInv          viewport.Model // Tools tab: scrollable inventory price list
+	vpLog          viewport.Model // Live Log tab: merged raw-line + fired-cue sheet
+	vpChain        viewport.Model // Raid tab: CH-chain monitor column (scrollable)
+	vpRaid         viewport.Model // Raid tab: raid-target debuff column (scrollable)
+	raidChainTitle string         // card title for the CH-chain column (active count)
 
 	// Sessions tab: a wide scrollable stats table + a DPS breakdown of the
 	// highlighted session. sessHeader is the sticky column header (rendered above
@@ -103,6 +106,10 @@ type Model struct {
 	invRows   []invRow
 	invStatus string
 	invGen    time.Time // when the loaded dump file was written (for staleness)
+	// quick filter for the inventory list: invSearching captures typed keys while
+	// active; invFilter is the substring applied (case-insensitive) to item names.
+	invSearching bool
+	invFilter    string
 
 	// Map tab: a map source (fetch+cache zone maps), the currently-shown map, and
 	// the zoom level (centered on the player when a /loc is known).
@@ -229,12 +236,14 @@ func (m *Model) rebuildInteractive(cur *session.CombatSession) {
 	m.vpClass.SetContent(classStr)
 	m.classTargets = classT
 	if enemy {
-		// the middle column holds self-BUFFS for melee, or CC + DEBUFFS (what you
-		// cast on mobs) for casters/hybrids — same timerColumn, different sections.
+		// the middle column holds the full timer stack for melee (CC + mob DEBUFFS,
+		// e.g. a weapon-proc Tashani, + self-BUFFS), or CC + DEBUFFS (what you cast on
+		// mobs) for casters/hybrids whose self-buffs live in the class panel — same
+		// timerColumn, different sections.
 		var midStr string
 		var midT map[int]string
 		if m.middleIsBuffs() {
-			midStr, midT = timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, false, false, true)
+			midStr, midT = timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, true, true, true)
 		} else {
 			midStr, midT = timerColumn(th, m.tracker, m.vpEnemy.Width, m.hover, true, true, false)
 		}

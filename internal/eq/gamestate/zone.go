@@ -3,6 +3,8 @@ package gamestate
 import (
 	"sort"
 	"strings"
+
+	"99dps/internal/eq/combat"
 )
 
 // respawnKeepUpSec keeps a repopped mob listed (shown as "up") this long after
@@ -184,8 +186,8 @@ func (z *zoneTracker) observeLocked(body string, at int64, petName, inferredVict
 // slot rather than leaving a stale entry behind. A still-pending same-name entry
 // is a *distinct* live spawn, so we leave it alone and add a new one.
 func (z *zoneTracker) recordKillLocked(mob string, at int64, mine bool, killer string) {
-	if mob == "" {
-		return
+	if mob == "" || combat.IgnoredEntity(mob) {
+		return // ignore summoned eyes etc. — no repop/kill credit for a popped familiar
 	}
 	if mine {
 		z.lastOwnKillAt = at // arms the solo-xp kill credit (see the xp branch)

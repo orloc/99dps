@@ -30,8 +30,10 @@ func (m *Model) suspectActiveSpells() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, tm := range m.tracker.Active(time.Now().Unix()) {
-		if tm.Spell == "" || tm.Estimated || seen[tm.Spell] {
-			continue // Estimated = an incoming debuff (a category, not a spell we cast)
+		if tm.Spell == "" || tm.Estimated || tm.Proc || seen[tm.Spell] {
+			// Estimated = an incoming debuff (a category); Proc = a weapon proc —
+			// neither is a spell the player cast, so castability can't be judged.
+			continue
 		}
 		seen[tm.Spell] = true
 		if found, classOK := spellwiki.Validate(tm.Spell, class); !found || !classOK {

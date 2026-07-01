@@ -901,3 +901,28 @@ func TestObserveSpells_RealBedlam(t *testing.T) {
 		t.Errorf("timer = %+v, want Bedlam/You", act[0])
 	}
 }
+
+// TestDispatchIgnoresSummonedEye: damage to/kills of a summoned "Eye of <caster>"
+// are never tracked, so they don't pollute the damage meter — but a real mob in
+// the same stream is.
+func TestDispatchIgnoresSummonedEye(t *testing.T) {
+	sm := &session.SessionManager{}
+	p := &DmgParser{character: "Kelkix"}
+	for _, ln := range []string{
+		"[Mon Jun 22 22:43:46 2026] You crush Eye of Kelkix for 182 points of damage.",
+		"[Mon Jun 22 22:43:46 2026] You have slain Eye of Kelkix!",
+		"[Mon Jun 22 22:43:50 2026] You crush a sand giant for 50 points of damage.",
+	} {
+		p.dispatch(ln, sm)
+	}
+	cur := sm.Current()
+	if cur == nil {
+		t.Fatal("no session created from the real mob hit")
+	}
+	if got := cur.Total(); got != 50 {
+		t.Errorf("only the real mob's 50 should count, got %d", got)
+	}
+	if name := cur.Name(); strings.Contains(name, "Eye of") {
+		t.Errorf("session must not be named after a summoned eye, got %q", name)
+	}
+}

@@ -20,6 +20,7 @@ const (
 	screenTools                  // little helper widgets — random winner, etc. (a tab)
 	screenMap                    // zone map (braille render of the EQ map file) (a tab)
 	screenLog                    // live log tail + fired-cue annotations (a tab)
+	screenCHChain                // Complete Heal chain monitor (a tab)
 	screenSetup                  // first-run onboarding (full-screen, not a tab)
 )
 

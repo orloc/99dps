@@ -30,6 +30,7 @@ var tabs = []struct {
 	{screenTools, "Tools", "✦", false},
 	{screenMap, "Map", "⊞", false},
 	{screenLog, "Log", "▤", false},
+	{screenCHChain, "Raid", "⚔", false},
 	{screenSettings, "Settings", "⚙", true},
 }
 
@@ -139,6 +140,8 @@ func (m Model) gotoScreen(scr screen) Model {
 	case screenLog:
 		m.logFollow = true // jump to live when you open the tab
 		m.refreshLog()
+	case screenCHChain:
+		m.refreshRaid()
 	}
 	return m
 }
@@ -156,11 +159,13 @@ func (m Model) settingsVoices() []tts.Voice {
 // The Settings rows: a few fixed controls, then the voice list.
 const (
 	settingsAudioRow    = 0
-	settingsDamageRow   = 1 // Damage meter: Full/Compact/Off
-	settingsOffDefRow   = 2 // Offense·Defense: Full/Compact/Off
-	settingsClassBoxRow = 3 // Class box: On/Off (small box under the Mob Tracker)
-	settingsDiscRow     = 4 // Disciplines widget: On/Off (melee/hybrid only)
-	settingsFixedRows   = 5 // rows before the voice list
+	settingsTimingRow   = 1 // Alert timing: Relaxed/Normal/Early (spawn cue lead times)
+	settingsChatterRow  = 2 // Chattiness: Quiet/Normal/Chatty (tiers + wording)
+	settingsDamageRow   = 3 // Damage meter: Full/Compact/Off
+	settingsOffDefRow   = 4 // Offense·Defense: Full/Compact/Off
+	settingsClassBoxRow = 5 // Class box: On/Off (small box under the Mob Tracker)
+	settingsDiscRow     = 6 // Disciplines widget: On/Off (melee/hybrid only)
+	settingsFixedRows   = 7 // rows before the voice list
 )
 
 // updateSettings handles input while the Settings tab is focused (tab-navigation
@@ -215,6 +220,14 @@ func (m *Model) applyLeftSetting(sel int) tea.Cmd {
 	switch sel {
 	case settingsAudioRow:
 		return m.toggleTTS()
+	case settingsTimingRow:
+		m.cuePrefs.Timing = m.cuePrefs.Timing.Next()
+		m.saveSettings()
+		m.flash("✓ saved · Alert timing " + m.cuePrefs.Timing.String())
+	case settingsChatterRow:
+		m.cuePrefs.Chatter = m.cuePrefs.Chatter.Next()
+		m.saveSettings()
+		m.flash("✓ saved · Chattiness " + m.cuePrefs.Chatter.String())
 	case settingsDamageRow:
 		m.layoutPrefs.Damage = m.layoutPrefs.Damage.next()
 		m.saveSettings()
@@ -340,6 +353,8 @@ func (m Model) leftSettingsColumn(th theme, w int) (out []string, sel []int) {
 	add(paint(th, th.accent, "Audio cues", w), -1)
 	add("", -1)
 	add(menuRow(th, focused && m.settingsSel == settingsAudioRow, "Audio cues: "+audio, w), settingsAudioRow)
+	add(menuRow(th, focused && m.settingsSel == settingsTimingRow, "Alert timing: "+m.cuePrefs.Timing.String(), w), settingsTimingRow)
+	add(menuRow(th, focused && m.settingsSel == settingsChatterRow, "Chattiness: "+m.cuePrefs.Chatter.String(), w), settingsChatterRow)
 	add("", -1)
 	add(paint(th, th.accent, "Meter boxes", w), -1)
 	add("", -1)
@@ -429,7 +444,7 @@ func (m Model) settingsClickAt(x, y int) (col, selIdx int, ok bool) {
 // own settings. Audio only switches on when the engine is actually available.
 func (m *Model) applyCharSettings(cs charSettings) {
 	m.layoutPrefs = layoutPrefs{Damage: cs.Damage, OffDef: cs.OffDef, ClassBox: cs.ClassBox, DiscHidden: cs.DiscHidden}
-	m.cuePrefs = cues.Prefs{Overrides: cs.Cues}
+	m.cuePrefs = cues.Prefs{Overrides: cs.Cues, Timing: cs.CueTiming, Chatter: cs.CueChatter}
 	if cs.Voice != "" && m.speaker != nil {
 		m.speaker.SetVoice(cs.Voice)
 	}
@@ -452,6 +467,8 @@ func (m *Model) saveSettings() {
 		ClassBox:   m.layoutPrefs.ClassBox,
 		DiscHidden: m.layoutPrefs.DiscHidden,
 		Cues:       m.cuePrefs.Overrides,
+		CueTiming:  m.cuePrefs.Timing,
+		CueChatter: m.cuePrefs.Chatter,
 	})
 	_ = saveStore(m.store)
 }

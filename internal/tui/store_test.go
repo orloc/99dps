@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"99dps/internal/cues"
 )
 
 // TestSwitchReloadsCharacterSettings: a character hot-swap loads that toon's own
@@ -39,7 +41,9 @@ func TestStoreRoundTrip(t *testing.T) {
 	s := store{Configured: true}
 	s.setChar("Kelkix", charSettings{
 		AudioOn: true, Voice: "5", Damage: panelCompact, OffDef: panelOff,
-		Cues: map[string]bool{"cc.mez": false},
+		Cues:       map[string]bool{"cc.mez": false},
+		CueTiming:  cues.TimingEarly,
+		CueChatter: cues.ChatterQuiet,
 	})
 	if err := saveStore(s); err != nil {
 		t.Fatalf("save: %v", err)
@@ -51,6 +55,9 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	if got.Cues["cc.mez"] {
 		t.Error("cue override should round-trip as false")
+	}
+	if got.CueTiming != cues.TimingEarly || got.CueChatter != cues.ChatterQuiet {
+		t.Errorf("cue style presets should round-trip, got timing=%v chatter=%v", got.CueTiming, got.CueChatter)
 	}
 }
 

@@ -105,8 +105,8 @@ func TestSettingsNavClampsBothColumns(t *testing.T) {
 		t.Errorf("up at top should clamp left sel to 0, got %d", m.settingsSel)
 	}
 	send("down")
-	if m.settingsSel != settingsDamageRow {
-		t.Errorf("down should advance left sel to %d, got %d", settingsDamageRow, m.settingsSel)
+	if m.settingsSel != settingsTimingRow {
+		t.Errorf("down should advance left sel to %d, got %d", settingsTimingRow, m.settingsSel)
 	}
 	// 'h' / 'l' switch columns just like left/right
 	send("l")
@@ -356,8 +356,8 @@ func TestCycleTab(t *testing.T) {
 	if m.cycleTab(+1) != screenMeter {
 		t.Error("next from the last tab should wrap to Meter")
 	}
-	if m.cycleTab(-1) != screenLog {
-		t.Error("prev from Settings should be Log")
+	if m.cycleTab(-1) != screenCHChain {
+		t.Error("prev from Settings should be CH Chain")
 	}
 	m.screen = screenMeter
 	if m.cycleTab(-1) != screenSettings {
@@ -386,8 +386,12 @@ func TestTabKeyNavigation(t *testing.T) {
 		t.Error("key 5 should open Log")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("6")})
+	if m.(Model).screen != screenCHChain {
+		t.Error("key 6 should open CH Chain")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("7")})
 	if m.(Model).screen != screenSettings {
-		t.Error("key 6 should open Settings")
+		t.Error("key 7 should open Settings")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab}) // wraps the last tab (Settings) -> Meter
 	if m.(Model).screen != screenMeter {

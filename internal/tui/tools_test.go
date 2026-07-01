@@ -36,7 +36,7 @@ func TestInventoryBoard(t *testing.T) {
 		{name: "Insidious Halo", location: "General1-Slot2", count: 1, price: 0, priceN: 0},            // INV, no data
 		{name: "Cloudy Stone", location: "Bank3", count: 1, price: 50, priceN: 10},                     // BANK, 50
 	}
-	out := inventoryBoard(th, rows, "", time.Unix(1000, 0), time.Unix(8200, 0), 60) // dump 2h old
+	out := inventoryBoard(th, rows, "", "", time.Unix(1000, 0), time.Unix(8200, 0), 60) // dump 2h old
 
 	if !strings.Contains(out, "generated 2h00m ago") {
 		t.Errorf("loaded board should show the dump's age:\n%s", out)
@@ -69,13 +69,13 @@ func TestInventoryBoard(t *testing.T) {
 		}
 	}
 	// the empty board prompts for indexing and always shows the regen command
-	got := inventoryBoard(th, nil, "", time.Time{}, time.Now(), 60)
+	got := inventoryBoard(th, nil, "", "", time.Time{}, time.Now(), 60)
 	if !strings.Contains(got, "press i to index") || !strings.Contains(got, "/outputfile inventory") {
 		t.Errorf("empty board should show the hint + command:\n%s", got)
 	}
 
 	// a long status fits a narrow column by wrapping (≥2 lines, none over width)
-	narrow := inventoryBoard(th, nil, "no inventory dump found", time.Time{}, time.Now(), 18)
+	narrow := inventoryBoard(th, nil, "no inventory dump found", "", time.Time{}, time.Now(), 18)
 	wlines := strings.Split(strings.TrimRight(narrow, "\n"), "\n")
 	if len(wlines) < 2 {
 		t.Errorf("help should wrap to multiple lines in a narrow column:\n%s", narrow)
@@ -84,6 +84,33 @@ func TestInventoryBoard(t *testing.T) {
 		if lipgloss.Width(ln) > 18 {
 			t.Errorf("wrapped help line exceeds width 18 (%d): %q", lipgloss.Width(ln), ln)
 		}
+	}
+}
+
+// TestInventoryFilter narrows the board to names matching the quick filter
+// (case-insensitive substring), shows an "N of M" header, and reports no matches.
+func TestInventoryFilter(t *testing.T) {
+	th := themes[0]
+	rows := []invRow{
+		{name: "Bat Wing", location: "General1-Slot1", count: 20, price: 2, priceN: 500},
+		{name: "Black Sapphire Electrum Earring", location: "Ear", count: 1, price: 615, priceN: 1367},
+		{name: "Cloudy Stone", location: "Bank3", count: 1, price: 50, priceN: 10},
+	}
+	// "B" matches Bat Wing + Black Sapphire (case-insensitive), drops Cloudy Stone.
+	out := inventoryBoard(th, rows, "", "B", time.Unix(1000, 0), time.Unix(8200, 0), 60)
+	if !strings.Contains(out, "Bat Wing") || !strings.Contains(out, "Black Sapphire") {
+		t.Errorf("filter %q should keep Bat Wing + Black Sapphire:\n%s", "B", out)
+	}
+	if strings.Contains(out, "Cloudy Stone") {
+		t.Errorf("filter %q should drop Cloudy Stone:\n%s", "B", out)
+	}
+	if !strings.Contains(out, "2 of 3 items") {
+		t.Errorf("filtered header should read \"2 of 3 items\":\n%s", out)
+	}
+	// no match → an explicit message, not an empty board.
+	none := inventoryBoard(th, rows, "", "zzz", time.Time{}, time.Now(), 60)
+	if !strings.Contains(none, "no items match") {
+		t.Errorf("a non-matching filter should say so:\n%s", none)
 	}
 }
 

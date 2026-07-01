@@ -90,10 +90,42 @@ func timeColW(now int64, min int, tss ...[]gamestate.Timer) int {
 
 // groupByTargetTimers buckets timers by who they're on, ordering the targets by
 // their soonest-to-expire timer (so the group about to drop floats up).
+// canonTarget folds case/article variants of a mob name so the same mob groups
+// once ("Glonk"/"glonk", "a sand giant"/"sand giant"); "You" is left alone.
+func canonTarget(t string) string {
+	if t == "You" {
+		return "You"
+	}
+	return gamestate.NormalizeMobName(t)
+}
+
+// betterDisplay picks the nicer of two spellings for a mob's header: prefer one
+// with an uppercase letter ("Glonk" over "glonk"), then the longer (keeps the
+// article, "a sand giant" over "sand giant").
+func betterDisplay(a, b string) bool {
+	if b == "" {
+		return true
+	}
+	if ua, ub := a != strings.ToLower(a), b != strings.ToLower(b); ua != ub {
+		return ua
+	}
+	return len(a) > len(b)
+}
+
 func groupByTargetTimers(ts []gamestate.Timer) (map[string][]gamestate.Timer, []string) {
+	// fold case/article variants of one mob under a single display name, so a real
+	// cast debuff ("Glonk") and a normalized estimate ("glonk") share one group.
+	display := map[string]string{} // canonical key → chosen display name
+	for _, tm := range ts {
+		c := canonTarget(tm.Target)
+		if betterDisplay(tm.Target, display[c]) {
+			display[c] = tm.Target
+		}
+	}
 	groups := map[string][]gamestate.Timer{}
 	for _, tm := range ts {
-		groups[tm.Target] = append(groups[tm.Target], tm)
+		d := display[canonTarget(tm.Target)]
+		groups[d] = append(groups[d], tm)
 	}
 	soonest := func(g []gamestate.Timer) int64 {
 		m := g[0].Expiry

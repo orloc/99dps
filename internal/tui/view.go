@@ -129,6 +129,20 @@ func (m Model) View() string {
 			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
 	}
 
+	// the Raid tab: CH chain monitor + a raid-target debuff side column.
+	if m.screen == screenCHChain {
+		h := max(m.h-5, 4)
+		chainCard := card(th, chainCardW(innerW), h, m.raidChainTitle+scrollHint(m.vpChain), m.vpChain.View())
+		cols := chainCard // too narrow to split → CH chain only
+		if innerW >= 64 {
+			cols = lipgloss.JoinHorizontal(lipgloss.Top, chainCard, " ",
+				card(th, raidCardW(innerW), h, "Raid Targets"+scrollHint(m.vpRaid), m.vpRaid.View()))
+		}
+		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, cols, m.footer(th, innerW))
+		return lipgloss.NewStyle().Background(lipgloss.Color(th.bg)).Foreground(lipgloss.Color(th.text)).
+			Width(m.w).Height(m.h).Padding(1, 1).Render(body)
+	}
+
 	// the Map tab: a braille render of the current zone, player marked from /loc.
 	if m.screen == screenMap {
 		body := lipgloss.JoinVertical(lipgloss.Left, banner, tabbar, m.mapView(th, innerW, max(m.h-4, 4)))
@@ -150,7 +164,7 @@ func (m Model) View() string {
 	classTitle := classPanelTitle(m.tracker, ld.enemy) + scrollHint(m.vpClass)
 	midTitle := "Enemy" // CC + debuffs on mobs (caster/hybrid)
 	if m.middleIsBuffs() {
-		midTitle = "Buffs" // self-buff / clicky timers (melee)
+		midTitle = "Timers" // melee: mob debuffs (weapon procs) + self-buff / clicky timers
 	}
 	// the mob column: Mob Tracker on top, optionally a small class box beneath it.
 	// The count of tracked mobs sits in the title's right corner (one mobTargets

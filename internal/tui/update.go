@@ -45,6 +45,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editKey(msg)
 			return m, tea.Batch(cmds...)
 		}
+		// the inventory quick-filter captures all typing while focused, so letters
+		// and digits build the filter instead of firing tab/command shortcuts. Tab
+		// (and shift+tab) is the exception: it cancels the search and falls through
+		// to normal tab navigation, so you're never stuck typing into the filter.
+		if m.screen == screenTools && m.invSearching {
+			if s := msg.String(); s == "tab" || s == "shift+tab" {
+				m.invSearching, m.invFilter = false, ""
+				m.refreshInventory()
+			} else {
+				m.invSearchKey(msg)
+				return m, tea.Batch(cmds...)
+			}
+		}
 		// global: quit + tab-bar navigation (works on every screen).
 		switch msg.String() {
 		case "q":
@@ -164,6 +177,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+		if m.screen == screenCHChain {
+			if isWheel(msg.Button) { // route to whichever column the cursor is over
+				vp := &m.vpChain
+				if raidSplit(m.w-2) && msg.X > gridX+chainCardW(m.w-2) {
+					vp = &m.vpRaid
+				}
+				var cmd tea.Cmd
+				*vp, cmd = vp.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if m.screen != screenMeter {
 			return m, tea.Batch(cmds...)
 		}
@@ -245,6 +270,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case screenLog:
 			m.announceCues() // record fired cues first, then redraw the merged sheet
 			m.refreshLog()
+		case screenCHChain:
+			m.announceCues()
+			m.refreshRaid() // live cadence/countdowns update every tick
 		default:
 			m.announceCues() // keep audio alerts live on other screens
 		}
@@ -288,15 +316,20 @@ func (m *Model) resizeViewports() {
 	set(&m.vpInv, tColW, tH)
 	// Live Log tab: one full-width card under banner/tabs, above the footer.
 	set(&m.vpLog, m.w-2, max(m.h-5, 4))
+	// Raid tab: CH-chain column + raid-debuff column, each its own scroll viewport.
+	rh := max(m.h-5, 4)
+	set(&m.vpChain, chainCardW(m.w-2), rh)
+	set(&m.vpRaid, raidCardW(m.w-2), rh)
 	m.ready = true
 	m.refreshInventory() // re-render at the new width
 	m.refreshLog()
+	m.refreshRaid()
 }
 
 // refreshInventory re-renders the inventory list into its viewport (after an
 // index, a resize, or a theme change).
 func (m *Model) refreshInventory() {
-	m.vpInv.SetContent(inventoryBoard(themes[m.theme], m.invRows, m.invStatus, m.invGen, time.Now(), max(m.vpInv.Width, 1)))
+	m.vpInv.SetContent(inventoryBoard(themes[m.theme], m.invRows, m.invStatus, m.invFilter, m.invGen, time.Now(), max(m.vpInv.Width, 1)))
 }
 
 // panelAt returns the viewport whose card contains screen cell (x,y), or nil.

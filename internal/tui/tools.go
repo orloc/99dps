@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -44,6 +45,16 @@ func (m Model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch k.String() {
+	case "/":
+		m.invSearching = true // focus the quick filter; typing now builds it
+		m.refreshInventory()
+		return m, nil
+	case "esc":
+		if m.invFilter != "" || m.invSearching {
+			m.invSearching, m.invFilter = false, ""
+			m.refreshInventory()
+		}
+		return m, nil
 	case "i":
 		m.invStatus = "indexing…"
 		return m, m.loadInventoryCmd()
@@ -63,6 +74,31 @@ func (m Model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// invSearchKey feeds keystrokes into the inventory quick filter while it's
+// focused: Enter accepts (keeps the filter, unfocuses), Esc cancels (clears it),
+// Backspace deletes a rune, and any printable rune extends the filter.
+func (m *Model) invSearchKey(msg tea.KeyMsg) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		m.invSearching = false
+	case tea.KeyEsc:
+		m.invSearching, m.invFilter = false, ""
+	case tea.KeyBackspace:
+		if r := []rune(m.invFilter); len(r) > 0 {
+			m.invFilter = string(r[:len(r)-1])
+		}
+	case tea.KeySpace:
+		m.invFilter += " "
+	case tea.KeyRunes:
+		for _, r := range msg.Runes {
+			if unicode.IsPrint(r) {
+				m.invFilter += string(r)
+			}
+		}
+	}
+	m.refreshInventory()
 }
 
 // loadInventoryCmd reads the character's inventory dump and looks up tunnel
@@ -122,7 +158,15 @@ func (m Model) toolsView(th theme) string {
 		rolls, winners = m.tracker.Rolls(), m.tracker.RollWinners()
 	}
 	rollCard := card(th, colW, h, "🎲 Rolls", rollBoard(th, rolls, winners, time.Now().Unix(), colW-4))
-	invCard := card(th, colW, h, "🎒 Inventory"+scrollHint(m.vpInv), m.vpInv.View())
+	invTitle := "🎒 Inventory"
+	if m.invSearching || m.invFilter != "" {
+		cursor := ""
+		if m.invSearching {
+			cursor = "▎" // a caret hint while the filter is focused
+		}
+		invTitle += " /" + m.invFilter + cursor
+	}
+	invCard := card(th, colW, h, invTitle+scrollHint(m.vpInv), m.vpInv.View())
 	reserved := card(th, lastW, h, "", th.fg(th.dim).Render(truncate("more widgets soon", lastW-4)))
 	return lipgloss.JoinHorizontal(lipgloss.Top, rollCard, " ", invCard, " ", reserved)
 }
@@ -151,8 +195,9 @@ func invValue(r invRow) int { return r.price * stack(r.count) }
 // inventoryBoard renders the indexed inventory to width w, split into WORN /
 // INVENTORY / BANK sections (each high-value-first, unpriced items dim at the
 // bottom), under a grand-total + generated-time header. Empty until you press i.
+// filter (case-insensitive substring) quick-narrows to matching item names.
 // gen is the dump's write time (zero = unknown); now is used to age it.
-func inventoryBoard(th theme, rows []invRow, status string, gen, now time.Time, w int) string {
+func inventoryBoard(th theme, rows []invRow, status, filter string, gen, now time.Time, w int) string {
 	dim := func(ls []string) string {
 		for i, l := range ls {
 			ls[i] = th.fg(th.dim).Render(l)
@@ -170,6 +215,21 @@ func inventoryBoard(th theme, rows []invRow, status string, gen, now time.Time, 
 		usage := wrap("in EQ type  /outputfile inventory  — then press i to index", w)
 		help := append(wrap(hint, w), "")
 		return dim(append(help, usage...))
+	}
+
+	total := len(rows)
+	if f := strings.TrimSpace(strings.ToLower(filter)); f != "" {
+		kept := rows[:0:0]
+		for _, r := range rows {
+			if strings.Contains(strings.ToLower(r.name), f) {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
+		if len(rows) == 0 {
+			return dim(append(wrap(fmt.Sprintf("no items match %q", filter), w),
+				"", "press / to edit · esc to clear"))
+		}
 	}
 
 	var groups [3][]invRow
@@ -202,14 +262,18 @@ func inventoryBoard(th theme, rows []invRow, status string, gen, now time.Time, 
 		}
 	}
 
-	header := append([]string{fmt.Sprintf("%d items · ~%sp total", len(rows), humanize(grand))}, wrap(genLine(gen, now), w)...)
+	count := fmt.Sprintf("%d items · ~%sp total", len(rows), humanize(grand))
+	if len(rows) != total { // a filter is narrowing the list
+		count = fmt.Sprintf("%d of %d items · ~%sp", len(rows), total, humanize(grand))
+	}
+	header := append([]string{count}, wrap(genLine(gen, now), w)...)
 	return lines(append([]string{dim(header), ""}, body...)...)
 }
 
 // genLine is the loaded inventory's header hint: how stale the dump is plus the
 // command to regenerate it. gen is the dump's write time (zero = unknown).
 func genLine(gen, now time.Time) string {
-	tail := "re-run /outputfile inventory if stale, then press i"
+	tail := "re-run /outputfile inventory if stale, then i · / to search"
 	if gen.IsZero() {
 		return tail
 	}

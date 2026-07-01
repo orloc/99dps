@@ -34,6 +34,7 @@ type Timer struct {
 	Mez         bool // a mez/enthrall — crowd control, breaks on damage
 	Pacify      bool // a pacify/lull/calm — crowd control (aggro lowered)
 	Estimated   bool // duration is a ceiling guess (an incoming debuff — caster level unknown)
+	Proc        bool // landed from a weapon proc, not a cast (so spell-validation skips it)
 }
 
 // Tracker holds the player's active spell timers. It's fed parsed log signals
@@ -50,6 +51,10 @@ type Tracker struct {
 	zone zoneTracker     // zone-awareness: current zone, repops, kills (see zone.go)
 
 	canni canniMeter // shaman "canni dance" gamification (see canni.go)
+
+	chain chchainTracker // Complete Heal chain cadence/gap analyzer (see chchain.go)
+
+	raid raidTracker // raid-target debuff board from macro calls (see raid.go)
 
 	rolls rollTracker // /random loot-roll tracking for the Tools widget (see rolls.go)
 
@@ -88,6 +93,11 @@ type Tracker struct {
 	// debuff timers (a real slain line or an inferred xp-only kill). The UI diffs it
 	// to flush stale queued audio cues about the now-dead mob.
 	slainClears int
+
+	// maloSeen records mobs (normalized name) we've seen the ambiguous malo-line
+	// emote on at least once, so a second sighting can upgrade Malo → Malosini.
+	// Emote-only (a macro/own-cast doesn't set it); cleared on the mob's death.
+	maloSeen map[string]bool
 
 	// rune-absorb estimate (see rune.go). runeAbsorbs is the cumulative blows the
 	// stack has soaked since it came up; runeAttacker is the mob that landed the
@@ -271,6 +281,11 @@ func (t *Tracker) CharmBroke(now int64) bool {
 	return t.charmBrokeAt != 0 && now-t.charmBrokeAt >= 0 && now-t.charmBrokeAt <= charmBreakGraceSec
 }
 
+// NormalizeMobName exposes mob-name canonicalization (lowercase, article-stripped)
+// to the UI, so it can fold case/article variants of one mob ("Glonk"/"glonk",
+// "a sand giant"/"sand giant") into a single timer group.
+func NormalizeMobName(s string) string { return normalizeMobName(s) }
+
 // normalizeMobName lowercases and strips a leading article so a mez-landing name
 // and a damage-line name for the same mob compare equal.
 func normalizeMobName(s string) string {
@@ -289,16 +304,17 @@ func (t *Tracker) DismissTarget(target string) {
 	if t == nil {
 		return
 	}
+	nt := normalizeMobName(target) // fold case/article so one click clears every variant
 	t.mu.Lock()
 	for k, tm := range t.timers {
-		if tm.Target != target {
+		if normalizeMobName(tm.Target) != nt {
 			continue
 		}
 		// dismissing your own "You" row clears your BUFFS only — never a detrimental
 		// effect that landed on you (an incoming slow, an AoE pacify/mez that caught
 		// you). Those carry no caster and end on their own; wiping them along with
 		// your buffs is wrong.
-		if target == "You" && tm.Detrimental {
+		if nt == "you" && tm.Detrimental {
 			continue
 		}
 		delete(t.timers, k)
@@ -348,6 +364,16 @@ func (t *Tracker) Observe(body string, at int64) {
 		// registered insta-clickies whose effect emote isn't in spells_us (or that
 		// emit no spell message at all) — matched by their item-specific line.
 		t.matchClickyLocked(body, at)
+		// weapon procs that land on the struck mob (no cast line) — e.g. a
+		// Journeyman's Walking Stick proccing Tashani.
+		t.matchWeaponProcLocked(body, at)
+		// a group-mate's debuff landing on the mob (no caster in the log) — e.g. a
+		// slow ("<mob> yawns."). Estimated, since the duration is unknown. Skipped
+		// when you cast your own (handled above by the real landing path).
+		t.matchEnemyDebuffLocked(body, at)
+		// the malo-line emote ("<mob> looks very uncomfortable.") — Malo on first
+		// sight, upgraded to Malosini on a second.
+		t.matchEnemyMaloLocked(body, at)
 	}
 	// a hostile debuff landing on you (cast_on_you emote) — caster/level unknown,
 	// so it's an estimated ceiling cleared early by its wear-off (fade) line. The
@@ -355,6 +381,10 @@ func (t *Tracker) Observe(body string, at int64) {
 	// it's matched regardless of any pending cast.
 	t.matchIncomingDebuffLocked(body, at)
 	t.expireIncomingByFadeLocked(body)
+	// explicit guild/group debuff calls ("SLOWED - a fiery guardian") — an
+	// authoritative, caster-less mob-debuff signal. Not a spell landing, so it
+	// runs regardless of any pending cast.
+	t.matchMacroDebuffLocked(body, at)
 	t.observePetLocked(body)
 	t.expireByMessageLocked(body, at)
 	t.expireOnSlainLocked(body)
@@ -387,6 +417,7 @@ func (t *Tracker) Observe(body string, at int64) {
 	if body == "Spell recast time not yet met." {
 		t.canni.recordBuzzerLocked()
 	}
+	t.chain.observeLocked(body, at) // KCH Complete-Heal-chain call-outs (guild tells)
 	t.cool.observeBindLocked(body, at)
 	t.rolls.observeLocked(body, at, t.zone.name)
 	t.observeGroupLocked(body, at)
@@ -681,14 +712,34 @@ func (t *Tracker) expireOnSlainLocked(body string) {
 // emotes capitalize the leading name, death/xp lines don't) and counts the clear
 // so the UI can flush stale audio. Caller holds the lock.
 func (t *Tracker) clearMobTimersLocked(victim string) {
-	n := 0
+	// Compare article-insensitively (and case-insensitively), the same way
+	// BreakCCOnTarget does: a landing emote capitalizes/strips the article
+	// ("Greater kobold" / "Lava beetle") while the death line may keep it ("a
+	// greater kobold has been slain"). A plain EqualFold would then miss the kill
+	// and leave a stale debuff (notably the slay-only ~Slowed estimate) on a dead
+	// mob until its ceiling elapses.
+	nv := normalizeMobName(victim)
+	// A death names the mob but not which same-named instance died, and carries no
+	// spell — so end ONE instance (the soonest-expiring) of EACH spell on that name.
+	// That's one mob's worth of debuffs: killing one of several same-named mobs
+	// leaves the others' DoTs running (symmetric with a fade, which drops one copy
+	// of its named spell — the instance model treats two same-named copies as two
+	// mobs). A single mob's several DIFFERENT debuffs are one instance each, so they
+	// all clear; your buffs (unique on "You") likewise clear fully.
+	soonest := map[string]string{} // spell → key of its soonest-expiring copy on this name
 	for k, tm := range t.timers {
-		if strings.EqualFold(tm.Target, victim) {
-			delete(t.timers, k)
-			n++
+		if normalizeMobName(tm.Target) != nv {
+			continue
+		}
+		if cur, ok := soonest[tm.Spell]; !ok || tm.Expiry < t.timers[cur].Expiry {
+			soonest[tm.Spell] = k
 		}
 	}
-	if n > 0 {
+	for _, k := range soonest {
+		delete(t.timers, k)
+	}
+	delete(t.maloSeen, nv) // a fresh mob (same name) starts over at Malo, not Malosini
+	if len(soonest) > 0 {
 		t.slainClears++
 	}
 }
@@ -748,6 +799,8 @@ func (t *Tracker) Clear() {
 	t.cool.clear()
 	t.zone.clear()
 	t.canni.clear()
+	t.chain.clear()
+	t.raid.clear()
 	t.rolls.clear()
 	t.groupJoinedAt = 0
 	t.locX, t.locY, t.locZ, t.locAt, t.haveLoc = 0, 0, 0, 0, false
@@ -758,6 +811,7 @@ func (t *Tracker) Clear() {
 	t.petOwners = nil
 	t.runeAbsorbs, t.runeDrained, t.runeAttacker = 0, 0, ""
 	t.runeAbsorbed = nil
+	t.maloSeen = nil
 	t.mu.Unlock()
 }
 

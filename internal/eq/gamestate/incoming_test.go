@@ -104,6 +104,29 @@ func TestIncomingDebuffRefreshes(t *testing.T) {
 	}
 }
 
+// A resurrection starts a fixed 5-minute Rez Effects timer on the player, cleared
+// early by the strength-return wear-off line.
+func TestRezEffectsTimer(t *testing.T) {
+	tr := NewTracker(loadBook(t))
+	tr.Observe("You regain some experience from resurrection.", 1000)
+
+	tm, ok := findTimer(tr, "Rez Effects", 1001)
+	if !ok {
+		t.Fatal("rez effects timer not started on the player")
+	}
+	if tm.Target != "You" || !tm.Detrimental {
+		t.Fatalf("rez timer should be a detrimental on-you timer: %+v", tm)
+	}
+	if got := tm.Expiry - tm.Start; got != 300 {
+		t.Errorf("rez timer duration = %d, want 300 (5 min)", got)
+	}
+
+	tr.Observe("You feel your strength return.", 1100) // wear-off clears it early
+	if _, ok := findTimer(tr, "Rez Effects", 1101); ok {
+		t.Error("rez timer should clear on the strength-return line")
+	}
+}
+
 // Every curated landing emote maps to exactly one category, and every fade emote
 // resolves — so detection is unambiguous and the tables stay consistent.
 func TestIncomingTablesConsistent(t *testing.T) {

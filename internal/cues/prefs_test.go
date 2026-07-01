@@ -102,13 +102,16 @@ func TestCueRowsByClass(t *testing.T) {
 	if !has(eqclass.ClassBard, cueMez) || !has(eqclass.ClassBard, cueCharm) || has(eqclass.ClassBard, cuePacify) {
 		t.Error("Bard should have mez + charm, not pacify")
 	}
-	// Warrior: no spells → only the universal spawn cue.
+	// Warrior: no spells → only the universal cues (spawn + CH-chain gap).
 	wt := Toggles(Rows(eqclass.ClassWarrior))
-	if len(wt) != 1 || wt[0].ID != cueSpawnSoon {
-		t.Errorf("Warrior should have only the spawn cue, got %+v", wt)
+	if len(wt) != 2 || !has(eqclass.ClassWarrior, cueSpawnSoon) || !has(eqclass.ClassWarrior, cueCHGap) {
+		t.Errorf("Warrior should have only the universal cues (spawn + CH gap), got %+v", wt)
 	}
-	// the spawn cue is universal.
+	// the spawn + CH-chain-gap cues are universal.
 	if !has(eqclass.ClassWizard, cueSpawnSoon) {
 		t.Error("every class should get the spawn cue")
+	}
+	if !has(eqclass.ClassWizard, cueCHGap) {
+		t.Error("every class should get the CH-chain gap cue")
 	}
 }

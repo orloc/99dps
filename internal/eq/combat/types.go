@@ -1,5 +1,27 @@
 package combat
 
+import "strings"
+
+// ignoredPrefixes are name prefixes for summoned/utility entities that should
+// never be tracked as mobs. An Eye of Zomm familiar logs as "Eye of <caster>"
+// (you can even melee it to pop it), which would otherwise pollute the damage
+// meter (a bogus target/fight) and the Mob Tracker (a bogus kill/repop). Real
+// mobs with "eye" in the name carry an article and lowercase e ("an eye of the
+// deep"), so the capitalized, article-less "Eye of " prefix doesn't catch them.
+var ignoredPrefixes = []string{"Eye of "}
+
+// IgnoredEntity reports whether name is a summoned/utility entity that the
+// tracking paths (damage attribution, kills/repops, timers) should skip. Match
+// is on the entity name as it appears in the log (proper-noun case preserved).
+func IgnoredEntity(name string) bool {
+	for _, p := range ignoredPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // DamageStat is a per-dealer running tally within a session. It keeps only the
 // aggregates the UI consumes — never the individual hits — so a snapshot is a
 // flat value copy and memory stays bounded over a long fight.

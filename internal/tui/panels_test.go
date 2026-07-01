@@ -350,3 +350,33 @@ func TestSelfCCNotDismissible(t *testing.T) {
 		}
 	}
 }
+
+// TestGroupByTargetFoldsCase: case/article variants of one mob fold into a single
+// group (the named-mob "Glonk"/"glonk" issue), keeping the nicer display name.
+func TestGroupByTargetFoldsCase(t *testing.T) {
+	ts := []gamestate.Timer{
+		{Spell: "Tashani", Target: "Glonk"}, // real cast keeps emote case
+		{Spell: "Malo'd", Target: "glonk"},  // estimate normalized to lowercase
+		{Spell: "Slowed", Target: "a sand giant"},
+		{Spell: "Tashed", Target: "sand giant"}, // article-stripped estimate
+	}
+	groups, order := groupByTargetTimers(ts)
+	if len(order) != 2 {
+		t.Fatalf("expected 2 mob groups (Glonk, sand giant), got %d: %v", len(order), order)
+	}
+	if len(groups["Glonk"]) != 2 {
+		t.Errorf("Glonk group should fold both case variants, got %d", len(groups["Glonk"]))
+	}
+	// the article-kept spelling wins as the display name
+	if _, ok := groups["a sand giant"]; !ok || len(groups["a sand giant"]) != 2 {
+		t.Errorf("sand giant variants should fold under 'a sand giant', groups=%v", keysOf(groups))
+	}
+}
+
+func keysOf(m map[string][]gamestate.Timer) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}

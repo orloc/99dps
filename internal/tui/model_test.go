@@ -916,16 +916,48 @@ func TestMeleeBuffsColumn(t *testing.T) {
 	mm := m.(Model)
 
 	if !mm.layout().enemy || !mm.middleIsBuffs() {
-		t.Fatal("a melee class at this width should get a Buffs middle column")
+		t.Fatal("a melee class at this width should get a Timers middle column")
 	}
 	if mid := mm.vpEnemy.View(); !strings.Contains(mid, "Spirit") || !strings.Contains(mid, "You") {
-		t.Errorf("the self-buff should render in the Buffs column;\n%s", mid)
+		t.Errorf("the self-buff should render in the Timers column;\n%s", mid)
 	}
 	if strings.Contains(mm.vpClass.View(), "Spirit") {
-		t.Error("the buff belongs in the Buffs column, not the Skills panel")
+		t.Error("the buff belongs in the Timers column, not the Skills panel")
 	}
-	if v := mm.View(); !strings.Contains(v, "Buffs") || strings.Contains(v, "Enemy") {
-		t.Error("melee bottom row should label the column Buffs, with no Enemy column")
+	if v := mm.View(); !strings.Contains(v, "Timers") || strings.Contains(v, "Enemy") {
+		t.Error("melee bottom row should label the middle column Timers, with no Enemy column")
+	}
+}
+
+// A melee class CAN now carry a mob debuff — a weapon proc (Journeyman's Walking
+// Stick → Tashani). It must render in the melee Timers column, and must NOT be
+// flagged as an unconfirmed cast spell (it's a proc, not something a monk casts).
+func TestMeleeProcDebuffShows(t *testing.T) {
+	f := make([]string, 217)
+	for i := range f {
+		f[i] = "0"
+	}
+	f[1] = "Tashani"
+	f[7] = " glances nervously about." // cast_on_other (prefix = struck mob)
+	f[13] = "0"                        // instant
+	f[16] = "9"
+	f[17] = "130"
+	f[83] = "0" // detrimental
+	book, _ := gamestate.LoadReader(strings.NewReader(strings.Join(f, "^")))
+	tr := gamestate.NewTracker(book)
+	tr.SetLevel(60)
+	tr.SetClass(eqclass.ClassMonk)
+	tr.Observe("a sand giant glances nervously about.", time.Now().Unix())
+
+	var m tea.Model = NewModel(sampleManager(), tr, "Kelkix")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm := m.(Model)
+
+	if mid := mm.vpEnemy.View(); !strings.Contains(mid, "Tashani") || !strings.Contains(mid, "sand giant") {
+		t.Errorf("a monk's weapon-proc debuff should render in the Timers column;\n%s", mid)
+	}
+	if strings.Contains(mm.View(), "unconfirmed") {
+		t.Error("a weapon proc must not be flagged as an unconfirmed cast spell")
 	}
 }
 

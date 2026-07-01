@@ -223,6 +223,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 	switch {
 	case p.hasDamage(line):
 		if set, err := p.parseDamage(line); err == nil {
+			if combat.IgnoredEntity(set.Target) || combat.IgnoredEntity(set.Dealer) {
+				return // a summoned eye etc. — never a tracked combatant
+			}
 			sink.Apply(set)
 			if p.tracker != nil {
 				p.tracker.BreakCCOnTarget(set.Target) // damage breaks a mob's mez
@@ -230,6 +233,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 		}
 	case p.hasSwing(line):
 		if sw, err := p.parseSwing(line); err == nil {
+			if combat.IgnoredEntity(sw.Defender) || combat.IgnoredEntity(sw.Attacker) {
+				return
+			}
 			sink.ApplySwing(sw)
 		}
 	case p.hasCrit(line):
@@ -238,6 +244,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 		}
 	case p.hasMagic(line):
 		if m, err := p.parseMagic(line); err == nil {
+			if combat.IgnoredEntity(m.Target) {
+				return
+			}
 			sink.ApplyMagic(m)
 			if p.tracker != nil {
 				p.tracker.BreakCCOnTarget(m.Target) // non-melee damage breaks mez too
@@ -245,6 +254,9 @@ func (p *DmgParser) dispatch(line string, sink Sink) {
 		}
 	case p.hasEvent(line):
 		if ev, err := p.parseEvent(line); err == nil {
+			if combat.IgnoredEntity(ev.Name) {
+				return // a kill/death of a summoned eye — no session/repop credit
+			}
 			sink.ApplyEvent(ev)
 		}
 	}

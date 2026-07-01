@@ -19,6 +19,9 @@ type charSettings struct {
 	ClassBox   bool            `json:"classBox"`
 	DiscHidden bool            `json:"discHidden"`
 	Cues       map[string]bool `json:"cues,omitempty"`
+	// audio-cue style presets (zero value = Normal, so old files are unchanged).
+	CueTiming  cues.Timing  `json:"cueTiming,omitempty"`
+	CueChatter cues.Chatter `json:"cueChatter,omitempty"`
 }
 
 // store is the consolidated settings file (settings.json): one install-level flag

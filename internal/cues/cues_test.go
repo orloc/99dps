@@ -209,7 +209,7 @@ func TestComposeCue(t *testing.T) {
 		{[]gamestate.Timer{{Spell: "Snare", Target: "a gnoll"}}, "Snare on a gnoll is fading."},
 	}
 	for _, c := range cases {
-		if got := composeCue(c.due, true, 0, 0); got != c.want {
+		if got := composeCue(ChatterNormal, c.due, true, 0, 0); got != c.want {
 			t.Errorf("composeCue = %q, want %q", got, c.want)
 		}
 	}
@@ -220,7 +220,7 @@ func TestComposeCue(t *testing.T) {
 func TestComposeCueLow(t *testing.T) {
 	now := int64(1000)
 	due := []gamestate.Timer{{Spell: "Clarity", Target: "You", Expiry: now + 300}} // 5 min left
-	got := composeCue(due, false, now, 0)
+	got := composeCue(ChatterNormal, due, false, now, 0)
 	if !strings.Contains(got, "Clarity") || !strings.Contains(got, "low") {
 		t.Errorf("low cue should name the buff and say it's low: %q", got)
 	}
@@ -239,11 +239,11 @@ func TestComposeCueCombines(t *testing.T) {
 	tm := func(name string) gamestate.Timer {
 		return gamestate.Timer{Spell: name, Target: "You", Expiry: now + 300}
 	}
-	two := composeCue([]gamestate.Timer{tm("Clarity"), tm("Aegolism")}, false, now, 0)
+	two := composeCue(ChatterNormal, []gamestate.Timer{tm("Clarity"), tm("Aegolism")}, false, now, 0)
 	if !strings.Contains(two, "Clarity") || !strings.Contains(two, "Aegolism") {
 		t.Errorf("two low buffs should combine into one cue: %q", two)
 	}
-	many := composeCue([]gamestate.Timer{tm("A"), tm("B"), tm("C"), tm("D")}, true, now, 0)
+	many := composeCue(ChatterNormal, []gamestate.Timer{tm("A"), tm("B"), tm("C"), tm("D")}, true, now, 0)
 	if !strings.Contains(many, "4") || !strings.Contains(many, "fading") {
 		t.Errorf("more than three fading should collapse to a count: %q", many)
 	}
@@ -274,7 +274,7 @@ func TestFadeVariety(t *testing.T) {
 	due := []gamestate.Timer{{Spell: "Clarity", Target: "You"}}
 	seen := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
-		seen[composeCue(due, true, 0, seq)] = true
+		seen[composeCue(ChatterNormal, due, true, 0, seq)] = true
 	}
 	if len(seen) != 3 {
 		t.Errorf("expected 3 distinct phrasings across seqs, got %v", seen)
@@ -282,7 +282,7 @@ func TestFadeVariety(t *testing.T) {
 	// plural agreement holds in every style
 	two := []gamestate.Timer{{Spell: "Clarity", Target: "You"}, {Spell: "Umbra", Target: "You"}}
 	for seq := 0; seq < 3; seq++ {
-		if got := composeCue(two, true, 0, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
+		if got := composeCue(ChatterNormal, two, true, 0, seq); !strings.Contains(got, "Clarity and Umbra") || !strings.Contains(got, "are") {
 			t.Errorf("seq %d plural phrasing wrong: %q", seq, got)
 		}
 	}
@@ -291,13 +291,13 @@ func TestFadeVariety(t *testing.T) {
 func TestCharmAndResistPhrases(t *testing.T) {
 	charm := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
-		charm[charmBreakPhrase(seq)] = true
+		charm[charmBreakPhrase(ChatterNormal, seq)] = true
 	}
 	if len(charm) != 3 {
 		t.Errorf("charm-break phrasing should vary, got %v", charm)
 	}
 	for seq := 0; seq < 3; seq++ {
-		if got := resistPhrase("Bedlam", seq); !strings.Contains(got, "Bedlam") {
+		if got := resistPhrase(ChatterNormal, "Bedlam", seq); !strings.Contains(got, "Bedlam") {
 			t.Errorf("resist phrase %d should name the spell: %q", seq, got)
 		}
 	}
@@ -364,7 +364,7 @@ func TestResistAlternatingNoSpam(t *testing.T) {
 func TestFeignFailVariety(t *testing.T) {
 	seen := map[string]bool{}
 	for seq := 0; seq < 3; seq++ {
-		seen[feignFailPhrase(seq)] = true
+		seen[feignFailPhrase(ChatterNormal, seq)] = true
 	}
 	if len(seen) != 3 {
 		t.Errorf("feign-fail phrasing should vary, got %v", seen)
@@ -633,7 +633,170 @@ func TestJoinList(t *testing.T) {
 
 // TestComposeCueEmpty: with no due timers there's no phrase.
 func TestComposeCueEmpty(t *testing.T) {
-	if got := composeCue(nil, false, 0, 0); got != "" {
+	if got := composeCue(ChatterNormal, nil, false, 0, 0); got != "" {
 		t.Errorf("composeCue(nil) = %q, want empty", got)
+	}
+}
+
+func TestAnnounceCHChainGapIsUrgent(t *testing.T) {
+	fe := &fakeSpeaker{}
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	tr := gamestate.NewTracker(book)
+	base := time.Now().Unix() - 30
+	// a steady 3s-cadence chain (≥3 intervals so cadence/gap are trusted)
+	for i, c := range []struct{ cast, slot string }{
+		{"Al", "1"}, {"Bo", "2"}, {"Cy", "3"}, {"Al", "1"}, {"Bo", "2"}, {"Cy", "3"},
+		{"Al", "1"}, {"Bo", "2"}, {"Cy", "3"},
+	} {
+		tr.Observe(c.cast+" tells the guild, 'KCH - Rztank - "+c.slot+"'", base+int64(i*3))
+	}
+	e := NewEngine()
+
+	// right after the last call — not in a gap yet → nothing spoken.
+	e.Announce(fe, tr, Prefs{}, base+24)
+	if len(fe.urgent) != 0 {
+		t.Fatalf("no gap yet — unexpected urgent %v", fe.urgent)
+	}
+	// only 6s of silence on a ~3s-cadence chain → the early "gap forming" trigger
+	// fires immediately (before the fully-broken threshold).
+	now := base + 30
+	e.Announce(fe, tr, Prefs{}, now)
+	if len(fe.urgent) != 1 || !strings.Contains(strings.ToLower(fe.urgent[0]), "chain gap") {
+		t.Fatalf("expected an urgent chain-gap cue, got urgent=%v normal=%v", fe.urgent, fe.normal)
+	}
+	// still gapping within the repeat window → must not spam.
+	e.Announce(fe, tr, Prefs{}, now+5)
+	if len(fe.urgent) != 1 {
+		t.Errorf("chain gap must not repeat within %ds, got %v", chGapRepeatSec, fe.urgent)
+	}
+	// disabled via prefs → silent.
+	fe2 := &fakeSpeaker{}
+	e2 := NewEngine()
+	e2.Announce(fe2, tr, Prefs{Overrides: map[string]bool{cueCHGap: false}}, now)
+	if len(fe2.urgent) != 0 {
+		t.Errorf("cue disabled in prefs should be silent, got %v", fe2.urgent)
+	}
+}
+
+// --- CH-chain gap cue: business-logic edge cases ---
+
+func chainTracker(t *testing.T) *gamestate.Tracker {
+	t.Helper()
+	book, _ := gamestate.LoadReader(strings.NewReader(""))
+	return gamestate.NewTracker(book)
+}
+
+// feedSteadyChain lays down a 3-cleric, 3s-cadence chain on target; last call at base+15.
+func feedSteadyChain(tr *gamestate.Tracker, target string, base int64) {
+	for i, c := range []struct{ cast, slot string }{
+		{"Al", "1"}, {"Bo", "2"}, {"Cy", "3"}, {"Al", "1"}, {"Bo", "2"}, {"Cy", "3"},
+		{"Al", "1"}, {"Bo", "2"}, {"Cy", "3"},
+	} {
+		tr.Observe(c.cast+" tells the guild, 'KCH - "+target+" - "+c.slot+"'", base+int64(i*3))
+	}
+}
+
+// a chain that recovers must re-arm so a LATER gap alerts again (not swallowed by
+// the per-target rate gate).
+func TestCHChainGapCueRearms(t *testing.T) {
+	fe := &fakeSpeaker{}
+	tr := chainTracker(t)
+	e := NewEngine()
+	base := int64(1000)
+	feedSteadyChain(tr, "Rztank", base) // last call base+15
+
+	e.Announce(fe, tr, Prefs{}, base+30) // 6s silent → gap → alert #1
+	if len(fe.urgent) != 1 {
+		t.Fatalf("first gap should alert, got %v", fe.urgent)
+	}
+	tr.Observe("Al tells the guild, 'KCH - Rztank - 1'", base+31) // chain recovers
+	e.Announce(fe, tr, Prefs{}, base+32)                          // healthy → no new alert
+	if len(fe.urgent) != 1 {
+		t.Fatalf("a recovered chain must not alert, got %v", fe.urgent)
+	}
+	// gaps again 8s after the recovery call — re-armed, so it alerts despite being
+	// only ~9s after the first alert (inside the rate gate) — the re-arm, not the
+	// clock, is what lets it fire.
+	e.Announce(fe, tr, Prefs{}, base+38)
+	if len(fe.urgent) != 2 {
+		t.Errorf("a second gap after recovery should alert again, got %v", fe.urgent)
+	}
+}
+
+// no cadence yet (a too-short chain) must NOT false-alarm on the trailing silence.
+func TestCHChainGapCueNoCadenceNoAlarm(t *testing.T) {
+	fe := &fakeSpeaker{}
+	tr := chainTracker(t)
+	e := NewEngine()
+	base := int64(1000)
+	tr.Observe("Al tells the guild, 'KCH - Rztank - 1'", base)
+	tr.Observe("Bo tells the guild, 'KCH - Rztank - 2'", base+3) // only 1 interval → cadence untrusted
+	e.Announce(fe, tr, Prefs{}, base+30)
+	if len(fe.urgent) != 0 {
+		t.Errorf("no alert without an established cadence, got %v", fe.urgent)
+	}
+}
+
+// two tanks chained at once, both gapping → each alerts on its own (named).
+func TestCHChainGapCueConcurrent(t *testing.T) {
+	fe := &fakeSpeaker{}
+	tr := chainTracker(t)
+	e := NewEngine()
+	base := int64(1000)
+	seq := []struct{ cast, tgt, slot string }{
+		{"Al", "TankA", "1"}, {"Mo", "TankB", "1"}, {"Bo", "TankA", "2"}, {"No", "TankB", "2"},
+		{"Cy", "TankA", "3"}, {"Pe", "TankB", "3"}, {"Al", "TankA", "1"}, {"Mo", "TankB", "1"},
+		{"Bo", "TankA", "2"}, {"No", "TankB", "2"}, {"Cy", "TankA", "3"}, {"Pe", "TankB", "3"},
+		{"Al", "TankA", "1"}, {"Mo", "TankB", "1"}, {"Bo", "TankA", "2"}, {"No", "TankB", "2"},
+		{"Cy", "TankA", "3"}, {"Pe", "TankB", "3"}, // 9 casts per tank (clears the sustained-chain bar)
+	}
+	for i, c := range seq {
+		tr.Observe(c.cast+" tells the guild, 'KCH - "+c.tgt+" - "+c.slot+"'", base+int64(i))
+	}
+	e.Announce(fe, tr, Prefs{}, base+17+8) // both silent past forming → two alerts
+	if len(fe.urgent) != 2 {
+		t.Fatalf("two concurrent gapping chains should each alert, got %d: %v", len(fe.urgent), fe.urgent)
+	}
+	joined := strings.Join(fe.urgent, " | ")
+	if !strings.Contains(joined, "TankA") || !strings.Contains(joined, "TankB") {
+		t.Errorf("both tanks should be named across the alerts: %v", fe.urgent)
+	}
+}
+
+func TestCHGapPhraseVariety(t *testing.T) {
+	if got := chGapPhrase(ChatterQuiet, "Vulak", "Akayim", 0); got != "Chain gap!" {
+		t.Errorf("quiet phrase = %q, want terse", got)
+	}
+	if got := chGapPhrase(ChatterNormal, "Vulak", "Akayim", 0); !strings.Contains(got, "Vulak") || !strings.Contains(got, "Akayim") {
+		t.Errorf("normal phrase should name tank + next: %q", got)
+	}
+	if got := chGapPhrase(ChatterNormal, "Vulak", "", 0); !strings.Contains(got, "Vulak") {
+		t.Errorf("normal phrase (no next) should still name the tank: %q", got)
+	}
+	seen := map[string]bool{}
+	for i := range 6 {
+		seen[chGapPhrase(ChatterChatty, "Vulak", "Akayim", i)] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("chatty phrasing should vary across seq, got %d distinct", len(seen))
+	}
+}
+
+// a chain with a trusted cadence but too few casts (a transient emergency burst)
+// must NOT trigger the audio alert — only sustained chains do.
+func TestCHChainGapCueNeedsSustainedChain(t *testing.T) {
+	fe := &fakeSpeaker{}
+	tr := chainTracker(t)
+	e := NewEngine()
+	base := int64(1000)
+	// 5 calls → cadence trusted (4 intervals) but Casts=5 < chGapCueMinCasts
+	for i, c := range []struct{ cast, slot string }{
+		{"Al", "1"}, {"Bo", "2"}, {"Cy", "3"}, {"Al", "1"}, {"Bo", "2"},
+	} {
+		tr.Observe(c.cast+" tells the guild, 'KCH - Rztank - "+c.slot+"'", base+int64(i*3))
+	}
+	e.Announce(fe, tr, Prefs{}, base+12+8) // silent past forming, but chain too short
+	if len(fe.urgent) != 0 {
+		t.Errorf("a transient (short) chain's slip must not alert, got %v", fe.urgent)
 	}
 }

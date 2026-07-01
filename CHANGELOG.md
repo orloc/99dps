@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.7.0
+
+A **Raid** tab for Complete Heal chains and raid-target debuffs.
+
+### Added
+- **CH-chain monitor** — reads the guild `KCH - <target> - <slot>` call-outs and
+  shows each tank's chain live: derived cadence, gap alerts, who's **up next**
+  (green-highlighted), per-cleric **Beat%** (on-rhythm reliability) and **lag**,
+  plus a post-raid summary of every pull. Handles the real raid case: multiple
+  tanks chained at once (interleaved call-outs kept as separate chains), the
+  `GAP`/`R11`/`SPOT` labeled calls, and clerics getting **subbed** (a slot's
+  holder is dropped after 60s of silence and replaced by whoever calls that
+  number next).
+- **Raid-target debuff board** (side column) — what's debuffed on each mob
+  (Slowed / Tashed / Malo'd / Sieved / Crippled / OOS…) from the macro call-outs,
+  with seconds remaining (red **OUT** when it's lapsed and needs a recast) and who
+  called each.
+- Both columns are independently **scrollable** (mouse wheel routes to the column
+  under the cursor).
+- **Audio cue for a chain gap** — an urgent spoken alert ("Chain gap on <tank>,
+  <cleric> up!") the moment a chain breaks, so you don't have to watch the panel.
+  Per-target, rate-limited, and toggleable in Settings → Raid.
+- **Enemy-debuff tracking** — detrimental effects on mobs learned from guild/group
+  macro call-outs (`SLOWED - <mob>`, `TASHED`, `MALO`, `OOS`…) and from **weapon
+  procs** that land on the mob you hit, shown in the Enemy column with estimated
+  timers.
+- **Cue-engine refinements** — reworked cue phrasing/dedup with user-facing
+  **cue-style** knobs, plus assorted tracking tweaks (incoming debuffs, zone
+  repops, class panel) and Tools-tab additions.
+
+### Fixed
+- **Same-named mob DoT timers on a kill** — killing one of several mobs that share
+  a name no longer wipes the DoT/debuff timers on the still-alive ones. A slay now
+  ends one instance per spell (its own copy), matching how a debuff *fade* already
+  behaved.
+
 ## v0.3.0
 
 A big release: realistic neural voice cues, a tabbed UI, a dedicated Sessions

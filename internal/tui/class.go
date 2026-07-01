@@ -225,9 +225,9 @@ func (m Model) classPanel(cur *session.CombatSession, w int, hover string, enemy
 	switch tr.Category() {
 	case eqclass.CatMelee:
 		body = skillsBody(th, cur, class, level, now, w)
-		if !enemySplit { // no separate Buffs column (narrow) — fold self-buffs below skills
-			if bf, bft := timerColumn(th, tr, w, hover, false, false, true); len(bft) > 0 {
-				body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + bf
+		if !enemySplit { // no separate timer column (narrow) — fold CC/debuffs/buffs below skills
+			if tf, tft := timerColumn(th, tr, w, hover, true, true, true); len(tft) > 0 {
+				body += "\n" + th.fg(th.accentLo).Render(strings.Repeat("─", w)) + "\n" + tf
 			}
 		}
 	case eqclass.CatHybrid:
